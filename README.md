@@ -65,6 +65,12 @@ checks that protected video plays, and the release is published with RELEASE_NOT
 downloads just those, otherwise the installer or the portable builds, and the helpers in tools/win swap
 them in when Bifrost restarts.
 
+Release builds keep Electron's own fuses: castlabs' signing service refuses a binary whose fuses were
+changed (local and Linux builds still turn RunAsNode, NODE_OPTIONS, --inspect and the file:// privileges
+off). So src/main/file-guard.js holds pages opened from local files to what Chrome allows; Electron's
+GrantFileProtocolExtraPrivileges would otherwise let such a page read any file on the computer. The other
+three need someone who can already start programs as you.
+
 ## Packaging
 
 ```

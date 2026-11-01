@@ -137,6 +137,7 @@ check "…latest.json names this version, its Electron, and every file with its 
 check "…(cd $R && sha256sum -c SHA256SUMS.txt)" "(cd '$R' && sha256sum -c --quiet SHA256SUMS.txt)"
 "$WINE" "$R/Bifrost-Setup-$VERSION-x64.exe" /S '/D=C:\Bifrost Release' > /dev/null 2>&1 && code=0 || code=$?
 check "…its x64 installer installs Bifrost $VERSION (exit code $code)" "[ $code -eq 0 ] && [ -f '$DRIVE_C/Bifrost Release/Bifrost.exe' ] && grep -q '\"version\": \"$VERSION\"' '$DRIVE_C/Bifrost Release/resources/app/package.json' && [ ! -e '$DRIVE_C/Bifrost Release/electron.exe.sig' ]"
+check "…with Electron's own fuses in Bifrost.exe (castlabs signs only an unchanged binary for Widevine)" "python3 -I '$ROOT/tests/setup/same-fuses.py' '$DRIVE_C/Bifrost Release/Bifrost.exe' '$CACHE/electron-v$ELECTRON-win32-x64.zip' > /dev/null"
 
 echo
 echo "setup: $pass/$((pass+fail)) passed"

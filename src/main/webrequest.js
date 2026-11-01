@@ -2,7 +2,11 @@
 // Electron allows one listener per webRequest event per session, so every feature that needs requests
 // (ad blocking, HTTPS-only, privacy headers, per-site user agents, the extension webRequest bridge)
 // registers here instead. Handlers run in order; the first one that blocks or redirects wins.
+// Requests for local files (file://) go only to the file guard (file-guard.js), never to those handlers
+// or to extensions.
+const fileGuard = require('./file-guard');
 const hubs = new WeakMap();
+const isFile = (url) => /^file:/i.test(url);
 
 class WebRequestHub {
   constructor(ses) {
@@ -14,12 +18,14 @@ class WebRequestHub {
     // Web requests only: Bifrost's own pages (bifrost://) and extensions' files never go through here,
     // which keeps them fast (each event is a round trip to this process for every request).
     const filter = { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] };
+    const withFiles = { urls: filter.urls.concat('file://*/*') };
     const wr = ses.webRequest;
     this.wr = wr;
     this.filter = filter;
     this.attachedObservers = new Set();
 
-    wr.onBeforeRequest(filter, (d, cb) => {
+    wr.onBeforeRequest(withFiles, (d, cb) => {
+      if (isFile(d.url)) { let r = null; try { r = fileGuard.check(d); } catch (e) { console.error('[webrequest] file', e); } cb(r || {}); return; }
       let res = {};
       for (const fn of this.before) {
         let r;
@@ -37,7 +43,8 @@ class WebRequestHub {
       this.notify('sendHeaders', Object.assign({}, d, { requestHeaders: headers }));
     });
 
-    wr.onHeadersReceived(filter, (d, cb) => {
+    wr.onHeadersReceived(withFiles, (d, cb) => {
+      if (isFile(d.url)) { let h = null; try { h = fileGuard.headers(d); } catch (e) { console.error('[webrequest] file', e); } cb(h ? { responseHeaders: h } : {}); return; }
       const headers = Object.assign({}, d.responseHeaders || {});
       let changed = false;
       for (const fn of this.headersReceived) { try { if (fn(d, headers)) changed = true; } catch (e) { console.error('[webrequest] received', e); } }

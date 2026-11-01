@@ -169,7 +169,9 @@ function clearKeepingData(out) {
 // layout: 'single'    a portable folder of its own (a "portable" marker, Data, README, PortableApps info)
 //         'build'     one build inside a dual portable folder (portable.ini points at the shared Data)
 //         'installed' what the installer puts in Program Files (no portable marker; uninstaller added)
-function assemble({ runtime, app, out, log = () => {}, layout = 'single', uninstaller = null }) {
+// keepFuses: leave Electron's fuses as they are (castlabs' Widevine signing refuses a binary with changed
+// fuses; the release builds keep them, and src/main/file-guard.js makes up for the file:// one).
+function assemble({ runtime, app, out, log = () => {}, layout = 'single', uninstaller = null, keepFuses = false }) {
   const windows = fs.existsSync(path.join(runtime, 'electron.exe'));
   const exeFrom = path.join(runtime, windows ? 'electron.exe' : 'electron');
   if (!fs.existsSync(exeFrom)) throw new Error('No Electron program found in ' + runtime);
@@ -187,8 +189,8 @@ function assemble({ runtime, app, out, log = () => {}, layout = 'single', uninst
   const exe = path.join(out, windows ? 'Bifrost.exe' : 'bifrost');
   fs.renameSync(path.join(out, path.basename(exeFrom)), exe);
   if (windows) { log('icon and version info'); brandExe(exe, pkg, path.join(app, 'assets', 'icons', 'icon.ico')); }
-  const fuses = flipFuses(exe);
-  log('fuses ' + fuses);
+  const fuses = keepFuses ? null : flipFuses(exe);
+  log(keepFuses ? 'fuses: Electron’s own (for Widevine signing)' : 'fuses ' + fuses);
   if (!windows) fs.chmodSync(exe, 0o755);
 
   const nl = (s) => (windows ? s.replace(/\r?\n/g, '\r\n') : s);
@@ -315,7 +317,7 @@ function readmeDual(pkg) {
     .replace('program, because of the file named "portable". Delete that file to use the normal per-user profile\ninstead.', 'program (App\\Bifrost-*\\portable.ini points there).');
 }
 
-function assembleDual({ runtimes, app, out, installers = null, stubs = null, log = () => {} }) {
+function assembleDual({ runtimes, app, out, installers = null, stubs = null, log = () => {}, keepFuses = false }) {
   const pkg = JSON.parse(fs.readFileSync(path.join(app, 'package.json'), 'utf8'));
   const arches = Object.keys(runtimes).filter((a) => runtimes[a]);
   if (!arches.length) throw new Error('no runtimes given');
@@ -335,7 +337,7 @@ function assembleDual({ runtimes, app, out, installers = null, stubs = null, log
   }
   for (const arch of arches) {
     log(`building ${arch}`);
-    assemble({ runtime: runtimes[arch], app, out: path.join(out, 'App', 'Bifrost-' + arch), layout: 'build', log: (m) => log(`${arch}: ${m}`) });
+    assemble({ runtime: runtimes[arch], app, out: path.join(out, 'App', 'Bifrost-' + arch), layout: 'build', log: (m) => log(`${arch}: ${m}`), keepFuses });
   }
   const launcher = stubs && path.join(stubs, 'BifrostPortable.exe');
   if (launcher && fs.existsSync(launcher)) {
@@ -354,7 +356,7 @@ function assembleDual({ runtimes, app, out, installers = null, stubs = null, log
       const stage = path.join(installers, `.stage-${arch}`);
       fs.rmSync(stage, { recursive: true, force: true });
       log(`installer ${arch}: staging`);
-      assemble({ runtime: runtimes[arch], app, out: stage, layout: 'installed', uninstaller: stub, log: () => {} });
+      assemble({ runtime: runtimes[arch], app, out: stage, layout: 'installed', uninstaller: stub, log: () => {}, keepFuses });
       log(`installer ${arch}: compressing`);
       const r = makeInstaller({ stub, folder: stage, out: path.join(installers, `Bifrost-Setup-${pkg.version}-${arch}.exe`), version: pkg.version, arch, log: (m) => log(`installer ${arch}: ${m}`) });
       fs.rmSync(stage, { recursive: true, force: true });

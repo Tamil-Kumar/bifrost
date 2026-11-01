@@ -293,8 +293,11 @@ function onWindowOpen(guest, { url, disposition, features, frameName }) {
     if (/^javascript:/i.test(url)) return { action: 'deny' };
   }
   // Real popups (window.open with size features: sign-in flows, payment windows) stay windows so
-  // window.opener keeps working. Everything else becomes a tab.
-  const isPopup = disposition === 'new-window' && /(width|height|left|top|popup)/i.test(features || '');
+  // window.opener keeps working. Everything else becomes a tab, and so does anything a page from a local
+  // file opens (it mustn't reach into another local file through it: file-guard.js).
+  const fromFile = /^file:/i.test(guest.getURL());
+  const wantsPopup = disposition === 'new-window' && /(width|height|left|top|popup)/i.test(features || '');
+  const isPopup = wantsPopup && !fromFile;
   if (isPopup) {
     const size = {};
     for (const part of String(features).split(',')) {
@@ -314,7 +317,7 @@ function onWindowOpen(guest, { url, disposition, features, frameName }) {
   }
   if (ctl) {
     // foreground-tab: target=_blank or Ctrl+Shift+click · background-tab: Ctrl/middle click · new-window: Shift+click
-    ctl.send('open-url', { url, background: disposition === 'background-tab', newWindow: disposition === 'new-window', openerWcId: guest.id });
+    ctl.send('open-url', { url, background: disposition === 'background-tab', newWindow: disposition === 'new-window' && !wantsPopup, openerWcId: guest.id });
   }
   return { action: 'deny' };
 }

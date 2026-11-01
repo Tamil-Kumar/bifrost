@@ -48,6 +48,7 @@ const clickItem = async (re) => {
 const overlay = () => t.ui(() => { const o = [...document.querySelectorAll('.pane-overlay.err.danger')].find((e) => e.getClientRects().length); return o ? { title: o.querySelector('h2').textContent, text: o.textContent } : null; });
 const translateBtn = () => t.ui(() => { const b = document.querySelector('.addr-btn.translateb'); return b ? { hidden: b.hidden, on: b.classList.contains('on'), title: b.title } : null; });
 
+let L = '', S = '';   // the local-file steps' folders
 try {
   await sleep(1200);
 
@@ -140,7 +141,7 @@ try {
     const r = await t.guest('/opener.html', '(() => { const e = document.getElementById("b").getBoundingClientRect(); return { x: e.x + 20, y: e.y + e.height / 2 }; })()');
     const v = await t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 50); const q = w.getBoundingClientRect(); return { x: q.x, y: q.y }; });
     await x.click(Math.round(v.x + r.x), Math.round(v.y + r.y));
-    const pop = await until(() => t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((b) => !b.isDestroyed() && b.webContents.getURL().startsWith('data:text/html')); return w ? w.webContents.getTitle() : null; }), 6000, 'the warning in the pop-up');
+    const pop = await until(() => t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((b) => !b.isDestroyed() && b.webContents.getURL().startsWith('data:text/html')); const title = w ? w.webContents.getTitle() : ''; return title && !title.startsWith('data:') ? title : null; }), 6000, 'the warning in the pop-up');
     assert(pop === 'Deceptive site ahead', 'its title: ' + pop);
     assert(!seen.some((s) => s.startsWith('phish.example.net')), 'the page was requested: ' + seen.join(', '));
     await t.main(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) if (w.webContents.getURL().startsWith('data:text/html')) w.close(); });
@@ -177,10 +178,89 @@ try {
     await until(async () => { const a = await active(); return a.url === 'http://scam.example.com/frame.html' && !a.error ? a : null; }, 6000, 'the page to load');
     await t.main(() => global.__bifrost.settings.set('privacy.dangerousSites', true));
   });
+
+  // A page opened from a file: Electron would let it read any other file (src/main/file-guard.js).
+  L = fs.mkdtempSync(path.join(os.tmpdir(), 'bifrost-local-'));    // its site folder
+  S = fs.mkdtempSync(path.join(os.tmpdir(), 'bifrost-secret-'));   // somewhere else on the disk
+  const u = (p) => 'file://' + p;
+  const png = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'site', 'icons', 'red.png'));
+  fs.writeFileSync(path.join(S, 'secret.txt'), 'TOP SECRET');
+  fs.writeFileSync(path.join(S, 'secret.html'), '<p>TOP SECRET</p>');
+  fs.writeFileSync(path.join(S, 'secret.png'), png);
+  fs.mkdirSync(path.join(L, '.hidden'));
+  fs.writeFileSync(path.join(L, '.hidden', 'secret.html'), '<p>TOP SECRET</p>');
+  fs.mkdirSync(path.join(L, 'site', 'docs'), { recursive: true });
+  fs.mkdirSync(path.join(L, 'site', '_static'));
+  fs.writeFileSync(path.join(L, 'site', '_static', 'style.css'), '#styled { color: rgb(1, 2, 3) }');
+  fs.writeFileSync(path.join(L, 'site', '_static', 'pic.png'), png);
+  fs.writeFileSync(path.join(L, 'site', '_static', 'lib.js'), 'window.libLoaded = true;');
+  fs.writeFileSync(path.join(L, 'site', 'docs', 'frame.html'), '<p>frame text</p>');
+  fs.writeFileSync(path.join(L, 'site', 'docs', 'worker.js'), `fetch(${JSON.stringify(u(path.join(S, 'secret.txt')))}).then((r) => r.text()).then((t) => postMessage('read ' + t));`);
+  fs.writeFileSync(path.join(L, 'site', 'docs', 'sw.js'), '');
+  const secret = u(path.join(S, 'secret.txt'));
+  fs.writeFileSync(path.join(L, 'site', 'docs', 'page.html'), `<!doctype html><meta charset="utf-8"><title>Local page</title>
+<link rel="stylesheet" href="../_static/style.css"><p id="styled">styled</p>
+<img id="ok" src="../_static/pic.png"><img id="bad" src="${u(path.join(S, 'secret.png'))}">
+<iframe id="same" src="frame.html"></iframe><iframe id="far" src="${u(path.join(S, 'secret.html'))}"></iframe><iframe id="dot" src="${u(path.join(L, '.hidden', 'secret.html'))}"></iframe>
+<script src="../_static/lib.js"></script>
+<script>
+const r = window.__r = {};
+const secret = ${JSON.stringify(secret)};
+const attempt = async (name, fn) => { try { r[name] = await fn(); } catch (e) { r[name] = 'blocked: ' + ((e && e.message) || e); } };
+const worker = (w) => new Promise((res, rej) => { w.onmessage = (m) => res(m.data); w.onerror = () => rej(new Error('refused')); setTimeout(() => rej(new Error('no answer')), 3000); });
+(async () => {
+  await attempt('fetch', async () => (await (await fetch(secret)).text()).trim());
+  await attempt('fetchSameFolder', async () => (await (await fetch('frame.html')).text()).length);
+  await attempt('xhr', () => { const x = new XMLHttpRequest(); x.open('GET', secret, false); x.send(); return x.responseText.trim(); });
+  await attempt('fileWorker', () => worker(new Worker('worker.js')));
+  await attempt('blobWorker', () => worker(new Worker(URL.createObjectURL(new Blob(['fetch(' + JSON.stringify(secret) + ').then((r) => r.text()).then((t) => postMessage("read " + t), () => postMessage("its fetch failed"))'], { type: 'text/javascript' })))));
+  await attempt('serviceWorker', async () => (await navigator.serviceWorker.register('sw.js')).scope);
+  await attempt('web', async () => (await fetch('${site.url}/a.html', { mode: 'no-cors' })).type);
+  await new Promise((res) => setTimeout(res, 1000));
+  const text = (id) => { try { const d = document.getElementById(id).contentDocument; return d && d.body ? d.body.innerText.trim() : '(nothing)'; } catch (e) { return 'blocked: ' + e.message; } };
+  Object.assign(r, { frameSame: text('same'), frameFar: text('far'), frameDot: text('dot') });
+  r.imgOk = document.getElementById('ok').naturalWidth; r.imgBad = document.getElementById('bad').naturalWidth;
+  r.style = getComputedStyle(document.getElementById('styled')).color;
+  r.lib = window.libLoaded === true;
+  try { localStorage.setItem('k', 'v'); r.storage = localStorage.getItem('k'); } catch (e) { r.storage = 'blocked: ' + e.message; }
+  r.done = true;
+})();
+</script>`);
+  const page = u(path.join(L, 'site', 'docs', 'page.html'));
+
+  await R.step('a page opened from a file can’t read your other files (fetch, XHR, workers, service workers, frames, images), as in Chrome', async () => {
+    await go(page);
+    const r = await until(() => t.guest('page.html', 'window.__r && window.__r.done ? JSON.stringify(window.__r) : ""').then((s) => (s ? JSON.parse(s) : null)), 15000, 'the page’s results');
+    const leaked = Object.entries(r).filter(([, v]) => /TOP SECRET/.test(String(v))).map(([k]) => k);
+    assert(!leaked.length, 'it read the secret through: ' + leaked.join(', ') + ' ' + JSON.stringify(r));
+    for (const k of ['fetch', 'fetchSameFolder', 'xhr', 'fileWorker', 'serviceWorker']) assert(/^blocked/.test(String(r[k])), k + ': ' + r[k]);
+    assert(r.imgBad === 0, 'an image from elsewhere loaded');
+    assert(r.blobWorker === 'its fetch failed', 'a worker from a blob runs (as in Chrome) but can’t read files: ' + r.blobWorker);
+    t.__localResults = r;
+  });
+
+  await R.step('…while its own site folder’s frames, images, styles and scripts load (from folders above it too), and it keeps local storage', async () => {
+    const r = t.__localResults;
+    assert(r.frameSame === 'frame text', 'its frame: ' + r.frameSame);
+    assert(r.imgOk > 0, 'its image');
+    assert(r.style === 'rgb(1, 2, 3)', 'its style sheet: ' + r.style);
+    assert(r.lib === true, 'its script');
+    assert(r.storage === 'v', 'local storage: ' + r.storage);
+    assert(r.web && !/^blocked/.test(String(r.web)), 'a request to a website: ' + r.web);
+  });
+
+  await R.step('…and a pop-up it opens becomes a tab it can’t reach into', async () => {
+    const got = await t.guest('page.html', `String(window.open(${JSON.stringify(u(path.join(S, 'secret.html')))}, 'p', 'width=300,height=300'))`);
+    assert(got === 'null', 'window.open gave it: ' + got);
+    await until(() => t.ui((url) => window.__wbTest.state.tabs.some((tb) => tb.url === url || tb.pendingUrl === url), u(path.join(S, 'secret.html'))), 5000, 'the tab');
+    const popups = await t.main(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((w) => /secret/.test(w.webContents.getURL())).length);
+    assert(popups === 0, 'a pop-up window opened');
+  });
 } finally {
   x.close();
   await t.close();
   site.stop();
   fs.rmSync(lists, { recursive: true, force: true });
+  for (const d of [L, S]) if (d) fs.rmSync(d, { recursive: true, force: true });
 }
 process.exit(R.summary() ? 1 : 0);

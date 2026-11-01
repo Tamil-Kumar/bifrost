@@ -75,13 +75,14 @@ const dropOldSig = (dir) => fs.rmSync(path.join(dir, 'electron.exe.sig'), { forc
 
 function assembleAll(runtimes) {
   const portable = path.join(WORK, 'portable', 'BifrostPortable');
-  A.assembleDual({ runtimes, app: ROOT, out: portable, stubs: STUBS, log });
+  // (Electron's own fuses: castlabs' signing service refuses a binary whose fuses were changed.)
+  A.assembleDual({ runtimes, app: ROOT, out: portable, stubs: STUBS, log, keepFuses: true });
   const stages = {};
   for (const arch of ARCHES) {
     dropOldSig(path.join(portable, 'App', 'Bifrost-' + arch));
     const stage = path.join(WORK, 'stage-' + arch);
     // Without the uninstaller for now: it goes in after signing (it isn't part of what's signed).
-    A.assemble({ runtime: runtimes[arch], app: ROOT, out: stage, layout: 'installed', uninstaller: null, log: () => {} });
+    A.assemble({ runtime: runtimes[arch], app: ROOT, out: stage, layout: 'installed', uninstaller: null, log: () => {}, keepFuses: true });
     dropOldSig(stage);
     stages[arch] = stage;
   }
