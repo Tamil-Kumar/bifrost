@@ -2,6 +2,7 @@
 // runs on Linux for testing, without the signing).
 //
 //   node tools/release.mjs [--out=dist/release] [--cache=<folder for downloads>] [--sign] [--notes=<file>]
+//                          [--notes-out=<file>]   (the release notes as published: unsigned builds say so)
 //
 // 1. the Electron runtime (castlabs' Electron for Content Security, with Widevine: package.json's
 //    engines.electron) for x64 and ARM64, checked against the release's SHASUMS256.txt
@@ -118,11 +119,23 @@ function describe(file) {
   return { file: path.basename(file), size: fs.statSync(file).size, sha256: sha256(file) };
 }
 
+// The release notes; an unsigned build says what that means, under the heading.
+const UNSIGNED = '**This build isn’t signed for Widevine,** so services that require that (Netflix, Disney+, Prime Video) won’t play in it. A signed version comes as an automatic update.';
+function releaseNotes(signed) {
+  const text = args.notes && fs.existsSync(args.notes) ? fs.readFileSync(args.notes, 'utf8').trim() : '';
+  if (signed || !text) return text;
+  const lines = text.split('\n');
+  const at = /^#/.test(lines[0]) ? 1 : 0;
+  lines.splice(at, 0, ...(at ? ['', UNSIGNED] : [UNSIGNED, '']));
+  return lines.join('\n');
+}
+
 function packageAll({ portable, stages }, signed) {
   fs.rmSync(OUT, { recursive: true, force: true });
   fs.mkdirSync(OUT, { recursive: true });
-  const latest = { version: VERSION, date: new Date().toISOString(), runtime: RUNTIME, signed, notes: '' };
-  if (args.notes && fs.existsSync(args.notes)) latest.notes = fs.readFileSync(args.notes, 'utf8').trim().slice(0, 2000);
+  const notes = releaseNotes(signed);
+  if (args['notes-out']) { fs.mkdirSync(path.dirname(path.resolve(args['notes-out'])), { recursive: true }); fs.writeFileSync(args['notes-out'], notes + '\n'); }
+  const latest = { version: VERSION, date: new Date().toISOString(), runtime: RUNTIME, signed, notes: notes.slice(0, 2000) };
   for (const arch of ARCHES) {
     fs.copyFileSync(path.join(STUBS, `installer-${arch}.exe`), path.join(stages[arch], 'Uninstall Bifrost.exe'));
     log(`installer ${arch}: compressing`);

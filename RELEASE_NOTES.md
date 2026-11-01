@@ -1,6 +1,6 @@
 ## Bifrost 0.24.0
 
-- **Netflix, Disney+, Spotify, Prime Video** and other protected video and music play: Bifrost now runs on castlabs' Electron with Google's Widevine, signed for it. The first start downloads Widevine (a few MB).
+- **Protected video and music (Netflix, Disney+, Spotify, Prime Video):** Bifrost now runs on castlabs' Electron, which has Google's Widevine. The first start downloads Widevine (a few MB).
 - **Bifrost updates itself.** New versions download in the background and go in the next time it starts; the ≡ menu (and Settings → Default browser & about → Updates) offers Restart to update. Most updates are just Bifrost's own files, a few MB.
 - Also since 0.22: sync between your computers through a cloud folder (Settings → Sync), page translation, warnings before dangerous sites, Bitwarden working end to end.
 

@@ -85,7 +85,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: node tools/release.mjs --out=dist/release --notes=RELEASE_NOTES.md ${EVS_ACCOUNT_NAME:+${EVS_PASSWD:+--sign}}
+        run: node tools/release.mjs --out=dist/release --notes=RELEASE_NOTES.md --notes-out=dist/notes.md ${EVS_ACCOUNT_NAME:+${EVS_PASSWD:+--sign}}
 
       # (Only a signed build has to pass: Google's test license server may refuse an unsigned one.)
       - name: Protected video plays
@@ -101,5 +101,5 @@ jobs:
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" dist/release/* --clobber
           else
-            gh release create "$tag" dist/release/* --target "$GITHUB_SHA" --title "Bifrost $VERSION" --notes-file RELEASE_NOTES.md --latest
+            gh release create "$tag" dist/release/* --target "$GITHUB_SHA" --title "Bifrost $VERSION" --notes-file dist/notes.md --latest
           fi
