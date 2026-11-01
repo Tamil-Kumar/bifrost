@@ -1,0 +1,31 @@
+/* Bifrost — bookmark manager. */
+.btree { position: sticky; top: 86px; max-height: calc(100vh - 110px); overflow-y: auto; display: flex; flex-direction: column; gap: 1px; padding-right: 4px; }
+.tnode { display: flex; align-items: center; gap: 6px; height: 32px; padding-right: 8px; border-radius: 8px; color: var(--subtext); cursor: default; }
+.tnode:hover { background: var(--hover); color: var(--text); }
+.tnode.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tnode > svg.i { width: 16px; height: 16px; color: var(--yellow); flex: none; }
+.tnode.on > svg.i { color: var(--accent); }
+.tname { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tcount { color: var(--overlay); font-size: .8rem; }
+.tchev { width: 18px; height: 18px; flex: none; display: grid; place-items: center; padding: 0; border: 0; background: none; color: var(--overlay); transition: transform var(--t-fast); }
+.tchev svg.i { width: 12px; height: 12px; }
+.tchev.open { transform: rotate(90deg); }
+.tchev.none { visibility: hidden; }
+.crumbs { display: flex; align-items: center; gap: 2px; min-height: 34px; margin-bottom: 6px; flex-wrap: wrap; }
+.crumb { border: 0; background: none; padding: 4px 8px; border-radius: 7px; color: var(--subtext); font-weight: 650; }
+.crumb:hover { background: var(--hover); color: var(--text); }
+.crumb:last-of-type { color: var(--text); }
+.crumbs .sep { color: var(--overlay); display: grid; }
+.crumbs .sep svg.i { width: 12px; height: 12px; }
+.blist { display: flex; flex-direction: column; }
+.blist .li { cursor: default; }
+.blist a.li-main { color: var(--text); text-decoration: none !important; }
+.blist a.li-main:hover .li-title { color: var(--accent); }
+.bico { width: 18px; display: grid; place-items: center; color: var(--yellow); }
+.bico svg.i { width: 18px; height: 18px; }
+.bsep { min-height: 16px; }
+.sepline { flex: 1; height: 1px; background: var(--s1); }
+.li.dragging { opacity: .4; }
+.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.drop-into { background: var(--accent-soft) !important; box-shadow: inset 0 0 0 1.5px var(--accent); }

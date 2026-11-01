@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" system-icons typography typography-spacing style="font-size:10px;font-family:Roboto,Arial,sans-serif">
+<head><meta charset="utf-8"><title>sambucha - YouTube</title>
+<script>/* Like YouTube's "Appearance: Use device theme" (its default): dark when the browser says so. */ if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.setAttribute('dark', '');</script>
+<style>
+html:not([dark]){--yt-spec-base-background:#fff;--yt-spec-raised-background:#fff;--yt-spec-menu-background:#fff;--yt-spec-text-primary:#0f0f0f;--yt-spec-text-secondary:#606060;--yt-spec-badge-chip-background:rgba(0,0,0,0.05);--yt-spec-verified-badge-background:rgba(0,0,0,0.05);--yt-spec-10-percent-layer:rgba(0,0,0,0.1);--yt-spec-icon-inactive:#909090;--yt-sys-color-baseline--base-background:#fff;--yt-sys-color-baseline--text-primary:#0f0f0f;--yt-sys-color-baseline--text-secondary:#606060}
+html[dark]{--yt-spec-base-background:#0f0f0f;--yt-spec-raised-background:#212121;--yt-spec-menu-background:#282828;--yt-spec-text-primary:#f1f1f1;--yt-spec-text-secondary:#aaa;--yt-spec-badge-chip-background:rgba(255,255,255,0.1);--yt-spec-verified-badge-background:rgba(255,255,255,0.15);--yt-spec-10-percent-layer:rgba(255,255,255,0.1);--yt-spec-icon-inactive:#909090;--yt-sys-color-baseline--base-background:#0f0f0f;--yt-sys-color-baseline--text-primary:#f1f1f1;--yt-sys-color-baseline--text-secondary:#aaa}
+html{background:var(--yt-spec-base-background)}
+body{margin:0;background:var(--yt-spec-base-background);color:var(--yt-spec-text-primary)}
+ytd-app{display:block;min-height:100vh;background:var(--yt-spec-base-background)}
+ytd-masthead{display:block;height:56px;background:var(--yt-spec-base-background);border-bottom:1px solid var(--yt-spec-10-percent-layer)}
+ytd-video-renderer{display:flex;gap:16px;padding:16px 24px;max-width:1100px}
+.thumb{width:360px;height:202px;border-radius:12px;background:#333}
+#video-title{font-size:1.8rem;line-height:2.6rem;color:var(--yt-spec-text-primary);margin:0 0 4px}
+#metadata-line{font-size:1.2rem;color:var(--yt-spec-text-secondary)}
+#channel-info{display:flex;align-items:center;gap:8px;margin:12px 0;font-size:1.2rem;color:var(--yt-spec-text-secondary)}
+.avatar{width:24px;height:24px;border-radius:50%;background:#666}
+.badge{display:inline-flex;align-items:center;border-radius:2px}
+.badge-style-type-verified{color:var(--yt-spec-icon-inactive)}
+yt-icon{display:inline-flex;width:14px;height:14px;fill:currentColor}
+.description{font-size:1.2rem;color:var(--yt-spec-text-secondary);margin:8px 0}
+.badges{display:flex;gap:4px}
+.ytBadgeShapeHost{display:inline-flex;align-items:center;height:18px;padding:0 4px;border-radius:4px;font-size:1.2rem;font-weight:500;line-height:1.8rem}
+.ytBadgeShapeDefault{background-color:var(--yt-spec-badge-chip-background);color:var(--yt-spec-text-secondary)}
+.ytBadgeShapeModern{background:none;border:1px solid var(--yt-spec-10-percent-layer)}
+</style></head>
+<body><ytd-app><ytd-masthead></ytd-masthead>
+<ytd-video-renderer><div class="thumb"></div><div>
+<h3 id="video-title">If You Want Inside Information</h3>
+<div id="metadata-line">1.2M views · 2 days ago</div>
+<div id="channel-info"><div class="avatar"></div><span id="channel-name">Sambucha</span>
+<ytd-badge-supported-renderer class="style-scope ytd-channel-name" system-icons><div class="badge badge-style-type-verified" aria-label="Verified"><yt-icon><svg viewBox="0 0 24 24" width="14" height="14"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zM9.8 17.3l-4.2-4.1L7 11.8l2.8 2.7L17 7.4l1.4 1.4-8.6 8.5z"/></svg></yt-icon></div></ytd-badge-supported-renderer></div>
+<div class="description">If You Want Inside Information about the thing...</div>
+<div class="badges"><badge-shape class="ytBadgeShapeHost ytBadgeShapeDefault" id="b-new">New</badge-shape><badge-shape class="ytBadgeShapeHost ytBadgeShapeDefault ytBadgeShapeModern" id="b-4k">4K</badge-shape></div>
+</div></ytd-video-renderer></ytd-app></body></html>

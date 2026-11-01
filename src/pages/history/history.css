@@ -1,0 +1,24 @@
+/* Bifrost — history page. */
+.hist { max-width: 860px; }
+.day { position: sticky; top: 80px; z-index: 2; margin: 22px 0 6px 8px; padding: 6px 0; background: var(--base); }
+.li .time { width: 64px; text-align: right; }
+.li.sel { background: var(--accent-soft); }
+.hcheck { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); opacity: 0; transition: opacity var(--t-fast); }
+.li:hover .hcheck, .hcheck:checked, .bulk:not([hidden]) ~ * .hcheck { opacity: 1; }
+a.li-main { color: var(--text); text-decoration: none !important; }
+a.li-main:hover .li-title { color: var(--accent); }
+.bulk { display: flex; align-items: center; gap: 8px; }
+.more { display: flex; justify-content: center; padding: 18px; }
+
+/* Tabs on your other computers (sync) */
+.hist.remote { margin-bottom: 8px; }
+.rd { margin: 4px 0 10px; }
+.rd-head { display: flex; align-items: center; gap: 8px; border-radius: var(--r-md, 10px); }
+.rd-head:hover { background: var(--s0); }
+.rd-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.rd-toggle .li-sub { flex: 1; }
+.rd-all { margin-right: 8px; border: 0; background: transparent; cursor: pointer; font: inherit; color: var(--accent); font-size: .85rem; font-weight: 650; padding: 2px 8px; border-radius: 999px; }
+.rd-all:hover { background: var(--accent-soft); }
+.rd-tab { padding-left: 34px; }
+.chip.from { flex: none; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.from svg { width: 13px; height: 13px; }

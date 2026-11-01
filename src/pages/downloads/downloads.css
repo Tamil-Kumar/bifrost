@@ -1,0 +1,16 @@
+/* Bifrost — downloads page. */
+.dls { display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
+.dl { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; background: var(--mantle); border: 1px solid color-mix(in srgb, var(--s0) 70%, transparent); }
+.dl-ico { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
+.dl-ico svg.i { width: 22px; height: 22px; }
+.dl.failed .dl-ico, .dl.gone .dl-ico { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
+.dl-main { flex: 1; min-width: 0; }
+.dl-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl.gone .dl-name { text-decoration: line-through; color: var(--overlay); }
+.dl-url { color: var(--overlay); font-size: .86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dl-status { color: var(--subtext); font-size: .86rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.dl-bar { height: 5px; margin-top: 8px; border-radius: 3px; background: var(--s0); overflow: hidden; }
+.dl-bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width var(--t-med); }
+.dl-bar.indeterminate span { width: 35% !important; animation: dl-ind 1.2s var(--ease) infinite; }
+@keyframes dl-ind { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+.dl-actions { flex: none; display: flex; align-items: center; gap: 6px; }

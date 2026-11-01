@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Protected video check</title>
+<style>body { font: 16px/1.5 system-ui, sans-serif; margin: 30px; } video { width: 480px; background: #000; } pre { white-space: pre-wrap; }</style>
+<!-- Shaka Player plays Google's Widevine test stream through Google's test license server (it accepts any
+     Widevine client). Used by tools/drm-check.mjs in the release workflow; also fine to open by hand. -->
+<script src="https://cdn.jsdelivr.net/npm/shaka-player@4/dist/shaka-player.compiled.js"></script>
+</head>
+<body>
+<h1>Protected video check</h1>
+<video id="v" muted playsinline></video>
+<pre id="log">Starting…</pre>
+<script>
+const v = document.getElementById('v');
+const out = document.getElementById('log');
+const say = (s) => { out.textContent += '\n' + s; };
+const report = (o) => fetch('/result', { method: 'POST', body: JSON.stringify(Object.assign({ ua: navigator.userAgent }, o)) }).catch(() => {});
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function widevine() {
+  const cfg = [{ initDataTypes: ['cenc'], videoCapabilities: [{ contentType: 'video/mp4; codecs="avc1.42E01E"', robustness: 'SW_SECURE_CRYPTO' }], audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"', robustness: 'SW_SECURE_CRYPTO' }] }];
+  const access = await navigator.requestMediaKeySystemAccess('com.widevine.alpha', cfg);
+  return access.keySystem;
+}
+
+async function play() {
+  shaka.polyfill.installAll();
+  const player = new shaka.Player();
+  await player.attach(v);
+  player.configure({ drm: { servers: { 'com.widevine.alpha': 'https://cwip-shaka-proxy.appspot.com/no_auth' } } });
+  let failure = null;
+  player.addEventListener('error', (e) => { failure = e.detail; });
+  await player.load('https://storage.googleapis.com/shaka-demo-assets/angel-one-widevine/dash.mpd');
+  await v.play();
+  const end = Date.now() + 30000;
+  while (Date.now() < end && v.currentTime < 3 && !failure) await sleep(250);
+  if (failure) throw new Error('Shaka error ' + failure.code + ' ' + JSON.stringify(failure.data || []).slice(0, 300));
+  if (v.currentTime < 3) throw new Error('the video didn’t play (at ' + v.currentTime.toFixed(2) + ' s)');
+  return { played: v.currentTime, width: v.videoWidth, height: v.videoHeight, decoded: v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality().totalVideoFrames : null };
+}
+
+(async () => {
+  // Widevine may still be downloading on a first start: keep asking for a while.
+  const until = Date.now() + 150000;
+  let ks = null, last = '';
+  while (!ks && Date.now() < until) {
+    try { ks = await widevine(); } catch (e) { last = e.message; say('no Widevine yet: ' + last); await sleep(3000); }
+  }
+  if (!ks) { say('FAIL'); report({ ok: false, step: 'widevine', error: last }); return; }
+  say('Widevine: ' + ks);
+  try { const r = await play(); say('played ' + r.played.toFixed(1) + ' s at ' + r.width + 'x' + r.height); report(Object.assign({ ok: true }, r)); }
+  catch (e) { say('FAIL ' + e.message); report({ ok: false, step: 'play', error: e.message }); }
+})();
+</script>
+</body>
+</html>

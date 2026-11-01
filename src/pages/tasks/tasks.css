@@ -1,0 +1,13 @@
+/* Bifrost — task manager. */
+.tasks { width: 100%; border-collapse: collapse; font-size: .93rem; }
+.tasks th { text-align: left; padding: 8px 10px; color: var(--overlay); font-size: .78rem; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid var(--s0); position: sticky; top: 80px; background: var(--base); }
+.tasks th.sortable { cursor: pointer; }
+.tasks th.sortable:hover { color: var(--text); }
+.tasks td { padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(--s0) 55%, transparent); vertical-align: top; }
+.tasks tr:hover td { background: var(--hover); }
+.tasks .num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.t-name { width: 55%; }
+.t-item { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.t-item span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+.t-item svg.i { width: 15px; height: 15px; color: var(--accent); flex: none; }
+.t-fav { width: 16px; height: 16px; flex: none; border-radius: 3px; object-fit: contain; }

@@ -1,0 +1,13 @@
+{
+  "name": "bifrost-browser",
+  "productName": "Bifrost",
+  "version": "0.24.0",
+  "description": "A fast, keyboard-first browser built around a launcher: vertical or horizontal tabs, spaces, split view, ad blocking, Vim keys and Chrome extensions.",
+  "main": "src/main/index.js",
+  "license": "GPL-3.0-or-later",
+  "author": "Tamil",
+  "private": true,
+  "engines": {
+    "electron": "44.9.3+wvcus"
+  }
+}

@@ -1,0 +1,336 @@
+/* Bifrost — shared design tokens and components (menus, dialogs, fields, buttons, toasts).
+   Imported by the window UI (browser.css) and every internal page (page.css).
+   Colors come from the active theme as CSS variables (--base, --mantle, --text, --accent…). */
+
+:root {
+  --anim-mult: 1;
+  --anim-amp: 1;                 /* how far things move: set by the animation style */
+  --ease-enter: cubic-bezier(.16, 1, .3, 1);
+  --t-fast: calc(110ms * var(--anim-mult));
+  --t-med: calc(190ms * var(--anim-mult));
+  --t-slow: calc(320ms * var(--anim-mult));
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .18), 0 2px 8px rgba(0, 0, 0, .12);
+  --shadow-2: 0 18px 50px -12px rgba(0, 0, 0, .55), 0 2px 10px rgba(0, 0, 0, .22);
+  --c-bookmark: var(--yellow); --c-history: var(--blue); --c-tab: var(--green); --c-suggestion: var(--pink);
+  --c-search: var(--accent); --c-engine: var(--accent); --c-url: var(--teal); --c-command: var(--peach);
+  --scrim: rgba(8, 8, 14, .35);
+  /* Corner rounding. The Appearance settings can set each one; otherwise they follow --radius. */
+  --r-btn: calc(var(--radius, 10px) * .8);
+  --r-menu: var(--radius, 10px);
+  --r-item: max(0px, calc(var(--r-menu) * .7));
+  font-size: 13px;
+}
+:root[data-scheme="light"] {
+  --shadow-1: 0 1px 2px rgba(30, 30, 60, .08), 0 2px 8px rgba(30, 30, 60, .06);
+  --shadow-2: 0 18px 50px -12px rgba(30, 30, 60, .3), 0 2px 10px rgba(30, 30, 60, .1);
+  --scrim: rgba(60, 60, 90, .18);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: default; }
+[hidden] { display: none !important; }
+svg.i { width: 1.23rem; height: 1.23rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; }
+kbd { font: 600 .8em/1 var(--font); color: var(--subtext); background: var(--s0); padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+mark { background: none; color: var(--accent); font-weight: 700; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 16%, transparent); border-radius: 10px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--text) 26%, transparent); }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+
+.icon-btn {
+  width: 28px; height: 28px; flex: none;
+  display: inline-grid; place-items: center;
+  border: 0; border-radius: max(0px, calc(var(--r-btn) - 1px)); background: none; color: var(--subtext);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+.icon-btn svg.i { width: 1.1rem; height: 1.1rem; }
+
+/* Every site icon sits in a box of its own size (set by the box's class); the image is scaled into it,
+   however big the icon file is (sites' best icons are often 180 px or more). */
+.fbox { display: inline-grid; place-items: center; flex: none; overflow: hidden; vertical-align: middle; }
+.fbox > img { width: 100%; height: 100%; min-width: 0; min-height: 0; object-fit: contain; display: block; border-radius: 3px; }
+.tab-fav, .fav { display: grid; place-items: center; width: 100%; height: 100%; }
+.fav img, .tab-fav img { width: 16px; height: 16px; border-radius: 3px; display: block; object-fit: contain; }
+.fav.internal, .tab-fav .internal { color: var(--accent); }
+.fav svg.i { width: 16px; height: 16px; }
+.letter { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; background: color-mix(in srgb, var(--lc, var(--accent)) 22%, transparent); color: var(--lc, var(--accent)); font-size: 10px; font-weight: 800; line-height: 1; }
+.letter.globe { background: none; color: var(--overlay); }
+.letter.globe svg.i { width: 15px; height: 15px; stroke-width: 1.8; }
+
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: calc(var(--r-btn) + 1px); background: var(--mantle); }
+.seg-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; border-radius: max(0px, calc(var(--r-btn) - 1px)); background: none; color: var(--subtext); font-size: .9rem; font-weight: 600; }
+.seg-btn svg.i { width: 15px; height: 15px; }
+.seg-btn:hover { color: var(--text); }
+.seg-btn.on { background: var(--base); color: var(--text); box-shadow: var(--shadow-1); }
+
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatch { width: 22px; height: 22px; border: 0; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15); transition: transform var(--t-fast); }
+.swatch:hover { transform: scale(1.12); }
+.swatch.on { box-shadow: 0 0 0 2px var(--base), 0 0 0 4px var(--c); }
+.swatch.none { background: conic-gradient(var(--accent), var(--blue), var(--green), var(--yellow), var(--red), var(--accent)); --c: var(--text); }
+
+/* ============================================================ overlays */
+#overlay-root { position: fixed; inset: 0; pointer-events: none; z-index: 100; }
+/* What's in it takes the mouse, unless it says otherwise (a passive popover's layer, a hint): no weight of
+   its own, so any class rule wins. */
+:where(#overlay-root) > * { pointer-events: auto; }
+/* While a page is full screen the layer is a popover (in the top layer, over the page): none of a popover's
+   own looks. */
+#overlay-root[popover] { width: auto; height: auto; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: visible; background: none; color: inherit; }
+.menu-layer, .popover-layer, .dialog-layer { position: fixed; inset: 0; }
+.popover-layer.passive { pointer-events: none; }
+.popover-layer.passive .popover { pointer-events: auto; }
+.scrim { position: absolute; inset: 0; }
+
+.menu {
+  position: fixed; z-index: 1;
+  min-width: 220px; max-width: 420px; max-height: calc(100vh - 16px);
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 5px;
+  border-radius: var(--r-menu);
+  background: var(--base); border: 1px solid var(--s0); box-shadow: var(--shadow-2);
+  outline: none;
+  font-size: .97rem;
+}
+:root[data-scheme="light"] .menu { background: #fff; }
+.menu-item {
+  display: flex; align-items: center; gap: 9px;
+  min-height: 30px; padding: 4px 10px 4px 8px;
+  border-radius: var(--r-item);
+  color: var(--text);
+  outline: none;
+}
+.menu-item.hot { background: var(--hover); }
+.menu-item.disabled { color: var(--overlay); opacity: .65; }
+.menu-item.danger { color: var(--red); }
+.menu-item.accent { color: var(--accent); font-weight: 650; }
+.menu-item.accent .mi-icon { color: var(--accent); }
+.mi-icon { flex: none; width: 18px; height: 18px; display: grid; place-items: center; color: var(--subtext); }
+.menu-item.hot .mi-icon { color: var(--accent); }
+.menu-item.danger .mi-icon { color: var(--red); }
+.mi-icon svg.i { width: 15px; height: 15px; }
+.mi-fav { width: 16px; height: 16px; }
+.mi-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mi-sub { flex: none; color: var(--overlay); font-size: .85rem; }
+.mi-accel { flex: none; color: var(--overlay); font-size: .85rem; padding-left: 14px; }
+.mi-arrow { flex: none; color: var(--overlay); margin-right: -4px; }
+/* An on/off item's state, as a small switch at the end of the row. */
+.mi-switch { position: relative; flex: none; width: 26px; height: 15px; margin-left: 12px; border-radius: 999px; background: var(--s1); transition: background var(--t-fast, .12s); }
+.mi-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: var(--subtext); transition: transform var(--t-fast, .12s), background var(--t-fast, .12s); }
+.mi-switch.on { background: var(--accent); }
+.mi-switch.on::after { transform: translateX(11px); background: var(--crust); }
+.mi-arrow svg.i { width: 13px; height: 13px; }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--s0); }
+.menu-header { padding: 6px 10px 4px 10px; color: var(--overlay); font-size: .78rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-dot { width: 12px; height: 12px; border-radius: 4px; background: var(--c); display: block; }
+.menu-row { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 2px 6px 2px 8px; }
+.menu-row .mi-label { flex: 1; margin-left: 3px; } /* lines up with the items' labels (their gap is 9px) */
+.zr-val { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.menu .swatches { padding: 6px 8px; }
+
+.popover {
+  position: fixed;
+  min-width: 240px; max-width: min(420px, calc(100vw - 16px)); max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 14px;
+  border-radius: calc(var(--r-menu) + 2px);
+  background: var(--base); border: 1px solid var(--s0); box-shadow: var(--shadow-2);
+  outline: none;
+}
+:root[data-scheme="light"] .popover { background: #fff; }
+
+/* Dialogs. */
+.dialog-back { position: absolute; inset: 0; background: var(--scrim); backdrop-filter: blur(2px); }
+.dialog {
+  position: absolute; left: 0; right: 0; top: 14vh; margin: 0 auto;
+  width: min(460px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: 76vh; overflow-y: auto;
+  padding: 20px 22px 18px;
+  border-radius: calc(var(--r-menu) + 4px);
+  background: var(--base); border: 1px solid var(--s0); box-shadow: var(--shadow-2);
+}
+:root[data-scheme="light"] .dialog { background: #fff; }
+.dialog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.dialog-head h2 { margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: -.01em; }
+.dialog-icon { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
+.dialog-body { color: var(--subtext); line-height: 1.5; }
+.dialog-body p { margin: 0 0 10px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.dialog-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; color: var(--subtext); font-size: .92rem; font-weight: 600; }
+.form { display: flex; flex-direction: column; }
+.field {
+  width: 100%; min-height: 34px; padding: 6px 10px;
+  border: 1px solid var(--s1); border-radius: var(--r-btn);
+  background: var(--mantle); color: var(--text);
+  outline: none; font-weight: 400; user-select: text;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+textarea.field { resize: vertical; min-height: 160px; line-height: 1.45; }
+.field.mono { font-family: var(--mono); font-size: .92rem; }
+select.field { appearance: auto; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  height: 32px; padding: 0 14px;
+  border: 1px solid var(--s1); border-radius: var(--r-btn);
+  background: var(--s0); color: var(--text);
+  font-weight: 600;
+  transition: background var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+}
+.btn:hover { background: var(--s1); }
+.btn:active { transform: scale(.97); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { background: var(--red); border-color: var(--red); color: var(--accent-text); }
+.btn.small { height: 26px; padding: 0 10px; font-size: .88rem; }
+.btn svg.i { width: 15px; height: 15px; }
+.link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; border: 0; border-radius: 6px; background: none; color: var(--accent); font-weight: 600; font-size: .92rem; }
+.link-btn:hover { background: var(--accent-soft); }
+.link-btn svg.i { width: 15px; height: 15px; }
+.muted { color: var(--overlay); }
+.small { font-size: .86rem; }
+.check { display: flex; align-items: center; gap: 8px; margin: 10px 0 0; color: var(--subtext); font-size: .92rem; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.switch { position: relative; flex: none; width: 34px; height: 20px; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; }
+.switch-track { position: absolute; inset: 0; border-radius: 999px; background: var(--s1); transition: background var(--t-fast); }
+.switch-thumb { position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--text); transition: transform var(--t-med) var(--spring), background var(--t-fast); }
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track .switch-thumb { transform: translateX(14px); background: var(--accent-text); }
+.switch.disabled { opacity: .45; }
+select.select-sm { height: 28px; padding: 0 6px; border: 1px solid var(--s1); border-radius: max(0px, calc(var(--r-btn) - 1px)); background: var(--mantle); color: var(--text); }
+
+/* Toasts. */
+.toasts { position: fixed !important; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none !important; }
+.toast {
+  display: flex; align-items: center; gap: 10px;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 8px 8px 14px;
+  border-radius: calc(var(--r-menu) + 2px);
+  background: var(--crust); color: var(--text);
+  border: 1px solid var(--s0); box-shadow: var(--shadow-2);
+  pointer-events: auto;
+}
+.toast-icon { color: var(--accent); }
+.toast-icon svg.i { width: 17px; height: 17px; }
+.toast-text { flex: 1; min-width: 0; }
+.toast-btn { height: 26px; padding: 0 10px; border: 0; border-radius: max(0px, calc(var(--r-btn) - 1px)); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+.toast-btn:hover { filter: brightness(1.15); }
+.toast-x { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: max(0px, calc(var(--r-btn) - 1px)); background: none; color: var(--overlay); }
+.toast-x:hover { background: var(--hover); }
+.toast-x svg.i { width: 13px; height: 13px; }
+
+
+/* Every animation off: nothing moves. */
+:root.anim-off *, :root.anim-off *::before, :root.anim-off *::after { animation-duration: 0s !important; animation-delay: 0s !important; transition-duration: 0s !important; transition-delay: 0s !important; scroll-behavior: auto !important; }
+
+/* Performance profile "use as little memory as possible": no blurs, no soft shadows. */
+:root.low-visuals *, :root.low-visuals *::before, :root.low-visuals *::after { backdrop-filter: none !important; text-shadow: none !important; }
+:root.low-visuals { --shadow-1: 0 0 0 1px rgba(0, 0, 0, .18); --shadow-2: 0 0 0 1px rgba(0, 0, 0, .3); }
+
+/* ------------------------------------------------------------------ motion extras */
+/* Buttons press in (Animations → Buttons). */
+:root:not(.anim-off):not(.no-buttons) .btn:active:not(:disabled), :root:not(.anim-off):not(.no-buttons) .icon-btn:active:not(:disabled) { transform: scale(calc(1 - .04 * var(--anim-amp, 1))); }
+/* Ripples (Animations → Ripples on click; util.js adds them). */
+.ripple-host { position: relative; }
+.ripple-clip { overflow: hidden; }
+.ripple {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: currentColor; opacity: .22; transform: scale(0);
+  animation: ripple calc(520ms * var(--anim-mult, 1)) cubic-bezier(.2, .8, .2, 1) forwards;
+}
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* ------------------------------------------------------------- look settings (Appearance) */
+/* Shadows. */
+:root[data-shadows="none"] { --shadow-1: none; --shadow-2: 0 0 0 1px var(--s0); }
+:root[data-shadows="subtle"] { --shadow-1: 0 1px 2px rgba(0, 0, 0, .1); --shadow-2: 0 10px 30px -12px rgba(0, 0, 0, .35), 0 1px 4px rgba(0, 0, 0, .12); }
+:root[data-shadows="strong"] { --shadow-1: 0 2px 4px rgba(0, 0, 0, .26), 0 6px 18px rgba(0, 0, 0, .2); --shadow-2: 0 28px 70px -12px rgba(0, 0, 0, .7), 0 4px 16px rgba(0, 0, 0, .3); }
+/* Glass (Appearance → Menus and dialogs): see "floating surfaces" at the end of this file. */
+/* Scrollbars. */
+:root[data-scrollbars="normal"] ::-webkit-scrollbar { width: 14px; height: 14px; }
+:root[data-scrollbars="normal"] ::-webkit-scrollbar-thumb { border-width: 3px; background-color: color-mix(in srgb, var(--text) 24%, transparent); }
+:root[data-scrollbars="hidden"] ::-webkit-scrollbar { width: 0; height: 0; }
+:root[data-scrollbars="hidden"] * { scrollbar-width: none; }
+/* Where notifications appear. */
+:root[data-toasts="top"] .toasts { bottom: auto; top: 22px; flex-direction: column-reverse; }
+:root[data-toasts="bottom-right"] .toasts { left: auto; right: 22px; transform: none; align-items: flex-end; }
+
+/* ------------------------------------------------------------- depth (see browser.css) */
+.toast { background: linear-gradient(180deg, color-mix(in srgb, var(--crust) 82%, var(--accent) 6%), var(--crust)); border-color: var(--border-tint); }
+.menu-item.hot { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, var(--hover)), var(--hover)); }
+.btn.primary { background: var(--accent-grad); border-color: transparent; box-shadow: 0 6px 18px -8px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, .18); }
+.btn.primary:hover { filter: brightness(1.07) saturate(1.05); }
+.switch input:checked + .switch-track { background: var(--accent-grad); box-shadow: 0 0 12px -3px var(--accent-glow); }
+.field:focus { box-shadow: 0 0 0 3px var(--accent-soft), 0 6px 18px -10px var(--accent-glow); }
+.dialog-icon { background: var(--accent-grad); color: var(--accent-text); box-shadow: 0 6px 16px -8px var(--accent-glow); }
+.toast-icon { color: var(--accent2); }
+mark { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, color-mix(in srgb, var(--accent) 30%, var(--text)) 18%, transparent); }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, color-mix(in srgb, var(--accent) 40%, var(--text)) 30%, transparent); }
+:root.low-visuals .btn.primary, :root.low-visuals .switch input:checked + .switch-track { box-shadow: none; }
+
+
+/* A page's alert / confirm / prompt (ui/js/prompts.js). */
+.js-dialog { display: flex; flex-direction: column; gap: 12px; }
+.js-dialog-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; user-select: text; color: var(--text); }
+.js-dialog-block { margin: 2px 0 0; font-size: .88rem; color: var(--subtext); }
+
+/* ------------------------------------------------------------- floating surfaces
+   Everything that floats over the window or a page: menus, popovers, dialogs, notifications, the address
+   bar's suggestions, the launcher, the find bar and tab previews. One look for all of them, set by
+   Appearance → Menus and dialogs: Solid (the theme's surface, lit from the top) or Glass (frosted: what's
+   behind shows through, blurred, deepened and tinted with the theme, with a fine grain and a light edge,
+   like Windows' acrylic). The text on glass stays readable over a white page and over a black one. */
+:root {
+  --float-bg: linear-gradient(180deg, var(--surface-hi), var(--base) 160px);
+  --float-flat: var(--base);
+  --float-border: var(--border-tint);
+  --float-blur: none;
+  --float-edge: 0 0 #0000;
+  --float-sel: var(--s0);
+}
+:root[data-scheme="light"] { --float-bg: linear-gradient(180deg, #fff, color-mix(in srgb, var(--accent) 3%, #fff)); --float-flat: #fff; --float-sel: var(--crust); }
+:root[data-menus="glass"] {
+  --float-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .045 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  --float-bg: var(--float-grain), linear-gradient(180deg, color-mix(in srgb, var(--base) 56%, transparent), color-mix(in srgb, var(--base) 66%, transparent));
+  --float-flat: color-mix(in srgb, var(--base) 62%, transparent);
+  --float-blur: blur(34px) saturate(1.9) brightness(.55);
+  --float-border: rgba(255, 255, 255, .12);
+  --float-line: rgba(255, 255, 255, .12);
+  --float-edge: inset 0 1px 0 rgba(255, 255, 255, .09);
+  --float-sel: color-mix(in srgb, var(--text) 12%, transparent);
+}
+:root[data-menus="glass"][data-scheme="light"] {
+  --float-bg: var(--float-grain), linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .7));
+  --float-flat: rgba(255, 255, 255, .74);
+  --float-blur: blur(34px) saturate(1.8) brightness(1.35);
+  --float-border: rgba(255, 255, 255, .7);
+  /* Lines inside (separators): a light edge reads on the outside, but inside, over a white page, only a dark
+     line shows. */
+  --float-line: color-mix(in srgb, var(--text) 13%, transparent);
+  --float-edge: inset 0 1px 0 rgba(255, 255, 255, .8);
+  --float-sel: color-mix(in srgb, var(--text) 9%, transparent);
+}
+:root.low-visuals { --float-blur: none; --float-bg: var(--base); --float-flat: var(--base); --float-border: var(--s0); --float-line: var(--s0); --float-edge: 0 0 #0000; --float-sel: var(--s0); }
+:root.low-visuals[data-scheme="light"] { --float-bg: #fff; --float-flat: #fff; --float-sel: var(--crust); }
+.menu, .popover, .dialog, .omni-drop, .launcher, .findbar, .tab-preview {
+  background: var(--float-bg) !important;
+  border-color: var(--float-border) !important;
+  -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur);
+}
+.menu, .popover, .dialog, .omni-drop, .launcher, .findbar, .tab-preview { box-shadow: var(--float-edge), var(--shadow-2); }
+.toast { -webkit-backdrop-filter: var(--float-blur); backdrop-filter: var(--float-blur); }
+:root[data-menus="glass"] .toast { background: var(--float-grain), color-mix(in srgb, var(--crust) 70%, transparent) !important; border-color: var(--float-border) !important; }
+/* Parts inside them that have a fill of their own follow along. */
+:root[data-menus="glass"] .l-foot { background: color-mix(in srgb, var(--mantle) 45%, transparent); border-top-color: var(--float-line); }
+:root[data-menus="glass"] .l-bar { border-bottom-color: var(--float-line); }
+:root[data-menus="glass"] .rrow.sel { background: var(--float-sel); }
+:root[data-menus="glass"] .menu-sep { background: var(--float-line); }
+:root[data-menus="glass"] .si-ico, :root[data-menus="glass"] .si-fav, :root[data-menus="glass"] .r-ico.fav { background: color-mix(in srgb, var(--mantle) 55%, transparent); }
+:root[data-menus="glass"] .si-section { border-top-color: var(--float-line); }

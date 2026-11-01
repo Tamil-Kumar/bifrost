@@ -1,0 +1,33 @@
+{
+  "generated": "2026-10-12T18:52:49.998Z",
+  "source": "c18718adc33e82a086d996d0b0f75deb3d01745a 2026-10-09",
+  "categories": {
+    "ads": [
+      "easylist/easylist.txt",
+      "peter-lowe/serverlist.txt",
+      "ublock-origin/badware.txt",
+      "ublock-origin/filters-2020.txt",
+      "ublock-origin/filters-2021.txt",
+      "ublock-origin/filters-2022.txt",
+      "ublock-origin/filters-2023.txt",
+      "ublock-origin/filters-2024.txt",
+      "ublock-origin/filters-2025.txt",
+      "ublock-origin/filters-2026.txt",
+      "ublock-origin/filters.txt",
+      "ublock-origin/quick-fixes.txt",
+      "ublock-origin/resource-abuse.txt",
+      "ublock-origin/unbreak.txt"
+    ],
+    "tracking": [
+      "easylist/easyprivacy.txt",
+      "ublock-origin/privacy.txt"
+    ],
+    "annoyances": [
+      "ublock-origin/annoyances-others.txt"
+    ],
+    "cookieNotices": [
+      "easylist/easylist-cookie.txt",
+      "ublock-origin/annoyances-cookies.txt"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+# The same files on every checkout (the Windows release runner converts line endings otherwise).
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.exe binary
+*.gz binary
+*.png binary
+*.ico binary
+*.pdf binary
+*.mp4 binary
+*.webm binary

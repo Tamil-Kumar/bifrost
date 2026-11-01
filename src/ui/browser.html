@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Bifrost</title>
+  <link rel="stylesheet" href="browser.css">
+  <script src="/_/shared/themes.js"></script>
+  <script src="/_/shared/defaults.js"></script>
+  <script src="/_/shared/engine.js"></script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar" aria-label="Tabs">
+      <div id="sidebar-top" class="drag"></div>
+      <div id="sidebar-nav"></div>
+      <div id="pinned" role="tablist" aria-label="Pinned tabs"></div>
+      <div id="tablist-wrap">
+        <div id="tablist" role="tablist" aria-label="Tabs"></div>
+      </div>
+      <div id="sidebar-bottom"></div>
+      <div id="sidebar-resizer" title="Drag to resize"></div>
+    </aside>
+    <section id="panel" aria-label="Side panel"></section>
+    <main id="content">
+      <div id="top-hot" aria-hidden="true"></div>
+      <div id="topbar">
+        <div id="hbar" class="drag"></div>
+        <div id="toolbar" class="drag"></div>
+        <div id="bookmarks-bar" role="toolbar" aria-label="Bookmarks bar"></div>
+      </div>
+      <div id="infobars"></div>
+      <div id="stage">
+        <div id="views"></div>
+        <div id="panes"></div>
+        <div id="stage-ui"></div>
+      </div>
+    </main>
+  </div>
+  <div id="edge-hot"></div>
+  <div id="overlay-root"></div>
+</body>
+</html>

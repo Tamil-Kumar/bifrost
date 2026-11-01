@@ -1,0 +1,49 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Fake YouTube</title><link rel="icon" href="data:,">
+<script>
+  // Set by a filter's page script, if YouTube gets them (only when privacy.adblock.youtubeFilters is on).
+  document.documentElement.dataset.scriptlet = String(window.bfYtTest);
+</script>
+</head>
+<body>
+<!-- A stand-in for YouTube's player with an ad showing and a skip button (tests/e2e/features.mjs).
+     ?mode=ssap: the ad is the first 4 seconds of one stream, and the player's own API says so and can seek;
+     ?mode=stream: the ad is a stream of its own; ?mode=unknown: no player API to tell. -->
+<div id="movie_player" class="html5-video-player ad-showing">
+  <video id="v" width="320" height="180"></video>
+  <button class="ytp-skip-ad-button" onclick="document.documentElement.dataset.skipped = '1'">Skip</button>
+</div>
+<p id="net">pending</p>
+<script>
+  // Ten seconds of silence as a WAV, so the video has a duration.
+  const rate = 8000, secs = 10, n = rate * secs, buf = new ArrayBuffer(44 + n), d = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); d.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+  d.setUint32(24, rate, true); d.setUint32(28, rate, true); d.setUint16(32, 1, true); d.setUint16(34, 8, true); w(36, 'data'); d.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) d.setUint8(44 + i, 128);
+  const v = document.getElementById('v');
+  v.src = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+
+  const mode = new URLSearchParams(location.search).get('mode') || 'stream';
+  const p = document.getElementById('movie_player');
+  if (mode !== 'unknown') {
+    p.getStatsForNerds = () => ({ debug_info: mode === 'ssap' ? 'SSAP, AD 1 of 1' : '' });
+    // During a stitched-in ad the player reports the ad's own progress; seeking to its end ends it.
+    p.getProgressState = () => ({ current: v.currentTime, duration: mode === 'ssap' ? 4 : v.duration, loaded: v.duration });
+    p.seekTo = (t) => { v.currentTime = t; document.documentElement.dataset.seekedTo = String(t); if (mode === 'ssap') p.classList.remove('ad-showing'); };
+  }
+
+  // A script YouTube checks ad blockers with: redirected to the lists' stand-in, which says ads are fine.
+  const st = document.createElement('script');
+  st.src = 'https://static.doubleclick.net/instream/ad_status.js';
+  st.onload = () => { document.documentElement.dataset.adStatus = String(window.google_ad_status); };
+  st.onerror = () => { document.documentElement.dataset.adStatus = 'error'; };
+  document.head.append(st);
+
+  // YouTube's own request (left alone unless YouTube's filters are on) and another site's ad.
+  Promise.all([
+    fetch('/yt-own-ad.js').then((r) => 'loaded', () => 'blocked'),
+    fetch('https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js').then(() => 'loaded', () => 'blocked'),
+  ]).then(([a, b]) => { document.getElementById('net').textContent = a + ' | ' + b; document.documentElement.dataset.net = a + ' | ' + b; });
+</script>
+</body></html>

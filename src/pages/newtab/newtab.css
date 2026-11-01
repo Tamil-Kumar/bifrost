@@ -1,0 +1,259 @@
+/* Bifrost — the start page (Speed Dial). */
+html, body { height: 100%; overflow-x: hidden; }
+body { background: var(--base); }
+
+#bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+#bg.gradient {
+  /* The theme's own glows (themes.js): its accent at the top left, then its other colors around. */
+  background:
+    radial-gradient(1100px 640px at 10% -10%, var(--glow-1), transparent 62%),
+    radial-gradient(950px 620px at 96% 4%, var(--glow-2), transparent 60%),
+    radial-gradient(1000px 720px at 62% 118%, var(--glow-3), transparent 62%),
+    radial-gradient(700px 520px at -6% 92%, color-mix(in srgb, var(--accent2) 9%, transparent), transparent 64%),
+    var(--base);
+}
+#bg.image { background: var(--crust) center / cover no-repeat; }
+#bg.image::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, var(--dim, .35)); }
+:root.low-visuals #bg.image { filter: none !important; }
+:root.low-visuals #bg.gradient { background: none; }
+
+/* The page is a 3×3 grid: corners and edges around the main column (clock, search, Speed Dial).
+   Modules and the clock can go in any of the areas. */
+#ntp {
+  position: relative; z-index: 1; min-height: 100%;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, var(--main-w, 760px)) minmax(0, 1fr); grid-template-rows: auto 1fr auto;
+  grid-template-areas: "tl top tr" "left main right" "bl bottom br";
+  gap: 20px 32px; padding: 26px 30px 64px;
+}
+#z-top-left { grid-area: tl; } #z-top { grid-area: top; } #z-top-right { grid-area: tr; }
+#z-left { grid-area: left; } #z-main { grid-area: main; } #z-right { grid-area: right; }
+#z-bottom-left { grid-area: bl; } #z-bottom { grid-area: bottom; } #z-bottom-right { grid-area: br; }
+.zone { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.zone:empty { display: none; }
+#z-top-left, #z-left, #z-bottom-left { align-items: flex-start; }
+#z-top-right, #z-right, #z-bottom-right { align-items: flex-end; }
+#z-top, #z-bottom { align-items: center; }
+#z-bottom-left, #z-bottom, #z-bottom-right { align-self: end; }
+#z-bottom-right { padding-bottom: 34px; }
+.zone.side { padding-top: var(--main-top, 13vh); }
+#z-main { display: flex; flex-direction: column; align-items: center; padding-top: var(--main-top, 13vh); min-width: 0; }
+body.no-dial { --main-top: 24vh; }
+body.has-top { --main-top: 6vh; }
+/* With modules at the sides, the side columns get room of their own and the main column shrinks to fit. */
+body.has-sides #ntp { grid-template-columns: minmax(230px, 1fr) minmax(0, var(--main-w, 760px)) minmax(230px, 1fr); }
+.zone.row { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: flex-start; width: 100%; }
+#z-above { margin-bottom: 26px; }
+#z-below { margin-top: 34px; }
+/* Narrow windows: everything in one column. */
+body.narrow #ntp, body.narrow.has-sides #ntp { grid-template-columns: minmax(0, 1fr); grid-template-areas: "tl" "top" "tr" "main" "left" "right" "bl" "bottom" "br"; }
+body.narrow .zone { align-items: center; }
+body.narrow .zone.side { padding-top: 0; }
+
+#clock { text-align: center; margin-bottom: 28px; }
+#clock[data-align="left"] { text-align: left; }
+#clock[data-align="right"] { text-align: right; }
+.zone > #clock { margin-bottom: 4px; }
+body.narrow #clock { text-align: center; }
+#time {
+  font-family: var(--clock-font, var(--font)); font-size: calc(4.6rem * var(--clock-scale, 1)); font-weight: var(--clock-weight, 300);
+  letter-spacing: var(--clock-spacing, -.04em); line-height: 1; font-variant-numeric: tabular-nums; color: var(--clock-color, var(--text));
+  white-space: nowrap;
+}
+/* AM/PM: a small gap from the time (--ampm-gap is in units of the time's own size). Sizes: small and raised
+   (default), medium, or as big as the time itself. */
+#time { --ampm-gap: .07em; }
+#time .ampm { font-size: .38em; font-weight: 500; letter-spacing: .02em; margin-left: calc(var(--ampm-gap) / .38); opacity: .7; vertical-align: .9em; }
+#clock[data-ampm="medium"] #time .ampm { font-size: .6em; vertical-align: .35em; margin-left: calc(var(--ampm-gap) / .6); opacity: .8; }
+#clock[data-ampm="large"] #time .ampm { font-size: 1em; vertical-align: baseline; margin-left: calc(var(--ampm-gap) * 1.6); letter-spacing: inherit; font-weight: inherit; opacity: 1; }
+#time .ampm.first { margin-left: 0 !important; margin-right: calc(var(--ampm-gap) / .38); }
+/* Blinking colons (newtab.js dims them for half of every second). */
+#clock.blink #time.dim .sep { opacity: .15; }
+#clock-date { margin-top: calc(10px * var(--clock-scale, 1)); color: var(--subtext); font-family: var(--clock-font, var(--font)); font-size: calc(1.25rem * min(var(--clock-scale, 1), 1.4)); font-weight: 500; }
+#greeting { margin-top: 10px; color: var(--subtext); font-size: 1.15rem; font-weight: 500; }
+body.on-image #clock:not(.tinted) #time, body.on-image #greeting, body.on-image #clock-date { color: #fff; text-shadow: 0 2px 18px rgba(0, 0, 0, .45); }
+/* "Gradient": the time in the theme's two accents. */
+#clock.grad #time { background: linear-gradient(120deg, var(--accent) 10%, var(--accent2) 90%); -webkit-background-clip: text; background-clip: text; color: transparent; padding-bottom: .06em; }
+body.on-image #clock.grad #time { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, .4)); }
+
+#search { width: min(620px, 100%); margin-bottom: 42px; }
+#search-box {
+  width: 100%; height: 52px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 14px 0 18px;
+  border: 1px solid var(--s0); border-radius: 16px;
+  background: color-mix(in srgb, var(--mantle) 88%, transparent);
+  backdrop-filter: blur(14px);
+  color: var(--overlay); font-size: 1.05rem; text-align: left;
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+#search-box:hover { border-color: var(--s1); }
+#search-box:focus-visible, #search-box.focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-1); }
+#search-lens { color: var(--accent); display: grid; }
+#search-lens svg.i { width: 20px; height: 20px; stroke-width: 2.2; }
+#search-text { flex: 1; }
+#search-keys { display: flex; gap: 4px; }
+
+#dial { width: min(calc(var(--cols, 6) * (var(--tile) + 18px)), 100%); display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr)); gap: 18px; justify-items: center; }
+body.tiles-small { --tile: 84px; }
+body.tiles-medium { --tile: 108px; }
+body.tiles-large { --tile: 136px; }
+.tile {
+  position: relative;
+  width: var(--tile); display: flex; flex-direction: column; align-items: center; gap: 9px;
+  padding: 0; border: 0; background: none; color: var(--text); text-decoration: none !important;
+}
+.tile-face {
+  width: 100%; aspect-ratio: 1 / 1;
+  display: grid; place-items: center;
+  border-radius: var(--r-tile, calc(var(--radius) + 8px));
+  background: color-mix(in srgb, var(--mantle) 85%, transparent);
+  border: 1px solid color-mix(in srgb, var(--s0) 80%, transparent);
+  box-shadow: var(--shadow-1);
+  backdrop-filter: blur(10px);
+  transition: transform var(--t-med) var(--spring), box-shadow var(--t-med), border-color var(--t-fast), background var(--t-fast);
+}
+.tile:hover .tile-face { transform: translateY(-3px); box-shadow: var(--shadow-2); border-color: color-mix(in srgb, var(--tc, var(--accent)) 60%, transparent); }
+.tile:active .tile-face { transform: scale(.96); }
+.tile-face img { display: block; object-fit: contain; }
+/* A big icon (≥ 48 px, or SVG) fills the middle of the tile; rounded like an app icon. */
+.tile-face.icon-big img { width: 46%; height: 46%; border-radius: 22%; }
+/* A small favicon stays close to its real size, on a plate tinted with its own color. */
+.tile-face.icon-small img { width: var(--sz, 20px); height: var(--sz, 20px); border-radius: 3px; }
+.tile-face.icon-small::before {
+  content: ""; position: absolute; width: 46%; aspect-ratio: 1 / 1; border-radius: 30%;
+  background: color-mix(in srgb, var(--plate, var(--tc)) 22%, transparent);
+}
+.tile-face { position: relative; }
+.tile-face.icon-small img { position: relative; }
+.tile-letter { width: 46%; aspect-ratio: 1 / 1; display: grid; place-items: center; border-radius: 30%; background: color-mix(in srgb, var(--tc) 24%, transparent); color: var(--tc); font-weight: 800; font-size: calc(var(--tile) * .26); }
+.tile-face svg.i { width: 40%; height: 40%; color: var(--yellow); stroke-width: 1.5; }
+.tile-label { width: 100%; text-align: center; font-size: .9rem; font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--subtext); }
+body.on-image .tile-label { color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, .6); }
+.tile.add .tile-face { background: transparent; border: 1.5px dashed var(--s1); box-shadow: none; color: var(--overlay); }
+.tile.add .tile-face svg.i { color: var(--overlay); width: 30%; height: 30%; }
+.tile.add:hover .tile-face { border-color: var(--accent); color: var(--accent); }
+.tile.add:hover .tile-face svg.i { color: var(--accent); }
+
+#dial-empty { grid-column: 1 / -1; text-align: center; color: var(--subtext); max-width: 460px; }
+#dial-empty p { margin: 0 0 12px; }
+.suggest { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+
+#corner { position: fixed; right: 16px; bottom: 14px; z-index: 2; display: flex; gap: 6px; }
+#corner .icon-btn { width: 34px; height: 34px; background: color-mix(in srgb, var(--mantle) 80%, transparent); backdrop-filter: blur(8px); }
+
+/* Entrance animation (Settings → Animations → New tab page). */
+:root:not(.anim-off):not(.no-newTabPage) .enter { animation: rise calc(420ms * var(--anim-mult)) var(--ease-out) both; animation-delay: calc(var(--i, 0) * 28ms * var(--anim-mult)); }
+@keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+
+/* Modules. */
+.mod {
+  width: var(--mod-w, 300px); max-width: 100%;
+  display: flex; flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--s0) 80%, transparent); border-radius: calc(var(--r-tile, calc(var(--radius) + 8px)) * .8);
+  background: color-mix(in srgb, var(--mantle) 84%, transparent); backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-1); color: var(--text); text-align: left;
+}
+:root:not(.anim-off):not(.no-newTabPage) .mod { animation: rise calc(380ms * var(--anim-mult)) var(--ease-out) both; }
+.mod-head { display: flex; align-items: center; gap: 8px; padding: 10px 8px 4px 14px; color: var(--subtext); font-size: .8rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.mod-ico { display: grid; place-items: center; color: var(--accent); }
+.mod-ico svg.i { width: 15px; height: 15px; }
+.mod-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mod-sp { flex: 1; }
+.mod-more, .mod-x { width: 26px; height: 26px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--r-btn); background: none; color: var(--overlay); }
+.mod-more { opacity: 0; transition: opacity var(--t-fast); }
+.mod:hover .mod-more, .mod-more:focus-visible { opacity: 1; }
+.no-mod-more .mod-more { display: none; }
+.mod-more:hover, .mod-x:hover { background: var(--hover); color: var(--text); }
+.mod-more svg.i, .mod-x svg.i { width: 15px; height: 15px; }
+.mod-body { padding: 4px 14px 14px; }
+.mod-muted { color: var(--overlay); font-size: .86rem; margin: 2px 0 0; }
+.mod-empty { color: var(--subtext); font-size: .92rem; }
+.mod-empty p { margin: 2px 0 10px; }
+body.on-image .mod { background: color-mix(in srgb, var(--mantle) 72%, transparent); }
+
+/* Weather. */
+.w-now { display: flex; align-items: center; gap: 12px; }
+.w-ico { color: var(--yellow); display: grid; }
+.w-ico svg.i { width: 42px; height: 42px; stroke-width: 1.5; }
+.w-temp { font-size: 2.2rem; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; }
+.w-cond { color: var(--subtext); font-size: .9rem; margin-top: 2px; }
+.w-side { margin-left: auto; text-align: right; color: var(--overlay); font-size: .8rem; line-height: 1.5; }
+.w-place { color: var(--overlay); font-size: .82rem; margin: 6px 0 10px; }
+.w-days { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; border-top: 1px solid color-mix(in srgb, var(--s0) 70%, transparent); padding-top: 10px; }
+.w-day { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: .8rem; color: var(--subtext); }
+.w-day svg.i { width: 20px; height: 20px; color: var(--subtext); }
+.w-day b { color: var(--text); font-weight: 600; }
+.w-day small { color: var(--overlay); }
+
+/* To-do. */
+.todo-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.todo-list li { display: flex; align-items: center; gap: 4px; border-radius: var(--r-btn); padding: 2px 2px 2px 4px; }
+.todo-list li:hover { background: var(--hover); }
+.todo-list label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; padding: 4px 0; }
+.todo-list input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; flex: none; }
+.todo-list span { overflow-wrap: anywhere; }
+.todo-list li.done span { color: var(--overlay); text-decoration: line-through; }
+.todo-list .mod-x { opacity: 0; width: 22px; height: 22px; }
+.todo-list li:hover .mod-x { opacity: 1; }
+.todo-add { min-height: 32px; }
+.todo-foot { display: flex; justify-content: flex-end; margin-top: 4px; }
+
+/* Notes. */
+.notes { width: 100%; min-height: 150px; resize: vertical; border: 0; border-radius: var(--r-btn); padding: 8px 10px; background: color-mix(in srgb, var(--base) 60%, transparent); color: var(--text); font: inherit; line-height: 1.5; outline: none; user-select: text; }
+.notes:focus { box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Calendar. */
+.cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.cal-head b { font-size: .95rem; cursor: pointer; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; font-variant-numeric: tabular-nums; }
+.cal-n { color: var(--overlay); font-size: .72rem; font-weight: 700; padding: 3px 0; }
+.cal-d { font-size: .85rem; padding: 5px 0; border-radius: 999px; color: var(--subtext); }
+.cal-d.today { background: var(--accent); color: var(--accent-text); font-weight: 700; }
+
+/* Countdown. */
+.cd-num b { font-size: 2.4rem; font-weight: 300; font-variant-numeric: tabular-nums; }
+.cd-num span { color: var(--subtext); }
+.cd-what { font-weight: 600; margin: 2px 0 4px; }
+
+/* Link lists (most visited, recently closed, bookmark folder). */
+.links { display: flex; flex-direction: column; gap: 1px; max-height: 320px; overflow-y: auto; }
+.mod-link { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin: 0 -6px; border: 0; border-radius: var(--r-btn); background: none; color: var(--text); text-decoration: none; font: inherit; text-align: left; }
+.mod-link:hover { background: var(--hover); }
+.mod-link span:last-child { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mod-fav { width: 16px; height: 16px; color: var(--yellow); }
+.mod-fav svg.i { width: 16px; height: 16px; }
+.mod-link.up { color: var(--subtext); }
+
+/* Stats. */
+.stats { display: flex; flex-direction: column; gap: 10px; }
+.stat { display: flex; align-items: center; gap: 12px; }
+.stat-ico { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent); flex: none; }
+.stat-ico svg.i { width: 16px; height: 16px; }
+.stat b { display: block; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+.stat small { color: var(--overlay); }
+
+/* Tips. */
+.tip { display: flex; align-items: center; gap: 12px; justify-content: space-between; cursor: pointer; }
+.tip-text { color: var(--text); }
+.zone.row .mod.tip-mod { width: auto; }
+
+/* The Modules dialog. */
+.modlist { display: flex; flex-direction: column; gap: 2px; max-height: 56vh; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.modrow { display: flex; align-items: center; gap: 12px; padding: 7px 8px; border-radius: var(--r-btn); }
+.modrow:hover { background: var(--hover); }
+.modrow-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; color: var(--text); }
+.modrow-main input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; flex: none; }
+.modrow-main > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.modrow-main small { color: var(--overlay); font-size: .84rem; }
+.modrow select { width: 190px; flex: none; }
+
+/* Clock position picker (customize popover). */
+.pos-grid { display: grid; grid-template-columns: repeat(3, 24px); gap: 3px; }
+.pos { width: 24px; height: 17px; display: grid; place-items: center; padding: 0; border: 1px solid var(--s1); border-radius: 4px; background: none; }
+.pos i { width: 9px; height: 4px; border-radius: 2px; background: var(--s2); }
+.pos:hover { border-color: var(--s2); }
+.pos.on { border-color: var(--accent); background: var(--accent-soft); }
+.pos.on i { background: var(--accent); }
+/* The customize popover's note about right-clicking. */
+.cust-note { margin: 6px 0 0; color: var(--overlay); font-size: .8rem; line-height: 1.35; }

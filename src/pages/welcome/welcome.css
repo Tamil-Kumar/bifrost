@@ -1,0 +1,49 @@
+/* Bifrost — first-run welcome. */
+#w-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(900px 560px at 15% -10%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 60%),
+    radial-gradient(800px 520px at 100% 110%, color-mix(in srgb, var(--blue) 16%, transparent), transparent 60%), var(--base); }
+.w { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding: 9vh 28px 60px; min-height: 100vh; display: flex; flex-direction: column; }
+.w-step { flex: 1; }
+.w-step.center { display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; }
+.w h1 { font-size: 2.6rem; margin: 18px 0 10px; font-weight: 800; }
+.w h2 { font-size: 1.9rem; margin: 0 0 6px; font-weight: 780; }
+.w h3 { margin: 30px 0 12px; }
+.lead { font-size: 1.15rem; color: var(--subtext); max-width: 560px; line-height: 1.6; margin: 0 0 30px; }
+.w-logo { width: 104px; height: 104px; filter: drop-shadow(0 14px 30px rgba(0, 0, 0, .4)); }
+.btn.big { height: 44px; padding: 0 22px; font-size: 1.05rem; border-radius: 12px; }
+.w-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-top: 18px; }
+.w-theme, .w-layout { display: flex; flex-direction: column; gap: 8px; padding: 8px 8px 12px; border: 1.5px solid var(--s0); border-radius: 14px; background: var(--mantle); color: var(--text); text-align: left; font-weight: 650; transition: border-color var(--t-fast), transform var(--t-fast); }
+.w-theme:hover, .w-layout:hover { transform: translateY(-2px); border-color: var(--s2); }
+.w-theme.on, .w-layout.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.w-theme > span { padding: 0 4px; }
+.w-prev { height: 78px; border-radius: 9px; display: grid; grid-template-columns: 26% 1fr; gap: 6px; padding: 8px; }
+.w-prev > i { border-radius: 4px; height: 8px; }
+.w-prev > div { border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.w-prev b { display: block; height: 6px; border-radius: 3px; width: 70%; }
+.w-prev.auto { background: linear-gradient(135deg, #eff1f5 50%, #1e1e2e 50%); }
+.w-layouts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.w-layout { padding: 12px 12px 14px; }
+.w-layout small { color: var(--subtext); font-weight: 500; }
+.w-lay { height: 120px; border-radius: 10px; background: var(--crust); display: grid; gap: 6px; padding: 8px; }
+.w-lay.v { grid-template-columns: 28% 1fr; }
+.w-lay.h { grid-template-rows: 18px 1fr; }
+.w-lay .side, .w-lay .top { display: flex; gap: 5px; }
+.w-lay .side { flex-direction: column; }
+.w-lay .side i, .w-lay .top i { display: block; border-radius: 4px; background: var(--s1); }
+.w-lay .side i { height: 12px; }
+.w-lay .side i:first-child, .w-lay .top i:first-child { background: var(--accent); }
+.w-lay .top i { flex: 1; }
+.w-lay .main { border-radius: 7px; background: var(--base); }
+.w-imports { display: flex; flex-direction: column; gap: 8px; margin: 18px 0 16px; }
+.w-import { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--mantle); border: 1px solid var(--s0); }
+.w-import > div { flex: 1; min-width: 0; }
+.w-import small { display: block; color: var(--overlay); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.w-src { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.w-tips { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin: 24px 0 34px; width: 100%; max-width: 640px; text-align: left; }
+.w-tip { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--mantle); }
+.w-tip kbd { font-size: .92rem; padding: 4px 8px; }
+.w-nav { display: flex; align-items: center; justify-content: space-between; margin-top: 34px; }
+.w-nav.solo { justify-content: center; }
+.w-dots { display: flex; gap: 6px; }
+.w-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--s1); transition: width var(--t-med), background var(--t-med); }
+.w-dots span.on { width: 22px; border-radius: 4px; background: var(--accent); }

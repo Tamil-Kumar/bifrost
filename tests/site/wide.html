@@ -1,0 +1,22 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Wide things</title><link rel="icon" href="data:,">
+<style>
+  body { margin: 0; padding: 24px 30px; font: 16px system-ui, sans-serif; }
+  .row { width: 520px; height: 100px; overflow-x: auto; white-space: nowrap; border: 1px solid #bbb; margin-bottom: 16px; }
+  .row div { display: inline-block; width: 240px; height: 80px; margin: 8px; background: #dde; }
+  /* A scroller that keeps its scrolling to itself: overscrolling it never reaches the page. */
+  #contained { overscroll-behavior-x: contain; }
+  #map { height: 110px; margin-bottom: 16px; background: #cdc; }
+  #plain { height: 260px; background: #f4f4f8; }
+</style></head>
+<body>
+<!-- For tests/e2e/gestures.mjs: sideways swipes over things that use them aren't back/forward swipes. -->
+<div class="row" id="strip"><div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div></div>
+<div class="row" id="contained"><div>a</div><div>b</div><div>c</div><div>d</div><div>e</div><div>f</div></div>
+<div id="map">a map, which takes the wheel for itself</div>
+<div id="plain">plain page</div>
+<script>
+  document.getElementById('strip').scrollLeft = 300;
+  document.getElementById('map').addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+</script>
+</body></html>

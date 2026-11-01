@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Bifrost API check",
+  "version": "1.0",
+  "description": "Test extension: reports which chrome.* APIs its service worker has, and uses a few of them.",
+  "background": { "service_worker": "sw.js" },
+  "permissions": ["alarms", "contextMenus", "storage", "tabs", "webNavigation", "notifications", "scripting", "bookmarks", "history", "idle", "cookies", "downloads"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_title": "API check", "default_popup": "popup.html" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["cs.js"], "run_at": "document_idle" }]
+}

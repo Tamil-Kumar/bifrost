@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>New tab</title>
+  <link rel="stylesheet" href="/_/common/page.css">
+  <link rel="stylesheet" href="newtab.css">
+  <script src="/_/shared/themes.js"></script>
+  <script src="/_/shared/defaults.js"></script>
+  <script type="module" src="newtab.js"></script>
+</head>
+<body>
+  <div id="bg"></div>
+  <main id="ntp">
+    <div class="zone" id="z-top-left"></div>
+    <div class="zone" id="z-top"></div>
+    <div class="zone" id="z-top-right"></div>
+    <div class="zone side" id="z-left"></div>
+    <div id="z-main">
+      <div id="clock-slot"></div>
+      <div class="zone row" id="z-above"></div>
+      <div id="search" hidden>
+        <button id="search-box" type="button">
+          <span id="search-lens"></span>
+          <span id="search-text">Search or type an address</span>
+          <span id="search-keys"></span>
+        </button>
+      </div>
+      <section id="dial"></section>
+      <div class="zone row" id="z-below"></div>
+    </div>
+    <div class="zone side" id="z-right"></div>
+    <div class="zone" id="z-bottom-left"></div>
+    <div class="zone" id="z-bottom"></div>
+    <div class="zone" id="z-bottom-right"></div>
+  </main>
+  <div id="clock" hidden><div id="time"></div><div id="clock-date" hidden></div><div id="greeting"></div></div>
+  <div id="corner"></div>
+</body>
+</html>
