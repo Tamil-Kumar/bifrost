@@ -44,25 +44,26 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
 task manager), `behavior` (settings that change behavior), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions, the keyboard following the tab on screen, find, zoom,
-context menu, tab dragging and pinning, private windows), `extensions` (MV3
-service worker APIs, onInstalled, storage and alarm events in the worker, context menus, popups, Dark Reader, Stylus with a usercss theme on a
-local YouTube stand-in, site styles), `daily`, `gestures`, `hidpi` (a 150% display: menus open at the
-pointer, things are where they're drawn), `web` (translation, dangerous-site warnings), `passwords`
-(Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden), `sync` (two
-Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks, downloads,
-checksums, restarting into the update). The Windows setup, end to end with PowerShell and Wine:
+context menu, tab dragging and pinning, private windows), `extensions` (MV3 service worker APIs,
+onInstalled, storage and alarm events in the worker, context menus, popups, Dark Reader, Stylus with a
+usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures`, `hidpi` (a 150% display:
+menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),
+`passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),
+`sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
+downloads, checksums, restarting into the update). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders).
 
 ## Releases
 
-Pushing a version tag (`v1.2.3`, matching package.json) runs `.github/workflows/release.yml` on a Windows
-runner: `tools/release.mjs` builds both installers, the portable zip and the update files on castlabs'
-Electron (with Widevine), signs them for Widevine with the castlabs EVS account in the repository's
-secrets (`EVS_ACCOUNT_NAME`, `EVS_PASSWD`), `tools/drm-check.mjs` checks that protected video plays, and
-the release is published with RELEASE_NOTES.md. Bifrost's updater (src/main/updater.js) reads the newest
-release's latest.json: when only Bifrost's own files changed it downloads just those, otherwise the
-installer or the portable builds, and the helpers in tools/win swap them in when Bifrost restarts.
+A new version in package.json reaching main (or a version tag, `v1.2.3`, matching package.json) runs
+`.github/workflows/release.yml` on a Windows runner: `tools/release.mjs` builds both installers, the
+portable zip and the update files on castlabs' Electron (with Widevine), signs them for Widevine with the
+castlabs EVS account in the repository's secrets (`EVS_ACCOUNT_NAME`, `EVS_PASSWD`), `tools/drm-check.mjs`
+checks that protected video plays, and the release is published with RELEASE_NOTES.md. Bifrost's updater
+(src/main/updater.js) reads the newest release's latest.json: when only Bifrost's own files changed it
+downloads just those, otherwise the installer or the portable builds, and the helpers in tools/win swap
+them in when Bifrost restarts.
 
 ## Packaging
 

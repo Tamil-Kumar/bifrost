@@ -1,12 +1,14 @@
 # Builds Bifrost for Windows (x64 and ARM64) on castlabs' Electron, which has Widevine; signs it for Widevine
 # with the castlabs EVS account in this repository's secrets (EVS_ACCOUNT_NAME, EVS_PASSWD), so streaming
 # services like Netflix play; checks that protected video plays; and publishes the release, whose
-# latest.json is what Bifrost's updater reads. Runs when a version tag (v1.2.3, matching package.json) is
-# pushed, or by hand (Actions → Release → Run workflow) for the version in package.json.
+# latest.json is what Bifrost's updater reads.
+# Runs when main gets a version (package.json) that has no release yet, when a version tag (v1.2.3, matching
+# package.json) is pushed, or by hand (Actions → Release → Run workflow) for the version in package.json.
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ['v*.*.*']
   workflow_dispatch:
 
@@ -18,7 +20,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Is there something to release? (A push to main without a new version isn't.)
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
+            echo "::error::The tag is $GITHUB_REF_NAME but package.json says $v"; exit 1
+          fi
+          release=true
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_TYPE" = "branch" ] && gh release view "v$v" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            release=false
+            echo "Bifrost $v is released already: nothing to do"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: check
+    if: needs.check.outputs.release == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -38,11 +66,7 @@ jobs:
       - name: Version
         shell: bash
         run: |
-          v=$(node -p "require('./package.json').version")
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "v$v" ]; then
-            echo "::error::The tag is $GITHUB_REF_NAME but package.json says $v"; exit 1
-          fi
-          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "VERSION=${{ needs.check.outputs.version }}" >> "$GITHUB_ENV"
           if [ -z "$EVS_ACCOUNT_NAME" ] || [ -z "$EVS_PASSWD" ]; then
             echo "::warning::No castlabs EVS account in the secrets (EVS_ACCOUNT_NAME, EVS_PASSWD): this build isn't signed for Widevine, so Netflix and some other services won't play"
           fi
@@ -77,5 +101,5 @@ jobs:
           if gh release view "$tag" > /dev/null 2>&1; then
             gh release upload "$tag" dist/release/* --clobber
           else
-            gh release create "$tag" dist/release/* --title "Bifrost $VERSION" --notes-file RELEASE_NOTES.md --latest
+            gh release create "$tag" dist/release/* --target "$GITHUB_SHA" --title "Bifrost $VERSION" --notes-file RELEASE_NOTES.md --latest
           fi
