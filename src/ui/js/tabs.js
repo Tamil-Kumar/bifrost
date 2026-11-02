@@ -75,7 +75,7 @@ export function openUrl(url, { where = 'current', opener = null, typed = false, 
     case 'split': {
       const cur = activeTab();
       const t = openTab({ url, active: false, opener: cur });
-      if (cur) splitTabs([cur, t], { focusTab: t });
+      if (cur) splitWith(t);
       return t;
     }
     default: {
@@ -395,6 +395,21 @@ export function splitTabs(tabs, { orientation, focusTab: focusT } = {}) {
   selectTab(focusT || (tabs.includes(act) ? act : tabs[0]));
   emit('split-changed', sp);
   return sp;
+}
+
+// tab beside the one in front: added to the split view that one is in (next to it, up to four), or the
+// two in a new split view.
+export function splitWith(tab, { focusTab: focusT = tab } = {}) {
+  const cur = activeTab();
+  if (!tab || !cur || tab === cur || !S.tabs.includes(tab)) return null;
+  const sp = splitOf(cur);
+  if (sp && sp.tabIds.includes(tab.id)) { selectTab(tab); return sp; }
+  if (sp && sp.tabIds.length < 4) {
+    const ids = sp.tabIds.slice();
+    ids.splice(ids.indexOf(cur.id) + 1, 0, tab.id);
+    return splitTabs(ids.map(tabById).filter(Boolean), { orientation: sp.orientation, focusTab: focusT });
+  }
+  return splitTabs([cur, tab], { focusTab: focusT });
 }
 
 export function splitWithNext(tab = activeTab()) {

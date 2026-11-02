@@ -37,7 +37,7 @@ const MAP = [
   ['boosts.domains', 'launcher.boosts.domains'], ['boosts.folders', 'launcher.boosts.folders'],
   ['search.prefixes.bookmarks', 'launcher.prefixes.bookmarks'], ['search.prefixes.history', 'launcher.prefixes.history'],
   ['search.prefixes.tabs', 'launcher.prefixes.tabs'], ['search.prefixes.suggestions', 'launcher.prefixes.suggestions'],
-  ['behavior.enterAction', 'launcher.enterAction', 'newtab'], ['behavior.shiftEnterAction', 'launcher.shiftEnterAction'],
+  ['behavior.enterAction', 'launcher.open.enter', 'newtab'], ['behavior.shiftEnterAction', 'launcher.open.shift'],
   ['behavior.switchToOpenTab', 'launcher.switchToOpenTab'], ['behavior.emptyState', 'launcher.emptyState'], ['behavior.escClears', 'launcher.escClears'],
   ['behavior.suggestDelayMs', 'launcher.suggestDelayMs'], ['behavior.debounceMs', 'launcher.typingDelayMs'], ['behavior.omnibox', 'launcher.omnibox'],
   ['behavior.openMode', 'launcher.openMode'], ['behavior.windowHeight', 'launcher.windowHeight'], ['behavior.toolbarButton', 'launcher.toolbarButton'],
@@ -111,7 +111,9 @@ check('bookmark folders picked in Waypoint: searching all folders, with a note t
 
 check('Bifrost’s own export goes back exactly as it was', () => {
   const mine = fresh();
-  Object.assign(mine.launcher, { theme: 'nord', density: 'compact', enterAction: 'background', customCss: '.title { font-weight: 700 }', width: 760 });
+  Object.assign(mine.launcher, { theme: 'nord', density: 'compact', customCss: '.title { font-weight: 700 }', width: 760 });
+  Object.assign(mine.launcher.open, { enter: 'newtab', shift: 'current', ctrl: 'split' });
+  mine.launcher.keys.next = ['Ctrl+Shift+J'];
   mine.launcher.boosts.domains = [{ domain: 'example.com', factor: 3 }];
   mine.search.defaultEngine = 'ddg';
   mine.tabs.newTabOpensLauncher = false;
@@ -132,8 +134,51 @@ check('a value of the wrong kind is left out, not stored', () => {
   const s = apply(LS.importData(bad, fresh()), fresh());
   const L = s.launcher, d = D.DEFAULTS.launcher;
   assert(L.wMatch === d.wMatch && L.maxResults === d.maxResults && L.fuzzy === d.fuzzy, 'ranking garbage stored');
-  assert(L.enterAction === d.enterAction && L.openMode === d.openMode, 'behavior garbage stored');
+  assert(L.open.enter === d.open.enter && L.openMode === d.openMode, 'behavior garbage stored');
   assert(L.accent === d.accent && L.density === d.density && L.theme === d.theme, 'appearance garbage stored');
+});
+
+check('a 0.24.4 export (a setting each for Enter and Shift+Enter) comes in as the Enter table', () => {
+  const file = LS.exportData(fresh());
+  delete file.launcher.open;
+  Object.assign(file.launcher, { enterAction: 'background', shiftEnterAction: 'newtab' });
+  const s = apply(LS.importData(file, fresh()), fresh());
+  assert(s.launcher.open.enter === 'background' && s.launcher.open.shift === 'newtab' && s.launcher.open.ctrl === D.DEFAULTS.launcher.open.ctrl, JSON.stringify(s.launcher.open));
+  assert(!('enterAction' in s.launcher), 'the old setting stayed');
+});
+
+// ------------------------------------------------------------------ keys
+const ev = (mods = {}, code = 'Enter') => Object.assign({ code, key: code, ctrlKey: false, shiftKey: false, altKey: false, metaKey: false }, mods);
+check('Enter and a click: each combination of Shift, Ctrl and Alt has its own action; a middle-click too', () => {
+  const cfg = { open: { enter: 'newtab', shift: 'current', ctrl: 'split', alt: 'background', ctrlShift: 'window', altShift: 'private', ctrlAlt: 'web', middle: 'copy' } };
+  const want = [[{}, 'newtab'], [{ shiftKey: true }, 'current'], [{ ctrlKey: true }, 'split'], [{ metaKey: true }, 'split'], [{ altKey: true }, 'background'],
+    [{ ctrlKey: true, shiftKey: true }, 'window'], [{ altKey: true, shiftKey: true }, 'private'], [{ ctrlKey: true, altKey: true }, 'web'], [{ ctrlKey: true, altKey: true, shiftKey: true }, 'none']];
+  for (const [m, a] of want) assert(LS.openAction(cfg, ev(m)) === a, JSON.stringify(m) + ' → ' + LS.openAction(cfg, ev(m)) + ', not ' + a);
+  assert(LS.openAction(cfg, ev(), true) === 'copy', 'middle-click');
+  assert(LS.openAction({ open: { enter: 'teleport' } }, ev()) === 'current' && LS.openAction({ open: { shift: 'teleport' } }, ev({ shiftKey: true })) === 'none', 'an unknown action');
+  assert(LS.webPlace(cfg) === 'newtab' && LS.webPlace({ open: { enter: 'copy' } }) === 'current', 'where a web search opens');
+});
+check('the launcher’s other keys: defaults, your own, and Alt+1…9 (or Ctrl+1…9, or none) for the first nine results', () => {
+  const m = LS.keyMatcher(D.DEFAULTS.launcher);
+  const act = (code, mods) => (m(ev(mods, code)) || {}).act || null;
+  assert(act('ArrowDown') === 'next' && act('Tab') === 'next' && act('KeyN', { ctrlKey: true }) === 'next' && act('KeyJ', { ctrlKey: true }) === 'next', 'next');
+  assert(act('ArrowUp') === 'prev' && act('Tab', { shiftKey: true }) === 'prev' && act('KeyK', { ctrlKey: true }) === 'prev', 'previous');
+  assert(act('Escape') === 'close' && act('Delete', { shiftKey: true }) === 'remove' && act('KeyC', { ctrlKey: true, shiftKey: true }) === 'copy' && act('Comma', { ctrlKey: true }) === 'settings', 'close, remove, copy, settings');
+  assert(act('KeyN') === null && act('Delete') === null, 'plain keys are left for typing');
+  const pick = m(ev({ altKey: true }, 'Digit4'));
+  assert(pick && pick.act === 'pick' && pick.index === 3, 'Alt+4: ' + JSON.stringify(pick));
+  assert(!m(ev({ ctrlKey: true }, 'Digit4')), 'Ctrl+4 with Alt chosen');
+  const mine = LS.keyMatcher(Object.assign({}, D.DEFAULTS.launcher, { quickPick: 'ctrl', keys: Object.assign({}, D.DEFAULTS.launcher.keys, { next: ['Ctrl+Shift+J'], close: ['Escape', 'Ctrl+W'] }) }));
+  assert((mine(ev({ ctrlKey: true, shiftKey: true }, 'KeyJ')) || {}).act === 'next' && !mine(ev({}, 'ArrowDown')), 'your own key for next');
+  assert((mine(ev({ ctrlKey: true }, 'KeyW')) || {}).act === 'close', 'a second key for close');
+  assert((mine(ev({ ctrlKey: true }, 'Digit2')) || {}).index === 1 && !mine(ev({ altKey: true }, 'Digit2')), 'Ctrl+1…9');
+  const none = LS.keyMatcher(Object.assign({}, D.DEFAULTS.launcher, { quickPick: 'none' }));
+  assert(!none(ev({ altKey: true }, 'Digit2')), 'quick open off');
+});
+check('keys that type something need Ctrl or Alt; Enter belongs to the Enter table', () => {
+  const ok = (a) => LS.keyAllowed(D.parseAccelerator(a));
+  for (const a of ['Down', 'Tab', 'Shift+Tab', 'Escape', 'PageDown', 'F2', 'Ctrl+N', 'Alt+J', 'Ctrl+Space', 'Shift+Delete', 'Ctrl+Shift+Backspace']) assert(ok(a), a + ' refused');
+  for (const a of ['A', 'Shift+A', '5', 'Space', 'Backspace', 'Enter', 'Ctrl+Enter', 'Comma']) assert(!ok(a), a + ' allowed');
 });
 
 check('anything else is turned away', () => {

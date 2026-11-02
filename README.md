@@ -17,7 +17,7 @@ src/ui          the browser window (bifrost://ui): browser.html, browser.css, js
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
 src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking),
-                launcher-settings.js (the launcher's settings files, Waypoint's included)
+                launcher-settings.js (the launcher's settings files, Waypoint's included, and its keys)
 src/vendor      electron-chrome-extensions, electron-chrome-web-store, Ghostery's adblocker, Readability
 assets          icons, bundled filter lists
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
@@ -55,7 +55,8 @@ downloads, checksums, restarting into the update). The Windows setup, end to end
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders, `file-guard`
 what local pages may load, `blend` the colors of "Match the page", `launcher-settings` that every setting
-of the Waypoint extension has a place in Settings → Launcher and that its settings files import whole).
+of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and
+what Enter and the launcher's other keys do).
 
 ## Releases
 

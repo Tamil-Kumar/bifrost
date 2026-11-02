@@ -71,5 +71,29 @@ check('it runs once: choosing “like the computer” again after 0.22 sticks', 
   const b = new Settings(dir);
   assert(b.get('appearance.webTheme') === 'system', b.get('appearance.webTheme'));
 });
+check('0.24.4’s Enter and Shift+Enter settings carry over to the launcher’s Enter table', () => {
+  const o = clone(DEFAULTS);
+  o.settingsVersion = 3;
+  delete o.launcher.open;
+  Object.assign(o.launcher, { enterAction: 'newtab', shiftEnterAction: 'current' });
+  const s = load(o);
+  assert(s.launcher.open.enter === 'newtab' && s.launcher.open.shift === 'current', JSON.stringify(s.launcher.open));
+  assert(s.launcher.open.ctrl === DEFAULTS.launcher.open.ctrl, 'the other keys keep their defaults: ' + JSON.stringify(s.launcher.open));
+  assert(!('enterAction' in s.launcher) && !('shiftEnterAction' in s.launcher), 'the old settings are still there');
+  // untouched ones change nothing
+  const o2 = clone(DEFAULTS);
+  o2.settingsVersion = 3;
+  delete o2.launcher.open;
+  Object.assign(o2.launcher, { enterAction: 'current', shiftEnterAction: 'split' });
+  const s2 = load(o2);
+  assert(JSON.stringify(s2.launcher.open) === JSON.stringify(DEFAULTS.launcher.open), JSON.stringify(s2.launcher.open));
+  // one changed: both carry over (Enter stays in this tab)
+  const o3 = clone(DEFAULTS);
+  o3.settingsVersion = 3;
+  delete o3.launcher.open;
+  Object.assign(o3.launcher, { enterAction: 'current', shiftEnterAction: 'newtab' });
+  const s3 = load(o3);
+  assert(s3.launcher.open.enter === 'current' && s3.launcher.open.shift === 'newtab', JSON.stringify(s3.launcher.open));
+});
 console.log(`\nsettings: ${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

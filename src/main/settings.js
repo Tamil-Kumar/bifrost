@@ -6,7 +6,7 @@ const { EventEmitter } = require('node:events');
 const { DEFAULTS, deepMerge, setPath, getPath, clone } = require('../shared/defaults');
 
 // One-time changes to settings saved by older versions. settingsVersion records which have run.
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 4;
 function migrate(raw) {
   const v = Number(raw.settingsVersion) || 1;
   if (v < 2) {
@@ -32,6 +32,10 @@ function migrate(raw) {
     // userstyles). Now they follow Bifrost's theme by default, as in Firefox; "Like your computer is set" is still
     // there in Settings → Appearance.
     if (raw.appearance && raw.appearance.webTheme === 'system') raw.appearance.webTheme = 'browser';
+  }
+  if (v < 4 && raw.launcher && typeof raw.launcher === 'object') {
+    // 0.24.4 had a setting each for Enter and Shift+Enter; now every Enter combination has one.
+    raw.launcher = require('../shared/launcher-settings').upgrade(raw.launcher);
   }
   raw.settingsVersion = SETTINGS_VERSION;
   return raw;

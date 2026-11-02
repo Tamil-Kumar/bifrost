@@ -20,6 +20,8 @@ const site = await startSite(undefined, { routes: {
   '/dl/file.zip': (req, res) => { res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="file.zip"' }); res.end(Buffer.alloc(1024)); },
   // A dark page whose color comes from a wrapper, not from <body> (as in many web apps).
   '/dark.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Dark</title><style>html,body{margin:0;height:100%}#app{position:fixed;inset:0;background:#13233a;color:#e8eef7;font:20px sans-serif;padding:40px}</style><div id="app">A dark app</div>'); },
+  // A page to visit and then remove from history from the launcher.
+  '/forget.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Forget me soon</title><p>forget me</p>'); },
 } });
 const t = await launch({ profile: 'behavior', args: [site.url + '/a.html'] });
 const x = xinput();
@@ -333,16 +335,29 @@ try {
     await t.until(() => document.querySelectorAll('.launcher .rrow').length || 0, null, 4000, 'the launcher’s results');
     await sleep(250);
   };
-  const lOpen = () => t.ui(() => !!document.querySelector('.launcher-layer'));
+  // (a launcher fading out takes no input: closed)
+  const lOpen = () => t.ui(() => !!document.querySelector('.launcher-layer:not(.closing)'));
+  const DEF_L = await t.main(() => global.__require('../shared/defaults').DEFAULTS.launcher);
+  // Back to the defaults, whatever a step changed (so one failing step can't spoil the next).
+  const resetL = async (...keys) => { for (const k of keys) await L(k, DEF_L[k]); };
+  const closeSettingsTabs = async () => {
+    for (let i = 0; i < 4; i++) {
+      const id = await t.ui(() => { const tb = window.__wbTest.state.tabs.find((x) => x.url.startsWith('bifrost://settings')); return tb ? tb.id : null; });
+      if (!id) return;
+      await t.ui((id) => { const S = window.__wbTest.state; const tb = S.tabs.find((x) => x.id === id); const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); if (w && tb) w.activeTabId = tb.id; window.__wbTest.command('closeTab'); }, id);
+      await sleep(400);
+    }
+  };
   const firstTitle = () => t.ui(() => { const el = document.querySelector('.launcher .rrow.sel .r-title'); return el ? el.textContent : ''; });
   const shutL = async () => { if (await lOpen()) { await t.ui(() => { const q = document.querySelector('.launcher .l-q'); if (q) q.value = ''; }); await x.key('Escape'); await sleep(350); if (await lOpen()) { await x.key('Escape'); await sleep(350); } } };
 
   await R.step('launcher, Keys & behavior: Enter and Shift+Enter open where they’re set to, an open tab is jumped to (or not), Esc clears first, the typing delay', async () => {
+   try {
     // "Wide things": in the history, not open.
     await open(site.url + '/wide.html', false); await sleep(1500);
     await t.ui(() => window.__wbTest.command('closeTab')); await sleep(600);
     await clickTab('/a.html');
-    await L('enterAction', 'newtab');
+    await L('open.enter', 'newtab');
     let n = await tabCount();
     await openL('Wide things');
     assert(/Wide things/.test(await firstTitle()), 'first result: ' + await firstTitle());
@@ -350,13 +365,13 @@ try {
     assert(await tabCount() === n + 1 && /wide\.html/.test(await activeUrl()), 'Enter → a new tab didn’t: ' + await activeUrl());
     await t.ui(() => window.__wbTest.command('closeTab')); await sleep(500);
     await clickTab('/a.html');
-    await L('shiftEnterAction', 'background');
+    await L('open.shift', 'background');
     n = await tabCount();
     await openL('Wide things');
     await x.keyDown('Shift_L'); await x.key('Return'); await x.keyUp('Shift_L'); await sleep(1000);
     assert(await tabCount() === n + 1 && /\/a\.html/.test(await activeUrl()), 'Shift+Enter → a background tab didn’t: ' + await activeUrl() + ', ' + (await tabCount()) + ' tabs');
     // Wide things is open (in the background) now. Only its history result, which knows that tab:
-    await L('enterAction', 'current');
+    await L('open.enter', 'current');
     await L('sources.tabs.enabled', false);
     await openL('Wide things');
     const flagged = await t.ui(() => !!document.querySelector('.launcher .rrow.sel .r-flag'));
@@ -399,8 +414,11 @@ try {
     const late = await firstTitle();
     assert(!/Wide/.test(early) && /Wide things/.test(late), 'typing delay: ' + JSON.stringify({ early, late }));
     await shutL();
-    await L('typingDelayMs', 0);
-    await L('shiftEnterAction', 'split');
+   } finally {
+    await shutL();
+    await resetL('typingDelayMs', 'open', 'escClears', 'switchToOpenTab');
+    await L('sources.tabs.enabled', true);
+   }
   });
 
   await R.step('launcher, Sources: only this window’s tabs; how much history is searched instantly', async () => {
@@ -491,6 +509,372 @@ try {
     } finally { await set('appearance.toolbar', tb); }
   });
 
+
+  // ---------------------------------------------------------------- the launcher, polished (0.24.5)
+  const splits = () => t.ui(() => { const S = window.__wbTest.state; return S.splits.filter((sp) => sp.tabIds.length).map((sp) => sp.tabIds.slice()); });
+  const splitUrls = () => t.ui(() => { const S = window.__wbTest.state; return S.splits.filter((sp) => sp.tabIds.length).map((sp) => sp.tabIds.map((id) => S.tabs.find((x) => x.id === id).url.split('/').pop())); });
+  const rowsNow = () => t.ui(() => [...document.querySelectorAll('.launcher .rrow')].map((r) => ({ type: r.dataset.type, tab: r.dataset.tab || null, title: r.querySelector('.r-title').textContent, sel: r.classList.contains('sel') })));
+  const selIdx = () => t.ui(() => [...document.querySelectorAll('.launcher .rrow')].findIndex((r) => r.classList.contains('sel')));
+  const active = () => t.ui(() => { const s = window.__wbTest.state; const w = s.workspaces.find((x) => x.id === s.activeWorkspaceId); const tb = s.tabs.find((x) => x.id === w.activeTabId); return tb ? { id: tb.id, url: tb.url, title: tb.title } : null; });
+  const backTo = async (part) => t.until((p) => { const s = window.__wbTest.state; const w = s.workspaces.find((x) => x.id === s.activeWorkspaceId); const tb = s.tabs.find((x) => x.id === w.activeTabId); return tb && tb.url.includes(p); }, part, 5000, part + ' in front');
+  // (the split view the tab in front is in)
+  const unsplit = () => t.ui(() => window.__wbTest.command('unsplit'));
+  const unsplitAll = async () => { for (let i = 0; i < 4 && (await splits()).length; i++) { const id = (await splits())[0][0]; await t.ui((id) => { const S = window.__wbTest.state; const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); w.activeTabId = id; window.__wbTest.command('unsplit'); }, id); await sleep(300); } };
+  const closeAll = async (part) => { for (const tb of await tabs()) if (tb.url.includes(part)) { await t.ui((id) => { const S = window.__wbTest.state; const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); w.activeTabId = id; window.__wbTest.command('closeTab'); }, tb.id); await sleep(350); } };
+  const pickTabs = (label) => t.until(() => { const rows = [...document.querySelectorAll('.launcher .rrow')]; return rows.length && rows.every((r) => r.dataset.type === 'tab') ? rows.map((r) => ({ tab: r.dataset.tab, title: r.querySelector('.r-title').textContent })) : null; }, null, 4000, label);
+
+  await R.step('launcher: “Split view with a tab you pick” from the command palette: the pick splits, and nothing is left over the window', async () => {
+    try {
+      await clickTab('/a.html');
+      const a = await active();
+      const layers = () => t.ui(() => ({ n: document.querySelectorAll('.launcher-layer:not(.closing)').length, open: document.documentElement.classList.contains('launcher-open'), chip: (document.querySelector('.launcher .l-mode:not([hidden])') || {}).textContent || '' }));
+      await openL('> split view with a tab you pick');
+      assert(/Split view with a tab you pick/i.test(await firstTitle()), 'the command isn’t first: ' + await firstTitle());
+      await x.key('Return');
+      const pick = await pickTabs('the tabs to pick from');
+      const st = await layers();
+      assert(st.n === 1 && st.open && st.chip === 'Split view', 'the picker: ' + JSON.stringify(st));
+      assert(!pick.some((r) => r.tab === a.id), 'the tab in front is offered: ' + JSON.stringify(pick));
+      const i = pick.findIndex((r) => r.title === 'Page B');
+      assert(i >= 0, 'Page B isn’t offered: ' + JSON.stringify(pick));
+      for (let k = 0; k < i; k++) await x.key('Down');
+      await x.key('Return');
+      try { await t.until(() => !document.querySelector('.launcher-layer') && !document.documentElement.classList.contains('launcher-open'), null, 3000, 'the launcher gone after the pick'); }
+      catch (e) { await t.shot('behavior-launcher-stuck'); throw e; }
+      let sp = await splits();
+      assert(sp.length === 1 && JSON.stringify(sp[0]) === JSON.stringify([a.id, pick[i].tab]), 'not split: ' + JSON.stringify({ sp, a: a.id, b: pick[i].tab }));
+      // The window still answers: the launcher opens again, and closes.
+      await openL('Page');
+      await shutL();
+      assert(!(await lOpen()), 'it didn’t close');
+      // Picking with the mouse, from a tab in a split: the pick joins that split.
+      await t.ui(() => window.__wbTest.command('splitPick'));
+      const rows = await pickTabs('the tabs to pick from, again');
+      assert(!rows.some((r) => sp[0].includes(r.tab)), 'tabs already in the split are offered: ' + JSON.stringify(rows));
+      // (the last one offered: any tab will do)
+      const c = await t.ui(() => { const el = [...document.querySelectorAll('.launcher .rrow')].pop(); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + 60, y: r.y + r.height / 2, tab: el.dataset.tab }; });
+      assert(c && c.tab, 'no tab offered: ' + JSON.stringify(rows));
+      await x.click(c.x, c.y); await x.move(900, 700);
+      await t.until(() => !document.querySelector('.launcher-layer'), null, 3000, 'the launcher gone after the click');
+      sp = await splits();
+      assert(sp.length === 1 && sp[0].length === 3 && sp[0].includes(c.tab), 'the click didn’t join the split: ' + JSON.stringify({ sp, colors: c.tab }));
+      await t.shot('behavior-launcher-split3');
+    } finally {
+      await shutL();
+      await unsplitAll();
+    }
+    assert((await splits()).length === 0, 'still split: ' + JSON.stringify(await splits()));
+  });
+
+  await R.step('launcher, Opening results (the defaults): Enter opens a new tab, Shift+Enter this tab, Ctrl+Enter beside this tab, in its split', async () => {
+    try {
+      assert(DEF_L.open.enter === 'newtab' && DEF_L.open.shift === 'current' && DEF_L.open.ctrl === 'split', 'the defaults: ' + JSON.stringify(DEF_L.open));
+      assert(JSON.stringify(await t.main(() => global.__bifrost.settings.get('launcher.open'))) === JSON.stringify(DEF_L.open), 'not at the defaults');
+      await closeAll('/wide.html');
+      await clickTab('/a.html');
+      let n = await tabCount();
+      await openL('Wide things');
+      const hints = await t.ui(() => [...document.querySelectorAll('.launcher .l-hints > span')].map((e) => e.textContent));
+      assert(hints[0] === '↵New tab' && hints[1] === 'Shift+↵This tab' && hints[2] === 'Ctrl+↵Split view', 'the hints: ' + JSON.stringify(hints));
+      await x.key('Return'); await sleep(1000);
+      assert(await tabCount() === n + 1 && /wide\.html/.test(await activeUrl()), 'Enter: ' + await activeUrl() + ', ' + (await tabCount()) + ' tabs');
+      await t.ui(() => window.__wbTest.command('closeTab')); await sleep(500);
+      await clickTab('/a.html');
+      n = await tabCount();
+      await openL('Wide things');
+      await x.keyDown('Shift_L'); await x.key('Return'); await x.keyUp('Shift_L'); await sleep(1000);
+      assert(await tabCount() === n && /wide\.html/.test(await activeUrl()), 'Shift+Enter: ' + await activeUrl() + ', ' + (await tabCount()) + ' tabs');
+      await t.ui(() => window.__wbTest.command('back'));
+      await backTo('/a.html');
+      // Ctrl+Enter, from a tab that isn't split: the two side by side.
+      n = await tabCount();
+      await openL('Wide things');
+      await x.keyDown('Control_L'); await x.key('Return'); await x.keyUp('Control_L'); await sleep(1200);
+      let sp = await splitUrls();
+      assert(await tabCount() === n + 1 && sp.length === 1 && JSON.stringify(sp[0]) === '["a.html","wide.html"]', 'Ctrl+Enter: ' + JSON.stringify(sp));
+      assert(/wide\.html/.test(await activeUrl()), 'the new pane isn’t in front: ' + await activeUrl());
+      // ...and from a tab in that split: into it, next to the tab (not a split of its own).
+      await t.ui(() => window.__wbTest.command('focusPrevPane')); await sleep(400);
+      await backTo('/a.html');
+      await openL('Page B');
+      await x.keyDown('Control_L'); await x.key('Return'); await x.keyUp('Control_L'); await sleep(1200);
+      sp = await splitUrls();
+      assert(sp.length === 1 && JSON.stringify(sp[0]) === '["a.html","b.html","wide.html"]', 'Ctrl+Enter in a split: ' + JSON.stringify(sp));
+      await t.shot('behavior-launcher-ctrl-enter');
+      await unsplitAll();
+      await closeAll('/wide.html');
+      // Ctrl+T (opening the launcher, as it does by default): Enter opens in the new tab, whatever Enter is set to.
+      assert(await t.main(() => global.__bifrost.settings.get('tabs.newTabOpensLauncher')) === true, 'Ctrl+T doesn’t open the launcher');
+      await clickTab('/a.html');
+      n = await tabCount();
+      await t.ui(() => window.__wbTest.command('newTab'));
+      await t.until(() => !!document.querySelector('.launcher-layer:not(.closing) .l-q'), null, 3000, 'the launcher for a new tab');
+      await t.ui(() => { const q = document.querySelector('.launcher .l-q'); q.value = 'Wide things'; q.dispatchEvent(new Event('input')); });
+      await sleep(700);
+      await x.key('Return'); await sleep(1000);
+      assert(await tabCount() === n + 1 && /wide\.html/.test(await activeUrl()), 'Ctrl+T, Enter: ' + await activeUrl() + ', ' + (await tabCount()) + ' tabs');
+      await t.ui(() => window.__wbTest.command('closeTab')); await sleep(500);
+      // Editing the page's address (Ctrl+L without an address bar): Enter goes there, in this tab.
+      await clickTab('/a.html');
+      n = await tabCount();
+      await t.ui((u) => window.__wbTest.command('launcher', { mode: 'address', text: u }), site.url + '/wide.html');
+      await t.until(() => document.querySelectorAll('.launcher .rrow').length || 0, null, 4000, 'results for the address');
+      await sleep(300);
+      await x.key('Return'); await sleep(1000);
+      assert(await tabCount() === n && /wide\.html/.test(await activeUrl()), 'editing the address, Enter: ' + await activeUrl() + ', ' + (await tabCount()) + ' tabs');
+      await t.ui(() => window.__wbTest.command('back'));
+      await backTo('/a.html');
+    } finally {
+      await shutL();
+      await unsplitAll();
+      await closeAll('/wide.html');
+    }
+  });
+
+  await R.step('launcher keys: Alt+1…9 (numbers shown while Alt is held), a key changed, Ctrl+Shift+C copies, Shift+Delete removes a history result', async () => {
+    try {
+      await clickTab('/a.html');
+      const before = await active();
+      await openL('Page'); await sleep(400);
+      const rows = await rowsNow();
+      assert(rows.length >= 2, 'rows: ' + JSON.stringify(rows));
+      await x.keyDown('Alt_L'); await sleep(200);
+      const nums = await t.ui(() => ({ on: document.querySelector('.launcher-layer').classList.contains('show-nums'), shown: [...document.querySelectorAll('.launcher .r-num')].filter((e) => getComputedStyle(e).display !== 'none').map((e) => e.textContent) }));
+      await x.key('2'); await x.keyUp('Alt_L'); await sleep(1000);
+      assert(nums.on && nums.shown[0] === '1' && nums.shown[1] === '2', 'the numbers: ' + JSON.stringify(nums));
+      const now = await active();
+      // (a tab result switches to that tab; anything else opens as Enter does: in a new tab)
+      const want = rows[1].type === 'tab' ? now.id === rows[1].tab : now.id !== before.id && now.title === rows[1].title;
+      assert(!(await lOpen()) && want, 'Alt+2 didn’t open the second result: ' + JSON.stringify({ now, want: rows[1] }));
+      if (rows[1].type !== 'tab') { await t.ui(() => window.__wbTest.command('closeTab')); await sleep(400); }
+      await clickTab('/a.html');
+      // Off: no numbers (and Alt+1…9 is left to the browser: switching spaces).
+      await L('quickPick', 'none');
+      await openL('Page'); await sleep(300);
+      await x.keyDown('Alt_L'); await sleep(200);
+      const off = await t.ui(() => ({ on: document.querySelector('.launcher-layer').classList.contains('show-nums'), nums: document.querySelectorAll('.launcher .r-num').length }));
+      await x.keyUp('Alt_L');
+      assert(!off.on && off.nums === 0, 'numbers with Quick open off: ' + JSON.stringify(off));
+      await shutL();
+      await resetL('quickPick');
+      // "Next result": Ctrl+Shift+J only (Down doesn't move it any more).
+      await L('keys.next', ['Ctrl+Shift+J']);
+      await openL('Page'); await sleep(400);
+      await x.key('Down'); await sleep(150);
+      const afterDown = await selIdx();
+      await x.keyDown('Control_L'); await x.keyDown('Shift_L'); await x.key('j'); await x.keyUp('Shift_L'); await x.keyUp('Control_L'); await sleep(150);
+      const afterJ = await selIdx();
+      assert(afterDown === 0 && afterJ === 1, 'next: ' + JSON.stringify({ afterDown, afterJ }));
+      await shutL();
+      await L('keys.next', DEF_L.keys.next);
+      // Copy the address.
+      await t.main(({ clipboard }) => clipboard.writeText('nothing yet'));
+      await openL('Page B'); await sleep(300);
+      assert(/Page B/.test(await firstTitle()), 'first: ' + await firstTitle());
+      await x.keyDown('Control_L'); await x.keyDown('Shift_L'); await x.key('c'); await x.keyUp('Shift_L'); await x.keyUp('Control_L');
+      await sleep(500);
+      const copied = await t.main(({ clipboard }) => clipboard.readText());
+      assert(/\/b\.html$/.test(copied) && !(await lOpen()), 'copy: ' + JSON.stringify({ copied, open: await lOpen() }));
+      // Shift+Delete: out of history.
+      await open(site.url + '/forget.html', false); await sleep(1500);
+      await t.ui(() => window.__wbTest.command('closeTab')); await sleep(600);
+      await clickTab('/a.html');
+      const inHistory = () => t.ui(() => window.wb.invoke('search:more', { raw: 'Forget me soon', activeWcId: null }).then((r) => r.items.some((it) => it.type === 'history' && /forget\.html/.test(it.url))));
+      assert(await inHistory(), 'the page isn’t in history to begin with');
+      await openL('Forget me soon'); await sleep(400);
+      const fr = await rowsNow();
+      assert(fr[0] && fr[0].type === 'history' && /Forget me soon/.test(fr[0].title), 'first: ' + JSON.stringify(fr[0]));
+      await x.keyDown('Shift_L'); await x.key('Delete'); await x.keyUp('Shift_L'); await sleep(900);
+      const fr2 = await rowsNow();
+      assert(await lOpen() && !fr2.some((r) => r.type === 'history' && /Forget me soon/.test(r.title)), 'still listed: ' + JSON.stringify(fr2));
+      assert(!(await inHistory()), 'still in history');
+    } finally {
+      await shutL();
+      await resetL('quickPick');
+      await L('keys.next', DEF_L.keys.next);
+    }
+  });
+
+  await R.step('launcher: Enter just after typing opens what’s typed (even with a typing delay); an Enter that ends an IME composition opens nothing', async () => {
+    try {
+      await clickTab('/a.html');
+      await L('typingDelayMs', 400);
+      await openL('Page B'); await sleep(300);
+      const n = await tabCount();
+      await t.ui(() => { const q = document.querySelector('.launcher .l-q'); q.value = 'Wide things'; q.dispatchEvent(new Event('input')); });
+      await x.key('Return'); await sleep(1200);
+      assert(await tabCount() === n + 1 && /wide\.html/.test(await activeUrl()), 'Enter opened what was there before: ' + await activeUrl());
+      await t.ui(() => window.__wbTest.command('closeTab')); await sleep(500);
+      await resetL('typingDelayMs');
+      await clickTab('/a.html');
+      await openL('Wide things'); await sleep(300);
+      const n2 = await tabCount();
+      await t.ui(() => document.querySelector('.launcher .l-q').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, bubbles: true, cancelable: true })));
+      await sleep(700);
+      assert(await lOpen() && await tabCount() === n2 && /\/a\.html/.test(await activeUrl()), 'the composition’s Enter opened something');
+    } finally {
+      await shutL();
+      await resetL('typingDelayMs');
+      await closeAll('/wide.html');
+    }
+  });
+
+  await R.step('launcher, behavior and look: opens with what was typed last, wrap around, pointing selects, what matches, the clear button, switching to another app, staying open for background tabs', async () => {
+    try {
+      await clickTab('/a.html');
+      // Opens with what you typed last (all selected), or empty.
+      await L('rememberQuery', true);
+      await openL('Wide'); await x.key('Escape'); await sleep(400);
+      await t.ui(() => window.__wbTest.command('launcher')); await sleep(500);
+      const rq = await t.ui(() => { const q = document.querySelector('.launcher .l-q'); return { v: q.value, s: q.selectionStart, e: q.selectionEnd }; });
+      assert(rq.v === 'Wide' && rq.s === 0 && rq.e === 4, 'remembered: ' + JSON.stringify(rq));
+      await x.key('Escape'); await sleep(400);
+      await resetL('rememberQuery');
+      await t.ui(() => window.__wbTest.command('launcher')); await sleep(500);
+      assert(await t.ui(() => document.querySelector('.launcher-layer:not(.closing) .l-q').value) === '', 'with it off it isn’t empty');
+      await shutL();
+      // Wrap around.
+      await openL('Page'); await sleep(500);
+      await x.key('Up'); await sleep(150);
+      let rows = await rowsNow();
+      assert(rows.length > 2 && rows[rows.length - 1].sel, 'Up from the first, wrapping: ' + JSON.stringify(rows.map((r) => r.sel)));
+      await shutL();
+      await L('wrap', false);
+      await openL('Page'); await sleep(500);
+      await x.key('Up'); await sleep(150);
+      assert(await selIdx() === 0, 'Up from the first without wrapping: ' + await selIdx());
+      await x.keyDown('Control_L'); await x.key('End'); await x.keyUp('Control_L'); await sleep(150);
+      rows = await rowsNow();
+      const last = rows.length - 1;
+      assert(rows[last].sel, 'Ctrl+End: ' + await selIdx());
+      await x.key('Down'); await sleep(150);
+      assert(await selIdx() === last, 'Down from the last without wrapping: ' + await selIdx());
+      await shutL();
+      await resetL('wrap');
+      // Pointing at a result selects it (or doesn't).
+      for (const on of [true, false]) {
+        await L('hoverSelects', on);
+        await openL('Page'); await sleep(500);
+        const r = await t.ui(() => { const el = document.querySelectorAll('.launcher .rrow')[1]; const b = el.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+        await x.move(r.x, r.y); await sleep(60); await x.move(r.x + 6, r.y + 1); await sleep(250);
+        const i = await selIdx();
+        assert(on ? i === 1 : i === 0, `pointing ${on ? 'on' : 'off'}: ${i}`);
+        await x.move(900, 860); await sleep(100);
+        await shutL();
+      }
+      await resetL('hoverSelects');
+      // What matches: in the accent, bold, or not marked.
+      const mark = () => t.ui(() => { const m = document.querySelector('.launcher .r-title mark'); if (!m) return null; const ti = m.closest('.r-title'); const a = getComputedStyle(m), b = getComputedStyle(ti); return { c: a.color, tc: b.color, w: a.fontWeight, tw: b.fontWeight, bg: a.backgroundImage }; });
+      const looks = {};
+      for (const hl of ['accent', 'bold', 'none']) { await L('highlight', hl); await openL('Page'); await sleep(300); looks[hl] = await mark(); await shutL(); }
+      await resetL('highlight');
+      const { accent: acc, bold, none } = looks;
+      assert(acc && (acc.c !== acc.tc || acc.bg !== 'none'), 'in the accent: ' + JSON.stringify(acc));
+      assert(bold && bold.c === bold.tc && bold.bg === 'none' && Number(bold.w) >= 700, 'bold: ' + JSON.stringify(bold));
+      assert(none && none.c === none.tc && none.bg === 'none' && none.w === none.tw, 'not marked: ' + JSON.stringify(none));
+      // The clear button.
+      await openL('Wide');
+      const cb = await t.ui(() => { const b = document.querySelector('.launcher .l-clear'); const r = b.getBoundingClientRect(); return { hidden: b.hidden, x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      assert(!cb.hidden, 'no clear button');
+      await x.click(cb.x, cb.y); await sleep(400);
+      const after = await t.ui(() => ({ v: document.querySelector('.launcher .l-q').value, focus: document.activeElement && document.activeElement.id, hidden: document.querySelector('.launcher .l-clear').hidden, open: !!document.querySelector('.launcher-layer:not(.closing)') }));
+      assert(after.open && after.v === '' && after.focus === 'q' && after.hidden, 'clearing: ' + JSON.stringify(after));
+      await shutL();
+      await L('clearButton', false);
+      await openL('Wide');
+      assert(await t.ui(() => document.querySelector('.launcher .l-clear').hidden), 'the button shows with it off');
+      await shutL();
+      await resetL('clearButton');
+      // Another app (here: another window) taking the focus: it stays, or with the setting on, closes.
+      const away = async () => {
+        const id = await t.main((_, u) => global.__bifrost.windows.create({ urls: [u] }).id, site.url + '/b.html');
+        await sleep(2000);
+        const still = await lOpen();
+        await t.main((_, id) => { const c = global.__bifrost.registry.get(id); if (c && c.win && !c.win.isDestroyed()) c.win.destroy(); }, id);
+        await sleep(600);
+        await t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui')); if (w) w.focus(); });
+        await sleep(500);
+        return still;
+      };
+      await openL('Wide');
+      assert(await away(), 'it closed when another window took the focus');
+      await shutL();
+      await L('closeOnBlur', true);
+      await openL('Wide');
+      assert(!(await away()), 'with “Close it when you switch to another app” on, it stayed');
+      await resetL('closeOnBlur');
+      await shutL();
+      // A middle-click opens in a background tab; with "Stay open…", the launcher stays for the next one.
+      await clickTab('/a.html');
+      for (const stay of [false, true]) {
+        await L('backgroundStaysOpen', stay);
+        const n = await tabCount();
+        await openL('Wide things'); await sleep(300);
+        const r = await t.ui(() => { const el = document.querySelector('.launcher .rrow'); const b = el.getBoundingClientRect(); return { x: b.x + 80, y: b.y + b.height / 2 }; });
+        await x.click(r.x, r.y, 2); await sleep(900);
+        const st = { tabs: await tabCount(), open: await lOpen(), url: await activeUrl() };
+        assert(st.tabs === n + 1 && /\/a\.html/.test(st.url) && st.open === stay, `middle-click (stay open ${stay}): ` + JSON.stringify(st));
+        if (stay) assert(await t.ui(() => document.activeElement && document.activeElement.id === 'q'), 'the box lost the keyboard');
+        await shutL();
+        await closeAll('/wide.html');
+        await clickTab('/a.html');
+      }
+    } finally {
+      await shutL();
+      await resetL('rememberQuery', 'wrap', 'hoverSelects', 'highlight', 'clearButton', 'closeOnBlur', 'backgroundStaysOpen');
+      await closeAll('/wide.html');
+    }
+  });
+
+  await R.step('Settings → Launcher: Opening results and the launcher’s keys, changed there', async () => {
+    const guest = (js) => t.guest('bifrost://settings', js);
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(200); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    try {
+      await closeSettingsTabs();
+      await open('bifrost://settings/#launcher-open', false);
+      await until(() => guest("!!document.querySelector('[data-path=\"launcher.open.ctrlAlt\"] select') && !!document.querySelector('.kb-row[data-act=clear] .kb-add')"), 8000, 'Opening results and the keys');
+      const opts = await guest("[...document.querySelectorAll('[data-path=\"launcher.open.enter\"] option')].map((o) => o.value)");
+      assert(['current', 'newtab', 'background', 'split', 'window', 'private', 'copy', 'web', 'none'].every((v) => opts.includes(v)), 'Enter offers: ' + JSON.stringify(opts));
+      await guest("(() => { const s = document.querySelector('[data-path=\"launcher.open.alt\"] select'); s.value = 'copy'; s.dispatchEvent(new Event('change')); return 1; })()");
+      await until(async () => (await t.main(() => global.__bifrost.settings.get('launcher.open.alt'))) === 'copy', 3000, 'Alt+Enter → copy');
+      // Record a key for "Clear the box": a real click on + Add, then real keys.
+      const view = await t.ui(() => { const v = document.querySelector('webview.active, #views webview:not([hidden])'); const r = v.getBoundingClientRect(); return { x: r.x, y: r.y }; });
+      await guest("(() => { document.querySelector('.kb-row[data-act=clear] .kb-add').scrollIntoView({ block: 'center', behavior: 'instant' }); return 1; })()");
+      await sleep(500);
+      const btn = await guest("(() => { const r = document.querySelector('.kb-row[data-act=clear] .kb-add').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, H: innerHeight }; })()");
+      await x.click(view.x + btn.x, view.y + btn.y); await sleep(300);
+      if (!(await guest("document.querySelector('.kb-row[data-act=clear] .kb-add').classList.contains('recording')"))) {
+        await t.shot('behavior-launcher-keys-norec');
+        throw new Error('not recording: ' + JSON.stringify({ view, btn, at: await guest(`(() => { const e = document.elementFromPoint(${btn.x}, ${btn.y}); return e ? e.outerHTML.slice(0, 120) : null; })()`) }));
+      }
+      // Enter can't be one (it's Opening results); a plain letter can't either; Ctrl+Shift+Y can.
+      await x.key('Return'); await sleep(300);
+      await x.key('y'); await sleep(300);
+      await x.keyDown('Control_L'); await x.keyDown('Shift_L'); await x.key('y'); await x.keyUp('Shift_L'); await x.keyUp('Control_L');
+      const keys = await until(async () => { const k = await t.main(() => global.__bifrost.settings.get('launcher.keys.clear')); return k && k.length ? k : null; }, 3000, 'the new key');
+      assert(JSON.stringify(keys) === '["Ctrl+Shift+Y"]', 'recorded: ' + JSON.stringify(keys));
+      const chip = await until(() => guest("(() => { const c = document.querySelector('.kb-row[data-act=clear] .kb-chip'); return c ? c.textContent : null; })()"), 3000, 'the key shown');
+      assert(/Ctrl\+Shift\+Y/.test(chip), 'shown: ' + chip);
+      await t.shot('behavior-launcher-keys-settings');
+      // And it works in the launcher: Ctrl+Shift+Y empties the box.
+      await clickTab('/a.html');
+      await openL('Wide'); await sleep(200);
+      await x.keyDown('Control_L'); await x.keyDown('Shift_L'); await x.key('y'); await x.keyUp('Shift_L'); await x.keyUp('Control_L'); await sleep(300);
+      const v = await t.ui(() => ({ v: document.querySelector('.launcher .l-q').value, open: !!document.querySelector('.launcher-layer:not(.closing)') }));
+      assert(v.open && v.v === '', 'Ctrl+Shift+Y: ' + JSON.stringify(v));
+      // Alt+Enter copies now.
+      await t.main(({ clipboard }) => clipboard.writeText('nothing yet'));
+      await t.ui(() => { const q = document.querySelector('.launcher .l-q'); q.value = 'Page B'; q.dispatchEvent(new Event('input')); }); await sleep(700);
+      await x.keyDown('Alt_L'); await x.key('Return'); await x.keyUp('Alt_L'); await sleep(500);
+      assert(/\/b\.html$/.test(await t.main(({ clipboard }) => clipboard.readText())), 'Alt+Enter didn’t copy');
+    } finally {
+      await shutL();
+      await L('open', DEF_L.open);
+      await L('keys', DEF_L.keys);
+      await closeSettingsTabs();
+    }
+  });
+
   await R.step('launcher: the address bar without its results (“Results under the address bar” off)', async () => {
     const typeAddr = (v) => t.ui((v) => { const i = document.getElementById('address-input'); i.focus(); i.value = v; i.dispatchEvent(new Event('input')); }, v);
     await L('omnibox', false);
@@ -515,6 +899,7 @@ try {
     const S = () => t.main(() => { const s = global.__bifrost.settings.get(); return { launcher: s.launcher, search: s.search, tabs: s.tabs }; });
     const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(200); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last).slice(0, 300) + ')'); };
     try {
+      await closeSettingsTabs();
       await open('bifrost://settings/#launcher-backup', false);
       await until(() => t.guest('bifrost://settings', "!!document.querySelector('[data-act=import]')"), 6000, 'Settings → Launcher → Backup');
       await t.guest('bifrost://settings', "document.querySelector('[data-act=import]').click(), 1");
@@ -523,13 +908,14 @@ try {
       const L2 = s.launcher;
       const engine = s.search.engines.find((e) => e.id === s.search.defaultEngine);
       const wrong = [];
-      if (L2.enterAction !== 'newtab' || L2.shiftEnterAction !== 'background' || L2.openMode !== 'window' || L2.windowHeight !== 620) wrong.push('keys & behavior');
+      if (L2.open.enter !== 'newtab' || L2.open.shift !== 'background' || L2.openMode !== 'window' || L2.windowHeight !== 620) wrong.push('keys & behavior');
       if (L2.density !== 'compact' || L2.fontSize !== 16 || L2.accent !== '#ff8800' || L2.top !== 22 || L2.dim !== 0.5 || L2.blur !== false) wrong.push('appearance');
       if (L2.wMatch !== 1.25 || L2.historyIndex !== 6000 || L2.searchRowPosition !== 'bottom') wrong.push('ranking');
       if (!L2.sources.tabs.currentWindowOnly || L2.sources.bookmarks.weight !== 2.2 || L2.prefixes.bookmarks !== '!' || !L2.boosts.domains.some((d) => d.domain === 'github.com' && d.factor === 2)) wrong.push('sources');
       if (!engine || !/kagi\.com/.test(engine.url) || s.search.suggestionProvider !== 'duckduckgo' || !s.search.engines.some((e) => e.keyword === 'aw')) wrong.push('search engines');
       assert(!wrong.length, 'not imported: ' + wrong.join(', ') + ' ' + JSON.stringify(L2).slice(0, 400));
-      const toasts = await t.guest('bifrost://settings', "[...document.querySelectorAll('.toast-text')].map((e) => e.textContent).join(' | ')");
+      // (the notes come once everything is in)
+      const toasts = await until(async () => { const v = await t.guest('bifrost://settings', "[...document.querySelectorAll('.toast-text')].map((e) => e.textContent).join(' | ')"); return /folders/i.test(v) ? v : null; }, 5000, 'a word about the bookmark folders');
       assert(/folders/i.test(toasts), 'no word about the bookmark folders: ' + toasts);
       await t.guest('bifrost://settings', "document.querySelector('[data-act=export]').click(), 1");
       const file = await until(() => { try { return JSON.parse(fs.readFileSync(out, 'utf8')); } catch { return null; } }, 5000, 'the exported file');
@@ -537,7 +923,8 @@ try {
       await t.guest('bifrost://settings', "document.querySelector('[data-act=reset]').click(), 1");
       await until(() => t.guest('bifrost://settings', "(() => { const b = [...document.querySelectorAll('.dialog .btn')].find((x) => x.textContent.trim() === 'Reset'); if (b) b.click(); return !!b; })()"), 4000, 'the reset confirmation');
       const r = await until(async () => { const v = await S(); return v.launcher.theme === 'browser' ? v : null; }, 5000, 'the defaults');
-      assert(r.launcher.openMode === 'overlay' && r.launcher.enterAction === 'current' && r.launcher.customCss === '' && r.search.engines.some((e) => /kagi\.com/.test(e.url)), 'reset: ' + JSON.stringify({ openMode: r.launcher.openMode, engines: r.search.engines.length }));
+      const DEF = await t.main(() => global.__require('../shared/defaults').DEFAULTS.launcher);
+      assert(r.launcher.openMode === 'overlay' && JSON.stringify(r.launcher.open) === JSON.stringify(DEF.open) && JSON.stringify(r.launcher.keys) === JSON.stringify(DEF.keys) && r.launcher.customCss === '' && r.search.engines.some((e) => /kagi\.com/.test(e.url)), 'reset: ' + JSON.stringify({ openMode: r.launcher.openMode, open: r.launcher.open, engines: r.search.engines.length }));
       await t.shot('behavior-launcher-settings');
     } finally {
       await t.main(({ dialog }) => { if (global.__dlg) { dialog.showOpenDialog = global.__dlg.open; dialog.showSaveDialog = global.__dlg.save; } });

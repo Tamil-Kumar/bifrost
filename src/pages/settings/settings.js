@@ -579,7 +579,7 @@ function defaultEngineSelect() {
 }
 
 // The launcher's shortcuts, changed right here (the rest are under Keyboard & touchpad).
-const LAUNCHER_KEYS = [['launcher', 'Open the launcher'], ['commandPalette', 'Open it for commands'], ['newTab', 'New tab (opens it, with “Ctrl+T opens the launcher”)']];
+const LAUNCHER_KEYS = [['launcher', 'Open the launcher'], ['commandPalette', 'Open it for commands'], ['splitPick', 'Open it to pick a tab for split view'], ['newTab', 'New tab (opens it, with “Ctrl+T opens the launcher”)']];
 function launcherShortcuts() {
   const box = h('div');
   let recording = null;
@@ -616,6 +616,94 @@ function launcherShortcuts() {
       const label = D.chordToString(chord);
       const other = D.COMMANDS.find((c) => c.id !== id && (D.shortcutMap(page.settings)[c.id] || []).some((a) => { const p = D.parseAccelerator(a); return p && D.chordToString(p) === label; }));
       if (other) toast({ text: `${label} is also bound to “${other.title}”. Remove one of them to avoid a clash.`, iconName: 'warn', timeout: 6000 });
+    };
+    function stop() {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('blur', stop);
+      wb.send('kbd:capture', false);
+      recording = null;
+      draw();
+    }
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('blur', stop);
+    recording = { stop };
+  }
+  draw();
+  return { el: box, update: draw };
+}
+
+// Settings → Launcher → Keys in the launcher: its keys besides Enter (shared/launcher-settings.js KEY_ACTIONS),
+// each a list of key combinations. Enter is Opening results; a key that types needs Ctrl or Alt with it.
+const LAUNCHER_KEY_LABELS = {
+  next: 'Next result', prev: 'Previous result', pageDown: 'Down a page', pageUp: 'Up a page', first: 'First result', last: 'Last result',
+  close: 'Close the launcher', clear: 'Clear the box', remove: 'Remove the result (from history; a tab closes)', copy: 'Copy the result’s address', settings: 'Launcher settings',
+};
+function launcherKeysEditor() {
+  const LS = window.WBLauncher;
+  const box = h('div');
+  let recording = null;
+  const label = (a) => { const p = D.parseAccelerator(a); return p ? D.chordToString(p) : String(a); };
+  const defaults = D.DEFAULTS.launcher.keys;
+  const keysNow = () => get('launcher.keys') || {};
+  // (with Quick open, Alt+1…9 or Ctrl+1…9 open results before any key here is looked at)
+  const quickTakes = (a) => {
+    const q = get('launcher.quickPick');
+    const p = D.parseAccelerator(a);
+    return !!p && (q === 'alt' || q === 'ctrl') && /^Digit[1-9]$/.test(p.code) && !p.shift && !p.meta && (q === 'alt' ? p.alt && !p.ctrl : p.ctrl && !p.alt);
+  };
+  const draw = () => {
+    if (recording) return;
+    const keys = keysNow();
+    const uses = new Map();
+    for (const act of LS.KEY_ACTIONS) for (const a of keys[act] || []) { const k = label(a); uses.set(k, (uses.get(k) || 0) + 1); }
+    const rows = LS.KEY_ACTIONS.map((act) => {
+      const list = Array.isArray(keys[act]) ? keys[act] : [];
+      const chips = list.map((a, i) => {
+        const k = label(a);
+        const clash = uses.get(k) > 1 ? 'Also the key for something else here' : quickTakes(a) ? 'Taken by Quick open (Opening results)' : '';
+        return h('span.kb-chip' + (clash ? '.conflict' : ''), { title: clash, dataset: { key: k } }, k,
+          h('button', { type: 'button', title: 'Remove', onclick: () => { const next = list.slice(); next.splice(i, 1); save('launcher.keys.' + act, next); } }, icon('close')));
+      });
+      const add = h('button.kb-add', { type: 'button', dataset: { act } }, '+ Add');
+      add.addEventListener('click', () => record(act, add));
+      const def = defaults[act] || [];
+      const changed = JSON.stringify(list) !== JSON.stringify(def);
+      const reset = changed ? h('button.icon-btn.kb-reset', { type: 'button', title: 'Back to ' + (def.map(label).join(', ') || 'no key'), onclick: () => save('launcher.keys.' + act, def.slice()) }, icon('rotate')) : null;
+      return h('div.kb-row', { dataset: { act } }, h('span.kb-title' + (changed ? '.changed' : ''), null, LAUNCHER_KEY_LABELS[act] || act),
+        h('div.kb-keys', null, chips.length ? chips : h('span.kb-none', null, 'No key'), add, reset));
+    });
+    const all = h('button.btn.small', { type: 'button', dataset: { act: 'reset-keys' }, onclick: async () => {
+      if (await confirmDialog('Reset the launcher’s keys to their defaults?', { ok: 'Reset' })) save('launcher.keys', JSON.parse(JSON.stringify(defaults)));
+    } }, icon('rotate'), 'Reset these keys');
+    box.replaceChildren(...rows, h('div.btn-row', { style: { marginTop: '10px' } }, all));
+  };
+  // The next key combination is added to the action's keys. Browser shortcuts are paused meanwhile.
+  function record(act, btn) {
+    if (recording) recording.stop();
+    btn.classList.add('recording');
+    btn.textContent = 'Press keys…';
+    wb.send('kbd:capture', true);
+    const onKey = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+      const chord = D.eventToChord(e);
+      if (!chord.code) return;
+      // (Esc stops recording, except for closing the launcher, which it's the usual key for)
+      if (chord.code === 'Escape' && !chord.ctrl && !chord.alt && !chord.shift && !chord.meta && act !== 'close') { stop(); return; }
+      if (!LS.keyAllowed(chord)) {
+        toast({ text: /Enter$/.test(chord.code) ? 'Enter is set under Opening results' : 'A key that types needs Ctrl or Alt with it', iconName: 'keyboard', timeout: 2600 });
+        return;
+      }
+      const acc = [chord.ctrl && 'Ctrl', chord.alt && 'Alt', chord.shift && 'Shift', chord.meta && 'Meta', chord.code.replace(/^Key/, '').replace(/^Digit/, '')].filter(Boolean).join('+');
+      const k = label(acc);
+      const list = (keysNow()[act] || []).slice();
+      if (!list.some((a) => label(a) === k)) list.push(acc);
+      const other = LS.KEY_ACTIONS.find((x) => x !== act && (keysNow()[x] || []).some((a) => label(a) === k));
+      stop();
+      save('launcher.keys.' + act, list);
+      if (other) toast({ text: `${k} is also “${LAUNCHER_KEY_LABELS[other]}”. Remove one of them.`, iconName: 'warn', timeout: 6000 });
+      else if (quickTakes(acc)) toast({ text: `${k} opens a result while Quick open is on (Opening results).`, iconName: 'warn', timeout: 6000 });
     };
     function stop() {
       window.removeEventListener('keydown', onKey, true);
@@ -1151,7 +1239,8 @@ function updatesWidget() {
 // ------------------------------------------------------------ sections
 const pct = (v) => Math.round(v * 100) + '%';
 const X2 = (v) => v.toFixed(2);
-const OPEN_ACTIONS = [['current', 'Open in this tab'], ['newtab', 'Open in a new tab'], ['background', 'Open in a background tab'], ['split', 'Open in split view']];
+const OPEN_ACTIONS = [['current', 'Open in this tab'], ['newtab', 'Open in a new tab'], ['background', 'Open in a background tab'], ['split', 'Open in split view'], ['window', 'Open in a new window'], ['private', 'Open in a private window'], ['copy', 'Copy its address'], ['web', 'Search the web for what you typed'], ['none', 'Nothing']];
+const OPEN_KEYS = [['enter', 'Enter', 'Also a click.'], ['shift', 'Shift+Enter', 'Also Shift+click.'], ['ctrl', 'Ctrl+Enter', 'Also Ctrl+click.'], ['alt', 'Alt+Enter', ''], ['ctrlShift', 'Ctrl+Shift+Enter', ''], ['altShift', 'Alt+Shift+Enter', ''], ['ctrlAlt', 'Ctrl+Alt+Enter', ''], ['middle', 'Middle-click', '']];
 const ANIMS = [
   ['tabOpenClose', 'Tabs opening and closing'], ['tabSwitch', 'Switching tabs'], ['tabDrag', 'Dragging tabs'], ['tabHover', 'Hover effects'],
   ['loadingIndicator', 'Loading spinners and bars, and icons popping in when a page loads'], ['workspaceSwitch', 'Switching spaces'], ['splitView', 'Split view'], ['launcher', 'The launcher'],
@@ -1480,14 +1569,25 @@ function sections() {
         I.range('launcher.windowHeight', 'Window height', '', { min: 360, max: 860, step: 20, fmt: (v) => v + ' px', when: (st) => st.launcher.openMode === 'window' }),
         I.seg('launcher.toolbarButton', 'The Launcher button opens it', 'The button you can put on the toolbar or in the sidebar (Toolbar & sidebar → Customize).', [['same', 'Like the shortcut'], ['popup', 'Under the button']], { keywords: 'toolbar button popup' }),
         I.toggle('tabs.newTabOpensLauncher', 'Ctrl+T opens the launcher', 'Search first; what you pick opens in a new tab. Enter with nothing typed (or Ctrl+T twice) gives a plain new tab.', { keywords: 'new tab empty' }),
-        I.select('launcher.enterAction', 'Enter', 'Also a click.', OPEN_ACTIONS, { keywords: 'open action' }),
-        I.select('launcher.shiftEnterAction', 'Shift+Enter', 'Also Shift+click. Alt+Enter always opens a new tab, Ctrl+Enter (and a middle-click) a background tab, Ctrl+Shift+Enter a new window.', OPEN_ACTIONS, { keywords: 'open action shift' }),
-        I.toggle('launcher.switchToOpenTab', 'Jump to tabs that are already open', 'Opening a bookmark or history result that’s open in a tab switches to that tab.', { keywords: 'switch tab duplicate' }),
         I.select('launcher.emptyState', 'Before you type, show', '', [['bookmarks', 'Most-used bookmarks'], ['tabs', 'Recent tabs'], ['history', 'Recent history'], ['none', 'Nothing']], { keywords: 'empty start' }),
+        I.toggle('launcher.rememberQuery', 'Open it with what you typed last', 'Selected, so typing replaces it.', { keywords: 'remember last query previous' }),
         I.toggle('launcher.escClears', 'Esc clears the box first', 'Off: Esc always closes the launcher.', { keywords: 'escape' }),
+        I.toggle('launcher.closeOnBlur', 'Close it when you switch to another app', 'Off: it’s still there, with what you typed, when you come back.', { keywords: 'blur focus alt tab away' }),
+        I.toggle('launcher.hoverSelects', 'Pointing at a result selects it', 'Off: only the keys move the selection (a click still opens what you click).', { keywords: 'mouse hover pointer' }),
+        I.toggle('launcher.wrap', 'Wrap around', 'Down on the last result goes to the first, Up on the first to the last.', { keywords: 'cycle loop' }),
         I.range('launcher.typingDelayMs', 'Typing delay', 'How long to wait after a key before searching. None searches as you type.', { min: 0, max: 400, step: 10, fmt: (v) => (v ? v + ' ms' : 'None'), keywords: 'debounce delay' }),
         I.range('launcher.suggestDelayMs', 'Suggestion delay', 'Bookmarks, tabs and recent history update on every key. Web suggestions and older history wait this long after you stop typing, so they don’t fire on every letter.', { min: 0, max: 400, step: 10, fmt: (v) => v + ' ms', keywords: 'debounce' }),
         I.toggle('launcher.omnibox', 'Results under the address bar', 'Typing in the address bar shows the launcher’s results under it. Off: a plain address field (Enter still opens the address or searches).', { keywords: 'address bar omnibox keyword dropdown' }),
+      ] },
+      { title: 'Opening results', id: 'launcher-open', items: [
+        I.note('What Enter does with each key held. Clicking a result does the same with the same keys held. Opened with Ctrl+T, “this tab” is the new tab; opened to pick a tab for split view, results go beside this tab. Split view adds to the split this tab is in, up to four.'),
+        ...OPEN_KEYS.map(([k, label, desc]) => I.select('launcher.open.' + k, label, desc, OPEN_ACTIONS, { keywords: 'open action enter key modifier click ' + label.toLowerCase() })),
+        I.seg('launcher.quickPick', 'Quick open', 'Opens the first nine results the way Enter does. Hold the key to see the numbers.', [['alt', 'Alt+1…9'], ['ctrl', 'Ctrl+1…9'], ['none', 'Off']], { keywords: 'number digit quick pick' }),
+        I.toggle('launcher.switchToOpenTab', 'Jump to tabs that are already open', 'Opening a bookmark or history result that’s open in a tab switches to that tab.', { keywords: 'switch tab duplicate' }),
+        I.toggle('launcher.backgroundStaysOpen', 'Stay open after opening a result in a background tab', 'So you can open several, one after another.', { keywords: 'background several multiple keep open' }),
+      ] },
+      { title: 'Keys in the launcher', id: 'launcher-keys', items: [
+        I.custom('Keys', 'Moving through the results, closing, and the rest. Point at a key to see a clash.', launcherKeysEditor, { keywords: 'keys shortcuts next previous escape delete copy tab arrow' }),
       ] },
       { title: 'Appearance', id: 'launcher-appearance', items: [
         I.select('launcher.theme', 'Theme', '', [['browser', 'Like the browser'], ['auto', 'Match the system (Mocha or Latte)'], ...Object.entries(THEMES).map(([k, t]) => [k, t.name])], { keywords: 'colors dark light catppuccin mocha' }),
@@ -1507,6 +1607,8 @@ function sections() {
         I.toggle('launcher.showBadges', 'Show source labels', 'On the result you’re on: Bookmark, History, Switch to tab…', { keywords: 'badge' }),
         I.toggle('launcher.showHints', 'Show keyboard hints', 'Along the bottom.', { keywords: 'hints keys footer' }),
         I.toggle('launcher.showScores', 'Show scores', 'Shows each result’s score. Point at a score to see what it’s made of.', { keywords: 'ranking debug' }),
+        I.seg('launcher.highlight', 'What matches', 'The parts of a result that match what you typed.', [['accent', 'In the accent color'], ['bold', 'Bold'], ['none', 'Not marked']], { keywords: 'highlight bold matches' }),
+        I.toggle('launcher.clearButton', 'A button to clear the box', 'At the end of the box, once you’ve typed something.', { keywords: 'clear x reset' }),
         I.toggle('launcher.animations', 'Animations', 'The launcher opening and the selection moving. Settings → Animations can turn them off everywhere.', { keywords: 'animate selection motion' }),
         I.textarea('launcher.customCss', 'Custom CSS', 'Applied after the built-in styles, to the launcher only. Useful selectors: .row, .row.sel, .row[data-type="bookmark"], .title, .badge, .bar, #q. Theme colors are variables like --accent, --base and --c-bookmark.', { placeholder: '.row.sel { background: var(--s1); }', keywords: 'style css' }),
       ] },

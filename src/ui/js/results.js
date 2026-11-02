@@ -32,6 +32,15 @@ export function makeSearcher(onResults) {
       }
     },
     cancel() { seq++; clearTimeout(timer); clearTimeout(typing); },
+    // The first pass for raw, now (no typing delay): for Enter pressed before the results for what's in
+    // the box arrived. Resolves to the results, or null if something newer was asked for meanwhile.
+    now(raw) {
+      const my = ++seq;
+      const act = activeTab();
+      clearTimeout(timer);
+      clearTimeout(typing);
+      return wb.invoke('search:query', { raw, activeWcId: act ? act.wcId : null }).then((r) => (my === seq ? r : null), () => null);
+    },
   };
 }
 
@@ -81,7 +90,7 @@ export class ResultList {
 
   // (Each part also has the class Waypoint gave it, for custom CSS written for Waypoint: .row, .title…)
   row(it, i, tokens, showScores, look = {}) {
-    const li = h('li.rrow.row', { role: 'option', dataset: { type: it.type, index: String(i) } });
+    const li = h('li.rrow.row', { role: 'option', dataset: it.type === 'tab' && it.tab ? { type: it.type, index: String(i), tab: String(it.tab.tabId) } : { type: it.type, index: String(i) } });
     li.append(iconFor(it, look.favicons));
     const title = h('span.r-title.title');
     if (it.type === 'engine' && !it.title) { title.classList.add('ghost'); title.textContent = 'Type to search ' + it.engineName; }
@@ -100,15 +109,18 @@ export class ResultList {
     if (it.type === 'command') {
       const acc = accelFor(it.command);
       if (acc) meta.append(h('kbd', null, acc));
-    } else if (it.type !== 'suggestion' && look.showBadges !== false) meta.append(h('span.r-badge.badge', null, BADGE[it.type] || ''));
+    } else if (it.type !== 'suggestion' && look.showBadges !== false) meta.append(h('span.r-badge.badge', null, (it.type === 'tab' && look.tabBadge) || BADGE[it.type] || ''));
     if (showScores && Number.isFinite(it.score) && it.breakdown) {
       const b = it.breakdown, f = (n) => (Number.isFinite(n) ? n.toFixed(2) : '');
       meta.append(h('span.r-score.score', { title: `match ${f(b.m)} · visits ${f(b.v)} · recency ${f(b.r)}\nsource ×${f(b.sw)} · domain ×${f(b.df)} · folder ×${f(b.ff)}` }, f(it.score)));
     }
+    // (the launcher: Alt+1…9 or Ctrl+1…9 opens the first nine; the numbers show while that key is held)
+    if (i < 9 && (look.quickPick === 'alt' || look.quickPick === 'ctrl')) meta.append(h('kbd.r-num', { 'aria-hidden': 'true' }, String(i + 1)));
     li.append(meta);
-    li.addEventListener('mousemove', () => { if (this.sel !== i) { this.sel = i; this.userMoved = true; this.highlightSel(false); } });
+    // (Settings → Launcher → "Pointing at a result selects it")
+    if (look.hoverSelects !== false) li.addEventListener('mousemove', () => { if (this.sel !== i) { this.sel = i; this.userMoved = true; this.highlightSel(false); } });
     li.addEventListener('click', (e) => this.onPick && this.onPick(it, howFromEvent(e), e));
-    li.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); this.onPick && this.onPick(it, 'background'); } });
+    li.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); this.onPick && this.onPick(it, 'background', e); } });
     return li;
   }
 
@@ -122,9 +134,12 @@ export class ResultList {
     if (scroll && rows[this.sel]) rows[this.sel].scrollIntoView({ block: 'nearest' });
   }
 
+  // (past the last result, the first: or, with Settings → Launcher → "Wrap around" off, stay on the last)
   move(d) {
     if (!this.items.length) return;
-    this.sel = (this.sel + d + this.items.length) % this.items.length;
+    const n = this.items.length;
+    const wrap = !this.look || (this.look() || {}).wrap !== false;
+    this.sel = wrap ? (this.sel + d + n) % n : Math.max(0, Math.min(n - 1, this.sel + d));
     this.userMoved = true;
     this.highlightSel(true);
     this.warm();
@@ -134,6 +149,14 @@ export class ResultList {
     this.sel = Math.max(0, Math.min(this.items.length - 1, this.sel + d * 6));
     this.userMoved = true;
     this.highlightSel(true);
+    this.warm();
+  }
+  to(i) {
+    if (!this.items.length) return;
+    this.sel = Math.max(0, Math.min(this.items.length - 1, i));
+    this.userMoved = true;
+    this.highlightSel(true);
+    this.warm();
   }
   current() { return this.items[this.sel] || null; }
   reset() { this.userMoved = false; this.sel = 0; }
@@ -182,21 +205,23 @@ export function howFromEvent(e, fallback = null) {
   return fallback;
 }
 
-// Opens a chosen result. how: 'current' | 'newtab' | 'background' | 'window' | 'split'.
+// Opens a chosen result. how: 'current' | 'newtab' | 'background' | 'window' | 'private' | 'split'.
 export function openResult(it, how = 'current') {
   if (!it) return;
   if (it.type === 'command') { emit('command', it.command, { source: 'launcher' }); return; }
-  // A bookmark or history result that's open in a tab switches to it (Settings → Launcher → "Jump to tabs
-  // that are already open").
-  if (it.tab && (it.type === 'tab' || ((how === 'current' || how === 'newtab') && setting('launcher.switchToOpenTab') !== false))) {
+  // A tab result switches to that tab (for split view: puts it beside this one; for a new window: opens its
+  // address there). A bookmark or history result that's open in a tab switches to it (Settings → Launcher →
+  // "Jump to tabs that are already open").
+  const away = how === 'window' || how === 'private';
+  if (it.tab && !away && (it.type === 'tab' || ((how === 'current' || how === 'newtab') && setting('launcher.switchToOpenTab') !== false))) {
     if (it.tab.windowId === S.windowId) {
       const t = tabById(it.tab.tabId);
       if (t) {
-        if (how === 'split' && t !== activeTab()) { T.splitTabs([activeTab(), t], { focusTab: t }); return; }
-        T.selectTab(t);
-        return;
+        if (how !== 'split') { T.selectTab(t); return; }
+        // (the tab in front itself, beside itself: a copy of it)
+        if (t !== activeTab()) { T.splitWith(t); return; }
       }
-    } else {
+    } else if (how !== 'split') {
       wb.invoke('search:focus-tab', it.tab).catch(() => {});
       return;
     }

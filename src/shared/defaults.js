@@ -222,14 +222,28 @@
       openMode: 'overlay',           // overlay (over the page, near the top) | window (a centered window)
       windowHeight: 540,             // px, as a centered window
       toolbarButton: 'same',         // same (as the shortcut) | popup (under the button)
-      enterAction: 'current',        // current | newtab | background | split
-      shiftEnterAction: 'split',     // (also Shift+click)
+      // Where Enter opens the result, by the keys held with it (a click with them does the same), and a
+      // middle-click: current | newtab | background | window | private | split (next to this tab, in its
+      // split if it's in one) | copy (its address) | web (search the web for what you typed instead) | none
+      open: { enter: 'newtab', shift: 'current', ctrl: 'split', alt: 'background', ctrlShift: 'window', altShift: 'private', ctrlAlt: 'web', middle: 'background' },
+      // The launcher's other keys (shared/launcher-settings.js KEY_ACTIONS), as accelerators.
+      keys: {
+        next: ['Down', 'Tab', 'Ctrl+N', 'Ctrl+J'], prev: ['Up', 'Shift+Tab', 'Ctrl+P', 'Ctrl+K'],
+        pageDown: ['PageDown'], pageUp: ['PageUp'], first: ['Ctrl+Home'], last: ['Ctrl+End'],
+        close: ['Escape'], clear: [], remove: ['Shift+Delete'], copy: ['Ctrl+Shift+C'], settings: ['Ctrl+Comma'],
+      },
+      quickPick: 'alt',              // alt | ctrl | none: Alt+1…9 opens the first…ninth result
       switchToOpenTab: true,         // a bookmark or history result that's open in a tab switches to it
       emptyState: 'bookmarks',       // bookmarks | tabs | history | none
       escClears: false,              // Esc empties the box first, then closes
       typingDelayMs: 0,              // wait after a key before searching (0: search as you type)
       suggestDelayMs: 90,            // web suggestions and older history wait this long after the last key
       omnibox: true,                 // the address bar shows the launcher's results as you type
+      rememberQuery: false,          // it opens with what you last typed in it (all selected)
+      backgroundStaysOpen: false,    // opening a result in a background tab leaves it open (to open several)
+      hoverSelects: true,            // pointing at a result selects it
+      wrap: true,                    // moving past the last result goes to the first, and back
+      closeOnBlur: false,            // switching to another app closes it (clicking outside it always does)
       // Appearance
       theme: 'browser',              // browser (like Bifrost) | auto (Mocha or Latte, like the system) | a theme
       useCustomAccent: false,
@@ -248,6 +262,8 @@
       showBadges: true,
       showHints: true,
       showScores: false,
+      highlight: 'accent',           // accent | bold | none: how the letters you typed show in results
+      clearButton: true,             // a × in the box while there's text in it
       animations: true,              // animate opening and the selection
       customCss: '',
     },

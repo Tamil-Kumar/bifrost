@@ -814,6 +814,25 @@ webview.js-dialog-hide { visibility: hidden !important; }
 .l-gear { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--subtext); }
 .l-gear:hover { background: var(--s0); color: var(--accent); }
 .l-gear svg.i { width: 17px; height: 17px; }
+/* The button that clears the box (Settings → Launcher → Appearance). */
+.l-clear { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 7px; background: none; color: var(--overlay); }
+.l-clear:hover { background: var(--s0); color: var(--text); }
+.l-clear[hidden] { display: none; }
+.l-clear svg.i { width: 15px; height: 15px; }
+/* What matches what you typed (Settings → Launcher → Appearance → What matches): in the accent
+   (base.css), bold, or as the rest of the text. */
+.launcher-layer[data-highlight="bold"] .rrow mark, .launcher-layer[data-highlight="none"] .rrow mark {
+  background: none; -webkit-background-clip: border-box; background-clip: border-box; color: inherit;
+}
+.launcher-layer[data-highlight="bold"] .rrow mark { font-weight: 700; }
+.launcher-layer[data-highlight="none"] .rrow mark { font-weight: inherit; }
+/* Alt+1…9 (or Ctrl+1…9) opens the first nine results: their numbers, while that key is held. */
+.r-num { display: none; min-width: 1.75em; text-align: center; }
+.rrow.sel .r-num { background: color-mix(in srgb, var(--rowc) 22%, transparent); color: var(--text); }
+.launcher-layer.show-nums .r-num { display: inline-block; }
+.launcher-layer.show-nums .rrow .r-badge { display: none; }
+/* On its way out: it takes no clicks (the one opening may be under it). */
+.launcher-layer.closing { pointer-events: none; }
 /* Density → Compact: one line per result. */
 .launcher-layer[data-density="compact"] .rrow { padding: 3px 10px 3px 12px; gap: 10px; }
 .launcher-layer[data-density="compact"] .rrow.sel::before { top: 6px; bottom: 6px; }

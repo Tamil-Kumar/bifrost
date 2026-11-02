@@ -1,11 +1,15 @@
-/* Bifrost — the launcher's settings in a file of their own (Settings → Launcher → Backup): what an export
-   holds, and what an import changes. Imports take Bifrost's own launcher exports, whole Bifrost settings
-   exports, and settings exported from the Waypoint launcher extension (its "Export settings" file), whose
-   every setting has a place in Bifrost's launcher. Pure functions; the settings page applies the result. */
+/* Bifrost — the launcher's settings, as pure functions shared by the launcher (ui/js/launcher.js), Settings
+   and the tests:
+   - its keys: what Enter (or a click) does with which keys held, and its other keys (Settings → Launcher →
+     Keys & behavior);
+   - its settings in a file of their own (Settings → Launcher → Backup): what an export holds, and what an
+     import changes. Imports take Bifrost's own launcher exports, whole Bifrost settings exports, and settings
+     exported from the Waypoint launcher extension (its "Export settings" file), whose every setting has a
+     place in Bifrost's launcher. */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory();
-  else root.WBLauncher = factory();
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./defaults.js'));
+  else root.WBLauncher = factory(root.WBDefaults);
+})(typeof globalThis !== 'undefined' ? globalThis : this, function (D) {
   'use strict';
 
   const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -49,6 +53,84 @@
     return isObj(d) && (d.format === FORMAT || (isObj(d.launcher) && (isObj(d.search) || isObj(d.appearance) || isObj(d.tabs))));
   }
 
+  // ---------------------------------------------------------------- keys
+  // Enter, by the keys held with it (and a click, by the same keys), and a middle-click: where the result
+  // opens. Meta (the Windows key, Command on a Mac) counts as Ctrl.
+  const OPEN_SLOTS = ['enter', 'shift', 'ctrl', 'alt', 'ctrlShift', 'altShift', 'ctrlAlt'];
+  const OPEN_ACTIONS = ['current', 'newtab', 'background', 'window', 'private', 'split', 'copy', 'web', 'none'];
+  const PLACES = ['current', 'newtab', 'background', 'window', 'private', 'split'];
+  function openSlot(e) {
+    const c = !!(e && (e.ctrlKey || e.metaKey)), s = !!(e && e.shiftKey), a = !!(e && e.altKey);
+    if (!c && !s && !a) return 'enter';
+    if (s && !c && !a) return 'shift';
+    if (c && !s && !a) return 'ctrl';
+    if (a && !c && !s) return 'alt';
+    if (c && s && !a) return 'ctrlShift';
+    if (a && s && !c) return 'altShift';
+    if (c && a && !s) return 'ctrlAlt';
+    return null;   // all three: nothing
+  }
+  // The action for Enter or a click with event e's keys (or a middle-click): one of OPEN_ACTIONS.
+  function openAction(cfg, e, middle = false) {
+    const open = (cfg && cfg.open) || {};
+    const slot = middle ? 'middle' : openSlot(e);
+    if (!slot) return 'none';
+    const v = open[slot];
+    if (OPEN_ACTIONS.includes(v)) return v;
+    return slot === 'enter' ? 'current' : 'none';
+  }
+  // Where a web search (the "web" action) opens: where Enter opens results, or this tab.
+  function webPlace(cfg) {
+    const v = cfg && cfg.open && cfg.open.enter;
+    return PLACES.includes(v) ? v : 'current';
+  }
+
+  // The launcher's other keys. Each is a list of accelerators ("Ctrl+N", "Down", "Shift+Delete").
+  const KEY_ACTIONS = ['next', 'prev', 'pageDown', 'pageUp', 'first', 'last', 'close', 'clear', 'remove', 'copy', 'settings'];
+  // A function from a keydown event to what to do: { act } (one of KEY_ACTIONS), { act: 'pick', index }
+  // (Alt+1…9 or Ctrl+1…9: the first…ninth result), or null.
+  function keyMatcher(cfg) {
+    const keys = (cfg && cfg.keys) || {};
+    const list = [];
+    for (const act of KEY_ACTIONS) for (const acc of Array.isArray(keys[act]) ? keys[act] : []) { const c = D.parseAccelerator(acc); if (c) list.push({ act, c }); }
+    const quick = cfg && (cfg.quickPick === 'alt' || cfg.quickPick === 'ctrl') ? cfg.quickPick : null;
+    return (e) => {
+      const ch = D.eventToChord(e);
+      if (quick && /^Digit[1-9]$/.test(ch.code) && !ch.shift && !ch.meta && (quick === 'alt' ? ch.alt && !ch.ctrl : ch.ctrl && !ch.alt)) return { act: 'pick', index: Number(ch.code.slice(5)) - 1 };
+      for (const k of list) if (D.chordMatches(k.c, ch)) return { act: k.act };
+      return null;
+    };
+  }
+  // Whether a key combination can be one of the launcher's keys: Enter belongs to "Opening a result", and a
+  // key that types something (a letter, a digit, a space…) needs Ctrl or Alt with it, or you couldn't type it.
+  function keyAllowed(chord) {
+    if (!chord || !chord.code) return false;
+    if (/^(Enter|NumpadEnter)$/.test(chord.code)) return false;
+    if (/^(Control|Shift|Alt|Meta|OS)(Left|Right)?$/.test(chord.code)) return false;
+    const typing = /^(Key[A-Z]|Digit\d|Numpad\d|Space|Backspace|Minus|Equal|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|Backquote|IntlBackslash|NumpadAdd|NumpadSubtract|NumpadMultiply|NumpadDivide|NumpadDecimal)$/.test(chord.code);
+    return !typing || chord.ctrl || chord.alt || chord.meta;
+  }
+
+  // Launcher settings saved by 0.24.4 (Enter and Shift+Enter had a setting each), as they are now. Changed
+  // there, both carry over; left as they were (this tab, split view), today's defaults apply.
+  function upgrade(L) {
+    if (!isObj(L)) return L;
+    const out = clone(L);
+    const ACT = { current: 'current', newtab: 'newtab', background: 'background', split: 'split' };
+    if (out.enterAction !== undefined || out.shiftEnterAction !== undefined) {
+      const changed = (ACT[out.enterAction] && out.enterAction !== 'current') || (ACT[out.shiftEnterAction] && out.shiftEnterAction !== 'split');
+      if (changed) {
+        out.open = Object.assign({}, isObj(out.open) ? out.open : {});
+        out.open.enter = ACT[out.enterAction] || 'current';
+        out.open.shift = ACT[out.shiftEnterAction] || 'split';
+      }
+      delete out.enterAction;
+      delete out.shiftEnterAction;
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------- files
   const ACTION = { current: 'current', newTab: 'newtab', newtab: 'newtab', background: 'background', split: 'split' };
   const PROVIDERS = ['google', 'duckduckgo'];
   const keyOf = (u) => String(u || '').trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '');
@@ -106,7 +188,7 @@
       }) : undefined,
       openMode: oneOf(b.openMode, ['overlay', 'window']), windowHeight: num(b.windowHeight),
       toolbarButton: oneOf(b.toolbarButton, ['popup', 'same']),
-      enterAction: ACTION[b.enterAction], shiftEnterAction: ACTION[b.shiftEnterAction],
+      open: defined({ enter: ACTION[b.enterAction], shift: ACTION[b.shiftEnterAction] }),
       switchToOpenTab: bool(b.switchToOpenTab), emptyState: oneOf(b.emptyState, ['bookmarks', 'tabs', 'history', 'none']),
       escClears: bool(b.escClears), suggestDelayMs: num(b.suggestDelayMs), typingDelayMs: num(b.debounceMs), omnibox: bool(b.omnibox),
       theme: str(a.theme), useCustomAccent: bool(a.useCustomAccent), accent: /^#[0-9a-f]{6}$/i.test(a.accent || '') ? a.accent : undefined,
@@ -138,7 +220,7 @@
   // A Bifrost launcher export (or a whole settings export): its launcher and search settings.
   function fromBifrost(d, settings) {
     const s = settings || {};
-    const set = { launcher: merge(s.launcher || {}, isObj(d.launcher) ? d.launcher : {}) };
+    const set = { launcher: merge(s.launcher || {}, isObj(d.launcher) ? upgrade(d.launcher) : {}) };
     const search = isObj(d.search) ? d.search : {};
     if (Array.isArray(search.engines) && search.engines.length) set['search.engines'] = clone(search.engines);
     if (typeof search.defaultEngine === 'string') set['search.defaultEngine'] = search.defaultEngine;
@@ -155,5 +237,8 @@
     throw new Error('That file isn’t a launcher settings export from Bifrost or Waypoint');
   }
 
-  return { FORMAT, exportData, importData, fromWaypoint, fromBifrost, isWaypoint, isBifrost, merge };
+  return {
+    FORMAT, exportData, importData, fromWaypoint, fromBifrost, isWaypoint, isBifrost, merge, upgrade,
+    OPEN_SLOTS, OPEN_ACTIONS, KEY_ACTIONS, openSlot, openAction, webPlace, keyMatcher, keyAllowed,
+  };
 });
