@@ -170,6 +170,24 @@ function register() {
     ctx.settings.replace(data);
     return true;
   });
+  // Settings → Launcher → Backup: the launcher's settings to and from a file (the page makes and reads the
+  // JSON: shared/launcher-settings.js).
+  ipc.handle('settings:save-json', ['settings'], async (event, data, name) => {
+    const win = BrowserWindow.fromWebContents(event.sender.hostWebContents || event.sender);
+    const file = String(name || 'settings.json').replace(/[^\w.-]+/g, '-');
+    const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('documents'), file), filters: [{ name: 'JSON', extensions: ['json'] }] });
+    if (r.canceled || !r.filePath) return false;
+    fs.writeFileSync(r.filePath, JSON.stringify(data, null, 2));
+    return r.filePath;
+  });
+  ipc.handle('settings:open-json', ['settings'], async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender.hostWebContents || event.sender);
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const st = fs.statSync(r.filePaths[0]);
+    if (st.size > 4 * 1024 * 1024) throw new Error('That file is too big to be a settings file');
+    try { return JSON.parse(fs.readFileSync(r.filePaths[0], 'utf8')); } catch { throw new Error('That file isn’t a settings file (it isn’t JSON)'); }
+  });
   ipc.handle('settings:pick-folder', ['settings', 'welcome'], async (event, title) => {
     const win = BrowserWindow.fromWebContents(event.sender.hostWebContents || event.sender);
     const r = await dialog.showOpenDialog(win, { title: title || 'Choose a folder', properties: ['openDirectory', 'createDirectory'] });
@@ -470,7 +488,9 @@ function register() {
     // Windows: the auto-hiding top bar needs windows that draw their own caption buttons; remake them.
     if (p === 'appearance.topbarAutoHide' || p === 'appearance' || !p) setTimeout(() => windows.rebuildMismatched(), 150);
     if (!p || p.startsWith('advanced')) require('./sessions').refreshAll(p);
-    if (!p || p.startsWith('performance')) { require('./perf').applyToTabs(); if (ctx.search && ctx.search.loadHistory) { try { ctx.search.loadHistory(); } catch { /* not ready */ } } }
+    if (!p || p.startsWith('performance')) require('./perf').applyToTabs();
+    // (how much history the launcher searches instantly: its own setting, or the performance profile's)
+    if (!p || p.startsWith('performance') || p === 'launcher' || p === 'launcher.historyIndex') { if (ctx.search && ctx.search.loadHistory) { try { ctx.search.loadHistory(); } catch { /* not ready */ } } }
   });
   ctx.db.on('bookmarks-changed', (e) => broadcastAll('bookmarks-changed', e));
   ctx.db.on('history-changed', () => broadcastToPages('history-changed', {}));

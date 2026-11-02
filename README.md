@@ -16,7 +16,8 @@ src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, po
 src/ui          the browser window (bifrost://ui): browser.html, browser.css, js/
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
-src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking)
+src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking),
+                launcher-settings.js (the launcher's settings files, Waypoint's included)
 src/vendor      electron-chrome-extensions, electron-chrome-web-store, Ghostery's adblocker, Readability
 assets          icons, bundled filter lists
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
@@ -42,7 +43,7 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 ```
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
-task manager), `behavior` (settings that change behavior), `everyday` (video, full screen and what shows
+task manager), `behavior` (settings that change behavior, the Launcher section's included), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions, the keyboard following the tab on screen, find, zoom,
 context menu, tab dragging and pinning, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups, Dark Reader, Stylus with a
@@ -53,7 +54,8 @@ menus open at the pointer, things are where they're drawn), `web` (translation, 
 downloads, checksums, restarting into the update). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders, `file-guard`
-what local pages may load, `blend` the colors of "Match the page").
+what local pages may load, `blend` the colors of "Match the page", `launcher-settings` that every setting
+of the Waypoint extension has a place in Settings → Launcher and that its settings files import whole).
 
 ## Releases
 

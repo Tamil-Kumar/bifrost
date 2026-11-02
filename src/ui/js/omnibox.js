@@ -75,7 +75,8 @@ export function build() {
   input.addEventListener('input', () => {
     editing = true;
     results.reset();
-    if (!input.value.trim()) { hideDrop(); searcher.cancel(); return; }
+    // Settings → Launcher → "Results under the address bar" off: a plain address field.
+    if (!input.value.trim() || !dropping()) { hideDrop(); searcher.cancel(); return; }
     searcher.run(input.value);
   });
   input.addEventListener('keydown', (e) => { lastKeyAt = performance.now(); onKey(e); });
@@ -94,7 +95,7 @@ function onKey(e) {
       if (open) { hideDrop(); editing = false; const t = activeTab(); input.value = t && !isNewTab(t.url) ? t.url : ''; input.select(); }
       else { editing = false; selfBlur = true; input.blur(); emit('focus-tab', activeTab()); }
       return;
-    case 'ArrowDown': if (open) { e.preventDefault(); results.move(1); } else if (input.value.trim()) { editing = true; searcher.run(input.value); } return;
+    case 'ArrowDown': if (open) { e.preventDefault(); results.move(1); } else if (input.value.trim() && dropping()) { editing = true; searcher.run(input.value); } return;
     case 'ArrowUp': if (open) { e.preventDefault(); results.move(-1); } return;
     case 'PageDown': if (open) { e.preventDefault(); results.page(1); } return;
     case 'PageUp': if (open) { e.preventDefault(); results.page(-1); } return;
@@ -125,6 +126,8 @@ function onKey(e) {
     default:
   }
 }
+
+const dropping = () => setting('launcher.omnibox') !== false;
 
 function pick(it, how) {
   editing = false;

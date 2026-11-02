@@ -1,0 +1,22 @@
+{
+  "ranking": { "wMatch": 1.25, "wVisits": 0.75, "wRecency": 0.5, "recencyHalfLifeDays": 30, "visitsSaturation": 120, "fuzzy": false, "minScore": 0.12, "maxResults": 14, "searchRowPosition": "bottom", "autoThreshold": 0.8, "suggestionDecay": 0.15, "historyIndexSize": 6000 },
+  "sources": {
+    "bookmarks": { "enabled": true, "weight": 2.2, "max": 12, "folderMode": "selected", "folderIds": ["toolbar_____", "Xa91kd"] },
+    "tabs": { "enabled": false, "weight": 0.9, "max": 3, "currentWindowOnly": true },
+    "history": { "enabled": true, "weight": 1.4, "max": 6 },
+    "suggestions": { "enabled": false, "weight": 0.3, "max": 2, "provider": "duckduckgo" }
+  },
+  "boosts": { "domains": [{ "domain": "github.com", "factor": 2 }, { "domain": "pinterest.com", "factor": 0 }], "folders": [{ "folder": "Work", "factor": 1.5 }] },
+  "search": {
+    "engineName": "Kagi", "engineUrl": "https://kagi.com/search?q=%s",
+    "prefixes": { "bookmarks": "!", "history": "@", "tabs": "#", "suggestions": "" },
+    "engines": [
+      { "keyword": "yt", "name": "YouTube", "url": "https://www.youtube.com/results?search_query=%s" },
+      { "keyword": "gh", "name": "GitHub code", "url": "https://github.com/search?q=%s&type=code" },
+      { "keyword": "aw", "name": "Arch Wiki", "url": "https://wiki.archlinux.org/index.php?search=%s" }
+    ]
+  },
+  "behavior": { "enterAction": "newTab", "shiftEnterAction": "background", "switchToOpenTab": false, "emptyState": "history", "escClears": true, "suggestDelayMs": 150, "omnibox": false, "openMode": "window", "fallback": "window", "newTabPage": "tab", "toolbarButton": "popup", "windowHeight": 620, "debounceMs": 40 },
+  "appearance": { "theme": "tokyonight", "useCustomAccent": true, "accent": "#ff8800", "font": "Inter, sans-serif", "fontSize": 16, "width": 720, "radius": 6, "density": "compact", "favicons": "duckduckgo", "showUrls": false, "showFolders": false, "showBadges": false, "showHints": false, "showScores": true, "animations": false, "overlayTop": 22, "overlayDim": 0.5, "overlayBlur": false },
+  "customCss": ".row.sel { background: var(--s1); }"
+}

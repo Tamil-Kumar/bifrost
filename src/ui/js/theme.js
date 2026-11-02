@@ -10,6 +10,8 @@ let lastCaption = '';
 let theme = null;          // the palette in use (resolved from the settings)
 let blendVars = null;      // with "Match the page": the colors from the current page (shared/themes.js blendVars)
 let blendKey = '';
+let blendTab = null;       // the tab they were last taken from
+const BLUR_MIN = 10;       // (Look & feel → How blurred)
 
 export function applyTheme() {
   const a = S.settings.appearance;
@@ -104,18 +106,28 @@ function backdrop() {
   return bd;
 }
 
-// The blurred picture behind the bars: two layers, the new one fading in over the old.
-function applyBackdrop(thumb) {
+// The blurred picture behind the bars: two layers, the new one fading in over the old (at once, with
+// `instant`: another tab's picture).
+function applyBackdrop(thumb, instant) {
   const bd = backdrop();
   const [a, b] = bd.children;
   const cur = a.classList.contains('on') ? a : b.classList.contains('on') ? b : null;
-  if (!thumb) { a.classList.remove('on'); b.classList.remove('on'); return; }
+  const swap = (fn) => {
+    if (!instant) { fn(); return; }
+    bd.classList.add('instant');
+    fn();
+    void bd.offsetWidth;   // (the change is styled now, without a transition)
+    bd.classList.remove('instant');
+  };
+  if (!thumb) { swap(() => { a.classList.remove('on'); b.classList.remove('on'); }); return; }
   if (cur && cur.dataset.src === thumb) return;
   const next = cur === a ? b : a;
-  next.style.backgroundImage = `url("${thumb}")`;
-  next.dataset.src = thumb;
-  next.classList.add('on');
-  if (cur) cur.classList.remove('on');
+  swap(() => {
+    next.style.backgroundImage = `url("${thumb}")`;
+    next.dataset.src = thumb;
+    next.classList.add('on');
+    if (cur) cur.classList.remove('on');
+  });
 }
 
 export function applyBlend() {
@@ -123,10 +135,15 @@ export function applyBlend() {
   const a = S.settings.appearance;
   const tint = pageTint();
   const t = activeTab();
+  // Switching to another tab changes the window around the page at once, as the page itself changes: a
+  // fade there showed the window's own background (Mica, on Windows) or the last page through it for a
+  // moment. Only a change on the same page (it scrolled to another color, switched theme) fades.
+  const sameTab = !!t && t === blendTab;
+  blendTab = t;
   const see = seeThrough(t);
   const thumb = a.blend === 'blur' && tint && t && t.pixelColorUrl === t.url ? t.pageThumb || '' : '';
-  root.style.setProperty('--blend-blur', Math.max(0, Math.min(120, Number(a.blendBlur) || 40)) + 'px');
-  applyBackdrop(thumb);
+  root.style.setProperty('--blend-blur', Math.max(BLUR_MIN, Math.min(120, Number(a.blendBlur) || 40)) + 'px');
+  applyBackdrop(thumb, !sameTab);
   root.classList.toggle('blend-blur', !!thumb);
   root.classList.toggle('see-through', see);
   root.classList.toggle('frosted', see && a.blend === 'blur');
@@ -138,6 +155,8 @@ export function applyBlend() {
   let style = document.getElementById('blend-vars');
   if (!style) { style = document.createElement('style'); style.id = 'blend-vars'; document.head.appendChild(style); }
   const decl = blendVars ? Object.entries(blendVars).filter(([k]) => k.startsWith('--')).map(([k, v]) => `${k}: ${v};`).join(' ') : '';
+  // (from one page color to the next on the same tab; never from none: the window behind would show)
+  root.classList.toggle('blend-fade', !!blendVars && sameTab && root.classList.contains('blend'));
   // (on the bars only: menus, dialogs and side panels keep the theme)
   style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; }\n:root.blend #sidebar, :root.blend #topbar { ${decl} }` : '';
   root.classList.toggle('blend', !!blendVars);

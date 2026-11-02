@@ -759,8 +759,27 @@ webview.js-dialog-hide { visibility: hidden !important; }
 /* ============================================================ launcher + results */
 .launcher-layer { position: fixed; inset: 0; }
 .launcher-back { position: absolute; inset: 0; background: rgba(5, 5, 12, var(--l-dim, .35)); }
-:root[data-scheme="light"] .launcher-back { background: rgba(40, 40, 70, calc(var(--l-dim, .35) * .6)); }
+.launcher-layer[data-scheme="light"] .launcher-back { background: rgba(40, 40, 70, calc(var(--l-dim, .35) * .6)); }
 .launcher-layer.blur .launcher-back { backdrop-filter: blur(3px); }
+/* A theme of its own (Settings → Launcher → Theme): the colors made from the palette (on the root, they'd
+   still be the browser theme's) are made again from the launcher's, solid or glass (base.css). */
+.launcher-layer.themed {
+  --c-bookmark: var(--yellow); --c-history: var(--blue); --c-tab: var(--green); --c-suggestion: var(--pink);
+  --c-search: var(--accent); --c-engine: var(--accent); --c-url: var(--teal); --c-command: var(--peach);
+  --float-bg: linear-gradient(180deg, var(--surface-hi), var(--base) 160px); --float-flat: var(--base);
+  --float-border: var(--border-tint); --float-sel: var(--s0); --float-line: var(--s0);
+}
+.launcher-layer.themed[data-scheme="light"] { --float-bg: linear-gradient(180deg, #fff, color-mix(in srgb, var(--accent) 3%, #fff)); --float-flat: #fff; --float-sel: var(--crust); }
+:root[data-menus="glass"]:not(.low-visuals) .launcher-layer.themed {
+  --float-bg: var(--float-grain), linear-gradient(180deg, color-mix(in srgb, var(--base) 56%, transparent), color-mix(in srgb, var(--base) 66%, transparent));
+  --float-flat: color-mix(in srgb, var(--base) 62%, transparent); --float-blur: blur(34px) saturate(1.9) brightness(.55);
+  --float-border: rgba(255, 255, 255, .12); --float-line: rgba(255, 255, 255, .12); --float-sel: color-mix(in srgb, var(--text) 12%, transparent);
+}
+:root[data-menus="glass"]:not(.low-visuals) .launcher-layer.themed[data-scheme="light"] {
+  --float-bg: var(--float-grain), linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .7));
+  --float-flat: rgba(255, 255, 255, .74); --float-blur: blur(34px) saturate(1.8) brightness(1.35);
+  --float-border: rgba(255, 255, 255, .7); --float-line: color-mix(in srgb, var(--text) 13%, transparent); --float-sel: color-mix(in srgb, var(--text) 9%, transparent);
+}
 .launcher {
   position: absolute; left: 50%; top: var(--l-top, 14vh);
   width: min(var(--l-width, 680px), calc(100vw - 24px));
@@ -768,25 +787,39 @@ webview.js-dialog-hide { visibility: hidden !important; }
   margin-left: calc(min(var(--l-width, 680px), calc(100vw - 24px)) / -2);
   display: flex; flex-direction: column;
   border-radius: calc(var(--r-menu) + 4px);
-  background: var(--base); border: 1px solid var(--s0);
+  background: var(--base); border: 1px solid var(--s0); color: var(--text);
   box-shadow: 0 28px 70px -18px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .25);
   overflow: hidden;
 }
-:root[data-scheme="light"] .launcher { background: #fff; }
+/* As a centered window (Settings → Launcher → Opens): its own height, the page behind left as it is. */
+.launcher-layer.as-window .launcher {
+  top: 50%; height: min(var(--l-height, 540px), calc(100vh - 48px)); max-height: none;
+  margin-top: calc(min(var(--l-height, 540px), calc(100vh - 48px)) / -2);
+  box-shadow: 0 30px 80px -20px rgba(0, 0, 0, .65), 0 0 0 1px color-mix(in srgb, var(--text) 6%, transparent);
+}
+.launcher-layer.as-window .launcher-back, .launcher-layer.anchored .launcher-back { background: transparent; backdrop-filter: none; }
+/* Under (or beside) the toolbar button it was opened from (launcher.js place()). */
+.launcher-layer.anchored .launcher { box-shadow: var(--shadow-2), 0 0 0 1px color-mix(in srgb, var(--text) 5%, transparent); }
 .l-bar { display: flex; align-items: center; gap: 12px; padding: 14px 16px 13px; border-bottom: 1px solid var(--s0); }
 .l-lens { color: var(--accent); }
 .l-lens svg.i { width: 20px; height: 20px; stroke-width: 2.2; }
-.l-q { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font-size: 1.36rem; letter-spacing: -.01em; line-height: 1.3; caret-color: var(--accent); user-select: text; }
+.l-q { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text); font: inherit; font-size: 1.36em; letter-spacing: -.01em; line-height: 1.3; caret-color: var(--accent); user-select: text; }
 .l-q::placeholder { color: var(--overlay); }
-.l-mode { flex: none; font-size: .8rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; color: var(--crust); background: var(--chip, var(--accent)); }
-:root[data-scheme="light"] .l-mode { color: #fff; }
+.l-mode { flex: none; font-size: .8em; font-weight: 700; padding: 3px 10px; border-radius: 999px; color: var(--crust); background: var(--chip, var(--accent)); }
+.launcher-layer[data-scheme="light"] .l-mode { color: #fff; }
 .l-empty { margin: 0; padding: 26px 20px 28px; color: var(--overlay); text-align: center; }
-.l-foot { display: flex; align-items: center; gap: 12px; padding: 7px 10px 7px 16px; background: var(--mantle); border-top: 1px solid var(--s0); font-size: .8rem; color: var(--overlay); }
+.l-foot { display: flex; align-items: center; gap: 12px; padding: 7px 10px 7px 16px; background: var(--mantle); border-top: 1px solid var(--s0); font-size: .8em; color: var(--overlay); }
 .l-hints { flex: 1; min-width: 0; display: flex; gap: 14px; overflow: hidden; white-space: nowrap; }
 .l-hints kbd { margin-right: 5px; }
 .l-gear { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--subtext); }
 .l-gear:hover { background: var(--s0); color: var(--accent); }
 .l-gear svg.i { width: 17px; height: 17px; }
+/* Density → Compact: one line per result. */
+.launcher-layer[data-density="compact"] .rrow { padding: 3px 10px 3px 12px; gap: 10px; }
+.launcher-layer[data-density="compact"] .rrow.sel::before { top: 6px; bottom: 6px; }
+.launcher-layer[data-density="compact"] .r-ico { width: 24px; height: 24px; border-radius: 6px; }
+.launcher-layer[data-density="compact"] .r-sub { display: none; }
+.launcher-layer[data-density="compact"] .l-bar { padding: 10px 14px 9px; }
 
 .results { list-style: none; margin: 0; padding: 6px; overflow-y: auto; overscroll-behavior: contain; flex: 1; min-height: 0; }
 .results:empty { display: none; }
@@ -802,6 +835,9 @@ webview.js-dialog-hide { visibility: hidden !important; }
 :root[data-scheme="light"] .rrow.sel { background: var(--crust); }
 .rrow.sel::before { content: ""; position: absolute; left: 3px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px; background: var(--rowc); }
 :root:not(.no-launcher) .rrow.sel::before { animation: rail var(--t-fast) var(--ease-out); }
+.launcher-layer.no-motion .rrow.sel::before { animation: none; }
+/* (after the light theme's own: the launcher's theme decides) */
+.launcher-layer.themed .rrow.sel { background: var(--float-sel); }
 .r-ico { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--rowc) 13%, var(--mantle)); color: var(--rowc); overflow: hidden; }
 .r-ico svg.i { width: 16px; height: 16px; }
 .r-ico.fav { background: var(--mantle); }
@@ -1078,7 +1114,9 @@ body { background: var(--chrome-bg); }
    Look & feel → Sidebar and toolbar → Match the page (theme.js): the window around the page takes the color
    of the page next to it (the sidebar's and the toolbar's colors come from it too), with no glow, grain,
    edge or shadow between them, so page and window read as one surface. */
-:root.blend body { background: var(--page-tint); transition: background-color var(--t-med, 220ms) ease; }
+:root.blend body { background: var(--page-tint); }
+/* (only from one color of the page to another: theme.js) */
+:root.blend.blend-fade body { transition: background-color var(--t-med, 220ms) ease; }
 :root.blend #sidebar, :root.blend #topbar { color: var(--text); }
 /* (behind the page too: its rounded corners then leave no lighter edge) */
 :root.blend webview.view { background: var(--page-tint); }
@@ -1100,7 +1138,13 @@ body { background: var(--chrome-bg); }
   opacity: 0; transition: opacity .5s ease;
 }
 #backdrop > div.on { opacity: 1; }
+#backdrop.instant > div { transition: none; }
 :root.blend-blur #backdrop::after { content: ""; position: absolute; inset: 0; background: var(--page-tint); opacity: .42; }
+/* (the window's fine grain, over the picture: frosted glass rather than a smeared photo) */
+:root.blend-blur[data-texture="on"] #backdrop::before {
+  content: ""; position: absolute; inset: 0; z-index: 2; opacity: .06; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
 
 /* Bifrost's own pages, see-through (theme.js seeThrough): no frame between them and the window, whose
    background they share; the new tab page's glow or picture is drawn across the whole window (as its own

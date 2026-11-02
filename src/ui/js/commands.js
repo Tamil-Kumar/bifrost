@@ -209,7 +209,8 @@ export function run(id, args = {}) {
     // ---- navigation
     case 'launcher':
       if (args.text != null || args.mode) { openLauncher({ mode: args.mode || 'current', text: args.text || '' }); return; }
-      if (launcherOpen()) closeLauncher(); else openLauncher({ mode: 'current' });
+      if (launcherOpen()) closeLauncher();
+      else openLauncher({ mode: 'current', anchor: args.source === 'button' && setting('launcher.toolbarButton') === 'popup' ? args.anchor : null });
       return;
     case 'commandPalette': openLauncher({ mode: 'current', text: (setting('launcher.prefixes.commands') || '>') + ' ' }); return;
     case 'focusAddress': if (!Omni.focus(true)) editAddress(); return;

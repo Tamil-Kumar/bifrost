@@ -199,15 +199,18 @@
       openInNewTab: false,
     },
     launcher: {
-      // The launcher's ranking engine, same knobs as the Waypoint extension.
+      // Every setting of the Waypoint launcher extension (Settings → Launcher). Its ranking engine is
+      // shared/engine.js. Where Waypoint and Bifrost behaved differently, the default is Bifrost's.
+      // Ranking
       wMatch: 1.0, wVisits: 0.5, wRecency: 0.35,
       recencyHalfLifeDays: 14, visitsSaturation: 50,
       fuzzy: true, minScore: 0.05, maxResults: 10,
       searchRowPosition: 'auto', autoThreshold: 0.45, suggestionDecay: 0.08,
-      historyIndexSize: 10000, suggestDelayMs: 90,
+      historyIndex: 0,               // history pages searched instantly; 0 = as the performance profile says
+      // Sources
       sources: {
         bookmarks: { enabled: true, weight: 1.6, max: 8 },
-        tabs: { enabled: true, weight: 1.2, max: 5 },
+        tabs: { enabled: true, weight: 1.2, max: 5, currentWindowOnly: false },
         history: { enabled: true, weight: 1.0, max: 8 },
         commands: { enabled: true, weight: 0.9, max: 4 },
         suggestions: { enabled: true, weight: 0.55, max: 5 },
@@ -215,13 +218,38 @@
       prefixes: { bookmarks: '*', history: '^', tabs: '%', commands: '>', suggestions: '?' },
       boosts: { domains: [], folders: [] },
       bookmarkFolders: { mode: 'all', ids: [] },
+      // Keys & behavior
+      openMode: 'overlay',           // overlay (over the page, near the top) | window (a centered window)
+      windowHeight: 540,             // px, as a centered window
+      toolbarButton: 'same',         // same (as the shortcut) | popup (under the button)
+      enterAction: 'current',        // current | newtab | background | split
+      shiftEnterAction: 'split',     // (also Shift+click)
+      switchToOpenTab: true,         // a bookmark or history result that's open in a tab switches to it
       emptyState: 'bookmarks',       // bookmarks | tabs | history | none
+      escClears: false,              // Esc empties the box first, then closes
+      typingDelayMs: 0,              // wait after a key before searching (0: search as you type)
+      suggestDelayMs: 90,            // web suggestions and older history wait this long after the last key
+      omnibox: true,                 // the address bar shows the launcher's results as you type
+      // Appearance
+      theme: 'browser',              // browser (like Bifrost) | auto (Mocha or Latte, like the system) | a theme
+      useCustomAccent: false,
+      accent: '#cba6f7',
+      font: '',                      // '' = the browser's
+      fontSize: -1,                  // px; -1 = the browser's interface size
       width: 680,
       top: 14,                       // percent of the window height
       dim: 0.35,
       blur: true,
+      radius: -1,                    // px; -1 = like menus and dialogs
+      density: 'comfortable',        // comfortable | compact (one line per result)
+      favicons: 'browser',           // browser (Bifrost's icon cache) | google | duckduckgo | none (source icons)
+      showUrls: true,
+      showFolders: true,
+      showBadges: true,
       showHints: true,
       showScores: false,
+      animations: true,              // animate opening and the selection
+      customCss: '',
     },
     privacy: {
       adblock: {

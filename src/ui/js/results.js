@@ -11,34 +11,41 @@ const GLYPH = { bookmark: 'star', history: 'clock', tab: 'window', suggestion: '
 const BADGE = { bookmark: 'Bookmark', history: 'History', tab: 'Switch to tab', suggestion: 'Suggestion', search: 'Search', engine: 'Search', url: 'Open', command: 'Command' };
 const CMD_ICON = { Tabs: 'window', Groups: 'tag', Workspaces: 'layers', 'Split view': 'split', Navigation: 'compass', Page: 'file', Window: 'window', Panels: 'sidebar', Pages: 'book', Tools: 'wrench' };
 
-// Two-pass search: the instant in-memory answer, then web suggestions and older history.
+// Two-pass search: the instant in-memory answer, then web suggestions and older history. Settings →
+// Launcher → Typing delay holds the first pass until you pause (0: every key); Suggestion delay, the second.
 export function makeSearcher(onResults) {
-  let seq = 0, timer = null;
+  let seq = 0, timer = null, typing = null;
   return {
     run(raw) {
       const my = ++seq;
       const act = activeTab();
       const args = { raw, activeWcId: act ? act.wcId : null };
-      wb.invoke('search:query', args).then((r) => { if (my === seq) onResults(r, false, raw); }).catch(() => {});
       clearTimeout(timer);
+      clearTimeout(typing);
+      const wait = raw.trim() ? Math.max(0, Math.min(1000, Number(setting('launcher.typingDelayMs')) || 0)) : 0;
+      const first = () => wb.invoke('search:query', args).then((r) => { if (my === seq) onResults(r, false, raw); }).catch(() => {});
+      if (wait) typing = setTimeout(first, wait); else first();
       if (raw.trim()) {
         timer = setTimeout(() => {
           wb.invoke('search:more', args).then((r) => { if (my === seq) onResults(r, true, raw); }).catch(() => {});
-        }, Math.max(0, setting('launcher.suggestDelayMs') ?? 90));
+        }, wait + Math.max(0, setting('launcher.suggestDelayMs') ?? 90));
       }
     },
-    cancel() { seq++; clearTimeout(timer); },
+    cancel() { seq++; clearTimeout(timer); clearTimeout(typing); },
   };
 }
 
+// look: () => what to show (the launcher's settings: showUrls, showFolders, showBadges, favicons); without
+// it, everything (the address bar's list).
 export class ResultList {
-  constructor({ onPick, onDelete, className = '' } = {}) {
+  constructor({ onPick, onDelete, className = '', look = null } = {}) {
     this.el = h('ul.results' + (className ? '.' + className : ''), { role: 'listbox' });
     this.items = [];
     this.sel = 0;
     this.query = null;
     this.onPick = onPick;
     this.onDelete = onDelete;
+    this.look = look;
     this.el.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus in the input
   }
 
@@ -67,38 +74,40 @@ export class ResultList {
   render() {
     const tokens = this.query && this.query.text ? this.query.text.toLowerCase().split(/\s+/).filter(Boolean) : [];
     const showScores = setting('launcher.showScores');
-    this.el.replaceChildren(...this.items.map((it, i) => this.row(it, i, tokens, showScores)));
+    const look = (this.look && this.look()) || {};
+    this.el.replaceChildren(...this.items.map((it, i) => this.row(it, i, tokens, showScores, look)));
     this.highlightSel(false);
   }
 
-  row(it, i, tokens, showScores) {
-    const li = h('li.rrow', { role: 'option', dataset: { type: it.type, index: String(i) } });
-    li.append(iconFor(it));
-    const title = h('span.r-title');
+  // (Each part also has the class Waypoint gave it, for custom CSS written for Waypoint: .row, .title…)
+  row(it, i, tokens, showScores, look = {}) {
+    const li = h('li.rrow.row', { role: 'option', dataset: { type: it.type, index: String(i) } });
+    li.append(iconFor(it, look.favicons));
+    const title = h('span.r-title.title');
     if (it.type === 'engine' && !it.title) { title.classList.add('ghost'); title.textContent = 'Type to search ' + it.engineName; }
     else title.append(highlight(it.title || displayUrl(it.url) || '', tokens));
-    const sub = h('span.r-sub');
-    if (it.type === 'search' || it.type === 'engine') sub.append(h('span.r-url', null, 'Search ' + (it.engineName || 'the web')));
-    else if (it.type === 'url') sub.append(h('span.r-url', null, 'Open this address'));
-    else if (it.type === 'command') sub.append(h('span.r-url', null, it.category || 'Command'));
+    const sub = h('span.r-sub.sub');
+    if (it.type === 'search' || it.type === 'engine') sub.append(h('span.r-url.url', null, 'Search ' + (it.engineName || 'the web')));
+    else if (it.type === 'url') sub.append(h('span.r-url.url', null, 'Open this address'));
+    else if (it.type === 'command') sub.append(h('span.r-url.url', null, it.category || 'Command'));
     else if (it.type !== 'suggestion') {
-      if (it.folder && it.folder.length) sub.append(h('span.r-folder', null, icon('folder'), h('span.r-ftext', null, it.folder.slice(-2).join(' › '))));
-      sub.append(h('span.r-url', null, displayUrl(it.url)));
+      if (look.showFolders !== false && it.folder && it.folder.length) sub.append(h('span.r-folder.folder', null, icon('folder'), h('span.r-ftext.ftext', null, it.folder.slice(-2).join(' › '))));
+      if (look.showUrls !== false) sub.append(h('span.r-url.url', null, displayUrl(it.url)));
     }
-    li.append(h('span.r-main', null, title, sub));
-    const meta = h('span.r-meta');
-    if (it.tab && it.type !== 'tab' && it.type !== 'command') meta.append(h('span.r-flag', { title: 'Already open: switches to that tab' }, icon('external')));
+    li.append(h('span.r-main.main', null, title, sub));
+    const meta = h('span.r-meta.meta');
+    if (it.tab && it.type !== 'tab' && it.type !== 'command' && setting('launcher.switchToOpenTab') !== false) meta.append(h('span.r-flag.flag', { title: 'Already open: switches to that tab' }, icon('external')));
     if (it.type === 'command') {
       const acc = accelFor(it.command);
       if (acc) meta.append(h('kbd', null, acc));
-    } else if (it.type !== 'suggestion') meta.append(h('span.r-badge', null, BADGE[it.type] || ''));
+    } else if (it.type !== 'suggestion' && look.showBadges !== false) meta.append(h('span.r-badge.badge', null, BADGE[it.type] || ''));
     if (showScores && Number.isFinite(it.score) && it.breakdown) {
       const b = it.breakdown, f = (n) => (Number.isFinite(n) ? n.toFixed(2) : '');
-      meta.append(h('span.r-score', { title: `match ${f(b.m)} · visits ${f(b.v)} · recency ${f(b.r)}\nsource ×${f(b.sw)} · domain ×${f(b.df)} · folder ×${f(b.ff)}` }, f(it.score)));
+      meta.append(h('span.r-score.score', { title: `match ${f(b.m)} · visits ${f(b.v)} · recency ${f(b.r)}\nsource ×${f(b.sw)} · domain ×${f(b.df)} · folder ×${f(b.ff)}` }, f(it.score)));
     }
     li.append(meta);
     li.addEventListener('mousemove', () => { if (this.sel !== i) { this.sel = i; this.userMoved = true; this.highlightSel(false); } });
-    li.addEventListener('click', (e) => this.onPick && this.onPick(it, howFromEvent(e)));
+    li.addEventListener('click', (e) => this.onPick && this.onPick(it, howFromEvent(e), e));
     li.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); this.onPick && this.onPick(it, 'background'); } });
     return li;
   }
@@ -132,12 +141,24 @@ export class ResultList {
 
 function keyOf(it) { return it.type + '|' + (it.key || it.url || it.command || it.title); }
 
-function iconFor(it) {
-  const box = h('span.r-ico');
+// favicons (Settings → Launcher → Site icons): 'browser' (Bifrost's own icons of sites you've been to),
+// 'google' or 'duckduckgo' (any site's, from that service), 'none' (the source's icon: star, clock…).
+const ICON_SERVICE = {
+  google: (host) => 'https://www.google.com/s2/favicons?sz=64&domain=' + encodeURIComponent(host),
+  duckduckgo: (host) => 'https://icons.duckduckgo.com/ip3/' + encodeURIComponent(host) + '.ico',
+};
+function iconFor(it, favicons = 'browser') {
+  const box = h('span.r-ico.ico');
   const local = it.type === 'bookmark' || it.type === 'history' || it.type === 'tab';
-  if (local && it.url) {
+  let host = '';
+  try { host = /^https?:/i.test(it.url || '') ? new URL(it.url).hostname : ''; } catch { /* not an address */ }
+  if (local && it.url && favicons !== 'none') {
     box.classList.add('fav');
-    box.append(faviconEl(it.url, it.favicon, icon, 'fav', { hi: true }));
+    if (ICON_SERVICE[favicons] && host) {
+      // (an open tab's own icon first, as Waypoint did)
+      const own = it.type === 'tab' && /^(https?|data):/i.test(it.favicon || '') ? it.favicon : '';
+      box.append(faviconEl(it.url, own || ICON_SERVICE[favicons](host), icon, 'fav'));
+    } else box.append(faviconEl(it.url, it.favicon, icon, 'fav', { hi: true }));
   } else if (it.type === 'command') {
     box.append(icon(commandIcon(it)));
   } else {
@@ -165,7 +186,9 @@ export function howFromEvent(e, fallback = null) {
 export function openResult(it, how = 'current') {
   if (!it) return;
   if (it.type === 'command') { emit('command', it.command, { source: 'launcher' }); return; }
-  if (it.tab && (it.type === 'tab' || how === 'current' || how === 'newtab')) {
+  // A bookmark or history result that's open in a tab switches to it (Settings → Launcher → "Jump to tabs
+  // that are already open").
+  if (it.tab && (it.type === 'tab' || ((how === 'current' || how === 'newtab') && setting('launcher.switchToOpenTab') !== false))) {
     if (it.tab.windowId === S.windowId) {
       const t = tabById(it.tab.tabId);
       if (t) {

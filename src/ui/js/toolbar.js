@@ -128,7 +128,8 @@ export function makeItem(id, zone = 'toolbar') {
   if (ITEMS[id]) return ITEMS[id]();
   if (meta.cmd) {
     const label = id === 'sidebar' ? (zone === 'sidebar' ? 'Collapse the sidebar' : 'Show or hide the sidebar') : meta.label;
-    const b = tbButton(id, meta.icon, tip(label, meta.cmd), () => emit('command', meta.cmd), { panel: meta.panel ? meta.cmd : null });
+    // (the launcher's button says where it is: Settings → Launcher → "Toolbar button opens" a popup under it)
+    const b = tbButton(id, meta.icon, tip(label, meta.cmd), (e, el) => emit('command', meta.cmd, id === 'launcher' ? { source: 'button', anchor: el } : {}), { panel: meta.panel ? meta.cmd : null });
     if (id === 'sidebar' && zone === 'sidebar') b.classList.add('sb-toggle');
     return b;
   }

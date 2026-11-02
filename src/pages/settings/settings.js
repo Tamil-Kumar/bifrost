@@ -564,6 +564,100 @@ function bookmarkFoldersEditor() {
   return { el: box, update: () => { if (!typingIn(box)) draw(); } };
 }
 
+// The launcher's default search engine (the list is Search → Search engines, shown here too).
+function defaultEngineSelect() {
+  const sel = h('select.field');
+  const draw = () => {
+    if (document.activeElement === sel) return;
+    const list = get('search.engines') || [];
+    sel.replaceChildren(...list.map((e) => h('option', { value: e.id }, e.name + (e.keyword ? ` (${e.keyword})` : ''))));
+    sel.value = get('search.defaultEngine');
+  };
+  sel.addEventListener('change', () => save('search.defaultEngine', sel.value));
+  draw();
+  return { el: sel, update: draw };
+}
+
+// The launcher's shortcuts, changed right here (the rest are under Keyboard & touchpad).
+const LAUNCHER_KEYS = [['launcher', 'Open the launcher'], ['commandPalette', 'Open it for commands'], ['newTab', 'New tab (opens it, with “Ctrl+T opens the launcher”)']];
+function launcherShortcuts() {
+  const box = h('div');
+  let recording = null;
+  const draw = () => {
+    if (recording) return;
+    const map = D.shortcutMap(page.settings);
+    box.replaceChildren(...LAUNCHER_KEYS.filter(([id]) => D.COMMANDS.some((c) => c.id === id)).map(([id, label]) => {
+      const keys = (map[id] || []).map((a) => { const p = D.parseAccelerator(a); return h('span.kb-chip', { style: { paddingRight: '9px' } }, p ? D.chordToString(p) : a); });
+      const btn = h('button.kb-add', { type: 'button', dataset: { cmd: id } }, keys.length ? 'Change' : '+ Add');
+      btn.addEventListener('click', () => record(id, btn));
+      return h('div.kb-row', { dataset: { cmd: id } }, h('span.kb-title', null, label), h('div.kb-keys', null, keys.length ? keys : h('span.kb-none', null, 'No shortcut'), btn));
+    }));
+  };
+  // The next key combination replaces the command's shortcuts. Browser shortcuts are paused meanwhile.
+  function record(id, btn) {
+    if (recording) recording.stop();
+    btn.classList.add('recording');
+    btn.textContent = 'Press keys…';
+    wb.send('kbd:capture', true);
+    const onKey = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey && !e.shiftKey) { stop(); return; }
+      const chord = D.eventToChord(e);
+      if (!chord.code) return;
+      if (!chord.ctrl && !chord.alt && !chord.meta && !/^F\d+$/.test(chord.code)) {
+        toast({ text: 'Use a modifier (Ctrl, Alt, Shift+…) or a function key', iconName: 'keyboard', timeout: 2200 });
+        return;
+      }
+      const acc = [chord.ctrl && 'Ctrl', chord.alt && 'Alt', chord.shift && 'Shift', chord.meta && 'Meta', chord.code.replace(/^Key/, '').replace(/^Digit/, '')].filter(Boolean).join('+');
+      stop();
+      save('keyboard.shortcuts.' + id, [acc]);
+      const label = D.chordToString(chord);
+      const other = D.COMMANDS.find((c) => c.id !== id && (D.shortcutMap(page.settings)[c.id] || []).some((a) => { const p = D.parseAccelerator(a); return p && D.chordToString(p) === label; }));
+      if (other) toast({ text: `${label} is also bound to “${other.title}”. Remove one of them to avoid a clash.`, iconName: 'warn', timeout: 6000 });
+    };
+    function stop() {
+      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('blur', stop);
+      wb.send('kbd:capture', false);
+      recording = null;
+      draw();
+    }
+    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('blur', stop);
+    recording = { stop };
+  }
+  draw();
+  return { el: box, update: draw };
+}
+
+// Settings → Launcher → Backup: the launcher's settings to and from a file (shared/launcher-settings.js),
+// including a settings file exported from the Waypoint extension.
+function launcherBackup() {
+  const LS = window.WBLauncher;
+  const clean = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const exp = h('button.btn.small', { type: 'button', dataset: { act: 'export' }, onclick: async () => {
+    try { if (await wb.invoke('settings:save-json', LS.exportData(page.settings), 'bifrost-launcher-settings.json')) toast({ text: 'Launcher settings exported', iconName: 'check' }); } catch (e) { toast({ text: clean(e), iconName: 'warn' }); }
+  } }, icon('save'), 'Export…');
+  const imp = h('button.btn.small', { type: 'button', dataset: { act: 'import' }, onclick: async () => {
+    let data;
+    try { data = await wb.invoke('settings:open-json'); } catch (e) { toast({ text: clean(e), iconName: 'warn', timeout: 5000 }); return; }
+    if (!data) return;
+    let r;
+    try { r = LS.importData(data, page.settings); } catch (e) { toast({ text: clean(e), iconName: 'warn', timeout: 5000 }); return; }
+    for (const [p, v] of Object.entries(r.set)) await set(p, v);
+    toast({ text: r.kind === 'waypoint' ? 'Waypoint’s settings are in' : 'Launcher settings imported', iconName: 'check', timeout: 4000 });
+    for (const n of r.notes) toast({ text: n, iconName: 'info', timeout: 9000 });
+  } }, icon('import'), 'Import…');
+  const rst = h('button.btn.small.danger', { type: 'button', dataset: { act: 'reset' }, onclick: async () => {
+    if (!await confirmDialog('Reset every launcher setting to its default?', { detail: 'Search engines are shared with the address bar and stay as they are.', ok: 'Reset', danger: true })) return;
+    await wb.invoke('settings:reset', 'launcher');
+    toast({ text: 'Launcher settings reset', iconName: 'check' });
+  } }, icon('rotate'), 'Reset to defaults');
+  return { el: h('div.btn-row', null, exp, imp, rst), update: null };
+}
+
 // ------------------------------------------------------------ privacy
 function adblockStatus() {
   const line = h('span.status-line');
@@ -1056,6 +1150,8 @@ function updatesWidget() {
 
 // ------------------------------------------------------------ sections
 const pct = (v) => Math.round(v * 100) + '%';
+const X2 = (v) => v.toFixed(2);
+const OPEN_ACTIONS = [['current', 'Open in this tab'], ['newtab', 'Open in a new tab'], ['background', 'Open in a background tab'], ['split', 'Open in split view']];
 const ANIMS = [
   ['tabOpenClose', 'Tabs opening and closing'], ['tabSwitch', 'Switching tabs'], ['tabDrag', 'Dragging tabs'], ['tabHover', 'Hover effects'],
   ['loadingIndicator', 'Loading spinners and bars, and icons popping in when a page loads'], ['workspaceSwitch', 'Switching spaces'], ['splitView', 'Split view'], ['launcher', 'The launcher'],
@@ -1344,38 +1440,78 @@ function sections() {
         I.list('advanced.spellcheckLanguages', 'Spell check languages', 'Language codes such as en-US or fr.', { when: (st) => st.advanced.spellcheck }),
       ] },
     ] },
-    { id: 'launcher', title: 'Launcher', icon: 'bolt', desc: 'Bifrost’s ranking: how bookmarks, tabs, history and suggestions are weighed.', groups: [
-      { title: 'Sources', items: [
-        I.custom('What the launcher searches', 'Weight multiplies a source’s scores; max limits how many of its results show.', sourcesEditor, { keywords: 'bookmarks tabs history commands suggestions weight' }),
-        I.custom('Prefixes', 'Start a search with one of these to search only that source (for example “* recipes” for bookmarks).', prefixesEditor, { keywords: 'prefix filter' }),
-        I.custom('Bookmark folders', 'Which bookmark folders the launcher looks in.', bookmarkFoldersEditor, { keywords: 'folders mobile' }),
-        I.select('launcher.emptyState', 'Before you type, show', '', [['bookmarks', 'Most-used bookmarks'], ['tabs', 'Recent tabs'], ['history', 'Recent history'], ['none', 'Nothing']]),
+    // Every setting of the Waypoint launcher extension, in its order: Ranking, Sources, Boosts, Search
+    // engines, Keys & behavior, Appearance, Backup.
+    { id: 'launcher', title: 'Launcher', icon: 'bolt', desc: 'What the launcher searches and how it ranks it, how it opens results, and how it looks.', groups: [
+      { title: 'Ranking', id: 'launcher-ranking', items: [
+        I.note('A result’s score is how well it matches what you typed, scaled up by how often and how recently you’ve visited it. The three weights are relative to each other, so doubling all of them changes nothing.'),
+        I.range('launcher.wMatch', 'Text match', 'The share of the score that comes from matching alone. Lower it to let visits and recency matter more. Early, whole-word matches in the title count most.', { min: 0, max: 3, step: 0.05, fmt: X2, keywords: 'weight ranking' }),
+        I.range('launcher.wVisits', 'Visit count', 'How often you’ve visited the page.', { min: 0, max: 3, step: 0.05, fmt: X2, keywords: 'weight ranking visits' }),
+        I.range('launcher.wRecency', 'Recency', 'How recently you visited the page, or added the bookmark if you never have.', { min: 0, max: 3, step: 0.05, fmt: X2, keywords: 'weight ranking recent' }),
+        I.range('launcher.recencyHalfLifeDays', 'Recency half-life', 'A page last visited this long ago gets half the recency credit.', { min: 1, max: 180, step: 1, fmt: (v) => v + (v === 1 ? ' day' : ' days') }),
+        I.range('launcher.visitsSaturation', 'Visits for full credit', 'Pages visited more than this all get the same visit score.', { min: 5, max: 500, step: 5, keywords: 'saturation' }),
+        I.toggle('launcher.fuzzy', 'Fuzzy matching', 'Match letters in order even when they aren’t next to each other, so “gthb” finds GitHub.'),
+        I.range('launcher.minScore', 'Hide results below', 'Results scoring under this are dropped. Turn on “Show scores” below to tune it.', { min: 0, max: 1, step: 0.01, fmt: X2, keywords: 'minimum score threshold' }),
+        I.range('launcher.maxResults', 'Results shown', '', { min: 3, max: 30, step: 1, keywords: 'max results rows' }),
+        I.seg('launcher.searchRowPosition', 'Web search row', 'Automatic keeps strong matches above it, and puts it first when nothing of yours matches well.', [['auto', 'Automatic'], ['top', 'Always first'], ['bottom', 'Always last']]),
+        I.range('launcher.autoThreshold', 'Strong match threshold', 'With Automatic, results scoring at least this stay above the web search row.', { min: 0, max: 3, step: 0.05, fmt: X2, when: (st) => st.launcher.searchRowPosition === 'auto' }),
+        I.range('launcher.suggestionDecay', 'Suggestion falloff', 'How much less each web suggestion scores than the one before it.', { min: 0, max: 0.3, step: 0.01, fmt: X2, keywords: 'decay' }),
+        I.select('launcher.historyIndex', 'History pages indexed', 'How many recent pages are searched instantly as you type. Older pages still show up a moment later. More uses more memory.', [[0, 'As many as the performance profile keeps'], [500, '500 pages'], [1000, '1,000 pages'], [2000, '2,000 pages'], [3000, '3,000 pages'], [5000, '5,000 pages'], [10000, '10,000 pages'], [20000, '20,000 pages'], [50000, '50,000 pages'], [100000, '100,000 pages']], { number: true, keywords: 'history index memory' }),
       ] },
-      { title: 'Ranking', items: [
-        I.range('launcher.wMatch', 'Text match', 'How much matching your words counts.', { min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) }),
-        I.range('launcher.wVisits', 'Visits', 'How much often-visited pages count.', { min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) }),
-        I.range('launcher.wRecency', 'Recency', 'How much recently visited pages count.', { min: 0, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) }),
-        I.number('launcher.recencyHalfLifeDays', 'Recency half-life (days)', 'After this long, a visit counts half as much.', { min: 0.1, max: 365, step: 0.5 }),
-        I.number('launcher.visitsSaturation', 'Visits saturation', 'Visit counts above this stop adding score.', { min: 1, max: 1000 }),
-        I.toggle('launcher.fuzzy', 'Fuzzy matching', 'Lets “gthb” find GitHub.'),
-        I.range('launcher.minScore', 'Minimum score', 'Results scoring below this are hidden.', { min: 0, max: 0.5, step: 0.01, fmt: (v) => v.toFixed(2) }),
-        I.number('launcher.maxResults', 'Results', 'How many rows to show.', { min: 3, max: 30 }),
-        I.seg('launcher.searchRowPosition', 'The “Search the web” row', '', [['auto', 'Automatic'], ['top', 'Always first'], ['bottom', 'Always last']]),
-        I.range('launcher.autoThreshold', 'Automatic: strong matches go above it', '', { min: 0, max: 1, step: 0.05, fmt: (v) => v.toFixed(2), when: (st) => st.launcher.searchRowPosition === 'auto' }),
-        I.range('launcher.suggestionDecay', 'Suggestion decay', 'How quickly lower suggestions lose score.', { min: 0, max: 0.3, step: 0.01, fmt: (v) => v.toFixed(2) }),
+      { title: 'Sources', id: 'launcher-sources', items: [
+        I.custom('What the launcher searches', 'A source’s weight multiplies every result it produces; bookmarks start highest so they rise to the top. Max limits how many of its results show.', sourcesEditor, { keywords: 'bookmarks tabs history commands suggestions weight' }),
+        I.toggle('launcher.sources.tabs.currentWindowOnly', 'Only tabs in this window', 'Tabs open in your other windows aren’t searched.', { keywords: 'open tabs window' }),
+        I.custom('Bookmark folders', 'Which bookmark folders the launcher looks in.', bookmarkFoldersEditor, { keywords: 'folders mobile search in' }),
+        I.select('search.suggestionProvider', 'Web suggestions from', 'What you type is sent there as you type, the same way any browser’s suggestions work.', [['google', 'Google'], ['duckduckgo', 'DuckDuckGo'], ['none', 'Nowhere']], { keywords: 'provider suggestions' }),
       ] },
-      { title: 'Boosts', items: [
-        I.custom('Domains', 'Make some sites rank higher or lower.', () => boostsEditor('domains'), { keywords: 'boost domain' }),
-        I.custom('Bookmark folders', 'Make bookmarks in some folders rank higher or lower.', () => boostsEditor('folders'), { keywords: 'boost folder' }),
+      { title: 'Boosts', id: 'launcher-boosts', items: [
+        I.note('Multiply the score of specific sites or bookmark folders. A factor of 2 doubles a score, 0.5 halves it, and 0 hides it.'),
+        I.custom('Sites', 'Matches the domain and its subdomains, so github.com also covers gist.github.com.', () => boostsEditor('domains'), { keywords: 'boost domain' }),
+        I.custom('Bookmark folders', 'Applies to bookmarks anywhere inside a folder with this name, including subfolders.', () => boostsEditor('folders'), { keywords: 'boost folder' }),
       ] },
-      { title: 'Look and speed', items: [
-        I.range('launcher.width', 'Width', '', { min: 480, max: 1000, step: 10, fmt: (v) => v + ' px' }),
-        I.range('launcher.top', 'Distance from the top', '', { min: 4, max: 40, step: 1, fmt: (v) => v + '%' }),
-        I.range('launcher.dim', 'Dim the page behind it', '', { min: 0, max: 0.8, step: 0.05, fmt: pct }),
-        I.toggle('launcher.blur', 'Blur the page behind it', ''),
-        I.toggle('launcher.showHints', 'Key hints at the bottom', ''),
-        I.toggle('launcher.showScores', 'Show scores', 'Useful while tuning the ranking.'),
-        I.number('launcher.suggestDelayMs', 'Suggestion delay (ms)', 'Wait this long after typing before asking for suggestions.', { min: 0, max: 1000, step: 10 }),
+      { title: 'Search engines', id: 'launcher-engines', items: [
+        I.custom('Default search engine', 'For the “Search the web” row and web suggestions (and the address bar).', defaultEngineSelect, { stack: false, keywords: 'google default engine' }),
+        I.custom('Keyword engines', 'Type a keyword and a space to search that site directly, like “yt lofi”. %s is where the search goes. The same list as Search → Search engines.', enginesEditor, { keywords: 'keyword engine youtube github wikipedia' }),
+        I.custom('Source filters', 'Start a search with one of these to search only that source, like “* recipes” for bookmarks. Leave one blank to turn it off.', prefixesEditor, { keywords: 'prefix filter only' }),
+      ] },
+      { title: 'Keys & behavior', id: 'launcher-behavior', items: [
+        I.custom('Shortcuts', '', launcherShortcuts, { keywords: 'shortcut hotkey ctrl space keys' }),
+        I.seg('launcher.openMode', 'The launcher opens', 'As a centered window it has a height of its own and leaves the page behind it as it is.', [['overlay', 'Over the page, near the top'], ['window', 'As a centered window']], { keywords: 'overlay window centered position' }),
+        I.range('launcher.windowHeight', 'Window height', '', { min: 360, max: 860, step: 20, fmt: (v) => v + ' px', when: (st) => st.launcher.openMode === 'window' }),
+        I.seg('launcher.toolbarButton', 'The Launcher button opens it', 'The button you can put on the toolbar or in the sidebar (Toolbar & sidebar → Customize).', [['same', 'Like the shortcut'], ['popup', 'Under the button']], { keywords: 'toolbar button popup' }),
+        I.toggle('tabs.newTabOpensLauncher', 'Ctrl+T opens the launcher', 'Search first; what you pick opens in a new tab. Enter with nothing typed (or Ctrl+T twice) gives a plain new tab.', { keywords: 'new tab empty' }),
+        I.select('launcher.enterAction', 'Enter', 'Also a click.', OPEN_ACTIONS, { keywords: 'open action' }),
+        I.select('launcher.shiftEnterAction', 'Shift+Enter', 'Also Shift+click. Alt+Enter always opens a new tab, Ctrl+Enter (and a middle-click) a background tab, Ctrl+Shift+Enter a new window.', OPEN_ACTIONS, { keywords: 'open action shift' }),
+        I.toggle('launcher.switchToOpenTab', 'Jump to tabs that are already open', 'Opening a bookmark or history result that’s open in a tab switches to that tab.', { keywords: 'switch tab duplicate' }),
+        I.select('launcher.emptyState', 'Before you type, show', '', [['bookmarks', 'Most-used bookmarks'], ['tabs', 'Recent tabs'], ['history', 'Recent history'], ['none', 'Nothing']], { keywords: 'empty start' }),
+        I.toggle('launcher.escClears', 'Esc clears the box first', 'Off: Esc always closes the launcher.', { keywords: 'escape' }),
+        I.range('launcher.typingDelayMs', 'Typing delay', 'How long to wait after a key before searching. None searches as you type.', { min: 0, max: 400, step: 10, fmt: (v) => (v ? v + ' ms' : 'None'), keywords: 'debounce delay' }),
+        I.range('launcher.suggestDelayMs', 'Suggestion delay', 'Bookmarks, tabs and recent history update on every key. Web suggestions and older history wait this long after you stop typing, so they don’t fire on every letter.', { min: 0, max: 400, step: 10, fmt: (v) => v + ' ms', keywords: 'debounce' }),
+        I.toggle('launcher.omnibox', 'Results under the address bar', 'Typing in the address bar shows the launcher’s results under it. Off: a plain address field (Enter still opens the address or searches).', { keywords: 'address bar omnibox keyword dropdown' }),
+      ] },
+      { title: 'Appearance', id: 'launcher-appearance', items: [
+        I.select('launcher.theme', 'Theme', '', [['browser', 'Like the browser'], ['auto', 'Match the system (Mocha or Latte)'], ...Object.entries(THEMES).map(([k, t]) => [k, t.name])], { keywords: 'colors dark light catppuccin mocha' }),
+        I.toggle('launcher.useCustomAccent', 'Custom accent color', ''),
+        I.color('launcher.accent', 'Accent', '', { when: (st) => st.launcher.useCustomAccent }),
+        I.text('launcher.font', 'Font', 'Any installed font; separate fallbacks with commas. Empty: the browser’s.', { wide: true, placeholder: '"Segoe UI Variable Text", "Segoe UI", sans-serif', keywords: 'typeface' }),
+        I.autoRange('launcher.fontSize', 'Text size', '', { min: 11, max: 20, unit: 'px', autoLabel: 'Like the browser', keywords: 'font size' }),
+        I.range('launcher.width', 'Width', '', { min: 420, max: 1000, step: 10, fmt: (v) => v + ' px' }),
+        I.range('launcher.top', 'Distance from the top', 'Where it sits over the page, as a share of the window height.', { min: 4, max: 40, step: 1, fmt: (v) => v + '%', when: (st) => st.launcher.openMode !== 'window' }),
+        I.range('launcher.dim', 'Dim the page behind', '', { min: 0, max: 0.8, step: 0.05, fmt: pct, when: (st) => st.launcher.openMode !== 'window' }),
+        I.toggle('launcher.blur', 'Blur the page behind', '', { when: (st) => st.launcher.openMode !== 'window' }),
+        I.autoRange('launcher.radius', 'Corner radius', '', { min: 0, max: 24, unit: 'px', autoLabel: 'Like menus', keywords: 'rounding corners' }),
+        I.seg('launcher.density', 'Density', '', [['comfortable', 'Comfortable'], ['compact', 'Compact, one line per result']], { keywords: 'compact rows' }),
+        I.select('launcher.favicons', 'Site icons', 'Bifrost’s own are private and instant, but only has icons for sites you’ve visited. The services fetch any site’s icon over the network.', [['browser', 'Bifrost’s own'], ['google', 'From Google'], ['duckduckgo', 'From DuckDuckGo'], ['none', 'Off, use source icons']], { keywords: 'favicon icons' }),
+        I.toggle('launcher.showUrls', 'Show addresses', '', { keywords: 'url' }),
+        I.toggle('launcher.showFolders', 'Show bookmark folders', ''),
+        I.toggle('launcher.showBadges', 'Show source labels', 'On the result you’re on: Bookmark, History, Switch to tab…', { keywords: 'badge' }),
+        I.toggle('launcher.showHints', 'Show keyboard hints', 'Along the bottom.', { keywords: 'hints keys footer' }),
+        I.toggle('launcher.showScores', 'Show scores', 'Shows each result’s score. Point at a score to see what it’s made of.', { keywords: 'ranking debug' }),
+        I.toggle('launcher.animations', 'Animations', 'The launcher opening and the selection moving. Settings → Animations can turn them off everywhere.', { keywords: 'animate selection motion' }),
+        I.textarea('launcher.customCss', 'Custom CSS', 'Applied after the built-in styles, to the launcher only. Useful selectors: .row, .row.sel, .row[data-type="bookmark"], .title, .badge, .bar, #q. Theme colors are variables like --accent, --base and --c-bookmark.', { placeholder: '.row.sel { background: var(--s1); }', keywords: 'style css' }),
+      ] },
+      { title: 'Backup', id: 'launcher-backup', items: [
+        I.custom('Launcher settings', 'Save them to a file, or bring them in from one: exported from Bifrost, or from the Waypoint extension (Export settings).', launcherBackup, { stack: false, keywords: 'export import reset waypoint backup' }),
       ] },
     ] },
     { id: 'privacy', title: 'Privacy & security', icon: 'shield', desc: 'Ad blocking, tracking protection and your data.', groups: [

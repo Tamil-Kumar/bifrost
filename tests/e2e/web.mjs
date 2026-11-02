@@ -138,9 +138,15 @@ try {
     seen.length = 0;
     await go(site.url + '/opener.html');
     await until(async () => (await active()).url.endsWith('/opener.html'), 5000, 'the page');
-    const r = await t.guest('/opener.html', '(() => { const e = document.getElementById("b").getBoundingClientRect(); return { x: e.x + 20, y: e.y + e.height / 2 }; })()');
-    const v = await t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 50); const q = w.getBoundingClientRect(); return { x: q.x, y: q.y }; });
-    await x.click(Math.round(v.x + r.x), Math.round(v.y + r.y));
+    // (A click can go missing while the machine is busy (no pop-up at all): measure and click again then.)
+    const popups = () => t.main(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter((b) => !b.isDestroyed() && b.webContents.getURL().startsWith('data:text/html')).length);
+    let r, v;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      r = await t.guest('/opener.html', '(() => { const e = document.getElementById("b").getBoundingClientRect(); return { x: e.x + 20, y: e.y + e.height / 2 }; })()');
+      v = await t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 50); const q = w.getBoundingClientRect(); return { x: q.x, y: q.y }; });
+      await x.click(Math.round(v.x + r.x), Math.round(v.y + r.y));
+      try { await until(async () => (await popups()) > 0, 4000, 'a pop-up'); break; } catch { /* clicked nothing: again */ }
+    }
     let pop;
     try { pop = await until(() => t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((b) => !b.isDestroyed() && b.webContents.getURL().startsWith('data:text/html')); const title = w ? w.webContents.getTitle() : ''; return title && !title.startsWith('data:') ? title : null; }), 12000, 'the warning in the pop-up'); }
     catch (e) {

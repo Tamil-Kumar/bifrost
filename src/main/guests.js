@@ -584,7 +584,11 @@ async function pageLook(guest, { thumb = false } = {}) {
     top: dominant(row(0).concat(row(1))),
     ambient: { left: mean(0, Math.ceil(w * 0.3)), right: mean(Math.floor(w * 0.7), w), top: mean(0, w, 0, Math.ceil(h * 0.3)) },
   };
-  return { edges: out, thumb: thumb ? 'data:image/jpeg;base64,' + small.toJPEG(82).toString('base64') : null };
+  // The picture behind the bars ("Blur the page"): small enough (a pixel per 30-70 px of page) that rows
+  // of text and icons along the page's edge average out to their colors. At the 120 px above, they showed
+  // through the blur as grey smudges.
+  const pic = thumb ? 'data:image/jpeg;base64,' + img.resize({ width: 32, quality: 'best' }).toJPEG(88).toString('base64') : null;
+  return { edges: out, thumb: pic };
 }
 
 async function screenshot(guest, { full = false } = {}) {

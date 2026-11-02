@@ -41,7 +41,9 @@ class SearchService {
   }
 
   loadHistory() {
-    this.historySize = require('./perf').current().historyIndexSize || 10000;
+    // Settings → Launcher → History pages indexed; unset, the performance profile's amount.
+    const own = Math.round(Number(ctx.settings.get('launcher.historyIndex')) || 0);
+    this.historySize = own > 0 ? Math.max(500, Math.min(200000, own)) : require('./perf').current().historyIndexSize || 10000;
     const rows = ctx.db.recentHistory(this.historySize);
     this.visitIndex = new Map();
     for (let i = rows.length - 1; i >= 0; i--) {
@@ -63,11 +65,13 @@ class SearchService {
     return this.bookmarks;
   }
 
-  // Search context for one window: open tabs from every normal window (private windows see only their own).
+  // Search context for one window: open tabs from every normal window (private windows see only their own;
+  // with Settings → Launcher → "Only tabs in this window", every window does).
   context(ctl, activeWcId) {
     const tabs = [];
     const tabByKey = new Map();
-    for (const { ctl: c, tab } of ctx.registry.allTabs({ onlyWindow: ctl && ctl.isPrivate ? ctl : null })) {
+    const own = ctl && (ctl.isPrivate || ctx.settings.get('launcher.sources.tabs.currentWindowOnly'));
+    for (const { ctl: c, tab } of ctx.registry.allTabs({ onlyWindow: own ? ctl : null })) {
       if (!tab.url || /^bifrost:\/\/(newtab|blank)/.test(tab.url)) continue;
       const t = E.prep({ url: tab.url, title: tab.title || '', favicon: tab.favicon, lastActive: tab.lastActive || 0, ref: { windowId: c.id, tabId: tab.id, wcId: tab.wcId } });
       tabs.push(t);
