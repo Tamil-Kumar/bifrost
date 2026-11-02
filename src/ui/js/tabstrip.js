@@ -188,6 +188,7 @@ export function render() {
     }
     items.push(hnewBtn);
     syncChildren(htabsEl, items);
+    markHGroupEnds();
     syncChildren(pinnedEl, []);
     syncChildren(tablistEl, []);
   }
@@ -197,6 +198,21 @@ export function render() {
   const gids = new Set(S.groups.map((g) => g.id));
   for (const [id, ge] of groupEls) if (!gids.has(id)) { ge.el.remove(); ge.chip.remove(); groupEls.delete(id); }
   for (const id of [...selection]) if (!ids.has(id) || tabById(id).workspaceId !== S.activeWorkspaceId) selection.delete(id);
+}
+
+// With horizontal tabs, where each group's line ends: on its last element on the strip (its label, a tab,
+// or, while a tab is dragged, the place it would land in the group: phGroup).
+function markHGroupEnds(phGroup = null) {
+  if (!htabsEl) return;
+  const groupOf = (el) => (el.classList.contains('hgroup') ? el.dataset.group
+    : el.classList.contains('tab-placeholder') ? phGroup
+      : el.classList.contains('tab') ? (tabById(el.dataset.id) || {}).groupId || null : null);
+  const els = [...htabsEl.children].filter((el) => !el.classList.contains('drag-source') && !(el.dataset && el.dataset.leaving));
+  els.forEach((el, i) => {
+    const g = groupOf(el);
+    const next = els[i + 1];
+    el.classList.toggle('g-last', !!g && (!next || groupOf(next) !== g || next.classList.contains('hgroup')));
+  });
 }
 
 function markSplits(list) {
@@ -472,6 +488,10 @@ function beginDrag(t, ev, sx, sy) {
   const ghost = el.cloneNode(true);
   ghost.classList.add('tab-ghost');
   ghost.classList.remove('entering', 'leaving');
+  // (it's drawn outside the strip, so it takes the look of the tab it is from these: an icon tile in the
+  // collapsed sidebar and among pinned tabs, a horizontal tab with horizontal tabs)
+  const tile = mode() === 'v' && (t.pinned || document.documentElement.classList.contains('sidebar-collapsed'));
+  ghost.classList.add(mode() === 'h' ? 'g-h' : tile ? 'g-tile' : 'g-v');
   ghost.style.width = r.width + 'px';
   ghost.style.height = r.height + 'px';
   document.getElementById('overlay-root').append(ghost);
@@ -507,7 +527,9 @@ function dragMove(ev) {
   // before you let go).
   clearTimeout(d.settle);
   d.settle = setTimeout(() => { if (drag === d) dragMove({ clientX: x, clientY: y }); }, 200);
-  d.ghost.style.transform = `translate(${x - d.offX}px, ${y - d.offY}px)`;
+  // (the translate property, not transform: it's applied after the ghost's scale, so the ghost moves exactly
+  // with the pointer; a translate inside transform would be scaled too, and drift away as it went)
+  d.ghost.style.translate = `${x - d.offX}px ${y - d.offY}px`;
   if (d.hot) { d.hot.classList.remove('drop-hot'); d.hot = null; }
   showSplitPreview(null);
   // Outside the window: becomes a new window.
@@ -527,9 +549,12 @@ function dragMove(ev) {
       return;
     }
   }
-  // The page area: split view with the current tab.
+  // The page area: split view with the current tab. (Only well into it: just past the tabs, the tab is still
+  // being moved along them; with the sidebar collapsed to icons, the page is a few pixels away.)
   const stage = document.getElementById('stage').getBoundingClientRect();
-  if (rectHas(stage, x, y) && !(mode() === 'h' && y < stage.top + 24)) {
+  const sb = mode() === 'v' ? document.getElementById('sidebar').getBoundingClientRect() : null;
+  const nearTabs = mode() === 'h' ? y < stage.top + 24 : (x < sb.right + 32 && x > sb.left - 32);
+  if (rectHas(stage, x, y) && !nearTabs) {
     const act = activeTab();
     if (act && act !== d.tab && !(splitOf(act) && splitOf(act).tabIds.includes(d.tab.id))) {
       const side = x < stage.left + stage.width / 2 ? 'left' : 'right';
@@ -614,6 +639,11 @@ function placeH(x) {
   if (d.ph.nextSibling !== before) movePh(htabsEl, before);
   const next = before && before.classList && before.classList.contains('tab') ? tabById(before.dataset.id) : null;
   d.ph.classList.toggle('pinned', !!(next && next.pinned) || (!!d.tab.pinned && isPinnedBefore(d.ph)));
+  // (in a group, the group's line runs under where it would land too)
+  const g = d.ph.classList.contains('pinned') ? null : groupById(groupForPlaceholder());
+  d.ph.classList.toggle('grouped', !!g);
+  if (g) d.ph.style.setProperty('--g', `var(--${g.color})`);
+  markHGroupEnds(g ? g.id : null);
 }
 
 function isPinnedBefore(ph) {
@@ -666,9 +696,12 @@ function groupForPlaceholder() {
   return null;
 }
 
-function finishDrag() {
-  const d = drag;
-  drag = null;
+// (d: this drag, whichever one is current by the time it's put away)
+function finishDrag(d = drag) {
+  if (!d || d.done) return;
+  d.done = true;
+  if (drag === d) drag = null;
+  clearTimeout(d.settle);
   d.ghost.remove();
   d.ph.remove();
   d.shield.remove();
@@ -676,6 +709,7 @@ function finishDrag() {
   if (d.splitPreview) d.splitPreview.remove();
   d.el.classList.remove('drag-source');
   document.documentElement.classList.remove('tab-dragging', 'pin-drop-open');
+  if (mode() === 'h') markHGroupEnds();
 }
 
 function cancelDrag() { finishDrag(); render(); }
@@ -684,20 +718,26 @@ function dropDrag() {
   const d = drag;
   const t = d.tab;
   const target = d.target || { type: 'list' };
+  clearTimeout(d.settle);
   if (target.type === 'list') {
     const pinned = d.ph.classList.contains('pinned');
     const groupId = pinned ? null : groupForPlaceholder();
     const next = tabAfterPlaceholder();
     const phRect = d.ph.getBoundingClientRect();
-    const settle = anim('tabDrag') ? animate(d.ghost, [{ transform: d.ghost.style.transform }, { transform: `translate(${phRect.left}px, ${phRect.top}px)` }], { duration: 140, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' }, 'tabDrag') : Promise.resolve();
+    // (to the place itself: "exact", or the animation style's bigger motion sends it past the place, off
+    // down the strip, and back)
+    const settle = anim('tabDrag') ? animate(d.ghost, [{ translate: d.ghost.style.translate, scale: getComputedStyle(d.ghost).scale }, { translate: `${phRect.left}px ${phRect.top}px`, scale: '1' }], { duration: 140, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards', exact: true }, 'tabDrag') : Promise.resolve();
     settle.then(() => {
-      finishDrag();
+      if (d.done) return;
       if (t.splitId && pinned !== t.pinned) T.unsplit(t);
       t.pinned = pinned;
       const list = wsTabs(t.workspaceId).filter((x) => x !== t);
       const index = next ? list.indexOf(next) : list.length;
       moveTab(t, index, { groupId });
+      // (the strip first, with the tab where it landed and still hidden; then the ghost goes and the tab
+      // shows: never for a frame where it was)
       emit('structure');
+      finishDrag(d);
     });
     return;
   }

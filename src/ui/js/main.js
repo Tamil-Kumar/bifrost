@@ -288,7 +288,7 @@ async function start() {
   saveSoon();
   wb.send('ui:ready');
   // Hooks for automated tests and debugging from the window's DevTools.
-  window.__wbTest = { command: (id, args) => Cmd.run(id, args || {}), state: S, tabSwitch: () => TabSwitch._state(), flyouts: () => Flyouts._state(), swipe: () => Swipe._state(), swipeLast: () => Swipe._last() };
+  window.__wbTest = { command: (id, args) => Cmd.run(id, args || {}), state: S, render: () => emit('structure'), tabSwitch: () => TabSwitch._state(), flyouts: () => Flyouts._state(), swipe: () => Swipe._state(), swipeLast: () => Swipe._last() };
   requestAnimationFrame(() => root.classList.add('ready'));
 }
 

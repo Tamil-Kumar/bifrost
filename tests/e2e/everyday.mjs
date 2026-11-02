@@ -317,6 +317,143 @@ try {
     await x.move(900, 600);
   });
 
+  // (the sidebar, the sidebar collapsed to icons, horizontal tabs)
+  const LAYOUTS = [['sidebar', { 'appearance.tabLayout': 'vertical', 'appearance.sidebarCollapsed': false }],
+    ['collapsed sidebar', { 'appearance.tabLayout': 'vertical', 'appearance.sidebarCollapsed': true }],
+    ['horizontal tabs', { 'appearance.tabLayout': 'horizontal', 'appearance.sidebarCollapsed': false }]];
+  const useLayout = async (cfg) => { for (const [p, v] of Object.entries(cfg)) await set(p, v); await sleep(700); };
+  const stripSel = (name) => (name === 'horizontal tabs' ? '#htabs .tab[data-id]:not(.pinned)' : '#tablist .tab[data-id]');
+
+  await R.step('dragging a tab: it stays under the pointer to the end and lands right where its place was (sidebar, collapsed sidebar, horizontal tabs)', async () => {
+    try {
+      for (const [name, cfg] of LAYOUTS) {
+        await useLayout(cfg);
+        const sel = stripSel(name);
+        const els = await t.ui((sel) => [...document.querySelectorAll(sel)].slice(0, 3).map((e) => { const r = e.getBoundingClientRect(); return { id: e.dataset.id, x: r.x, y: r.y, w: r.width, h: r.height }; }), sel);
+        assert(els.length >= 2, name + ': tabs ' + JSON.stringify(els));
+        const [a, b] = els;
+        const horiz = name === 'horizontal tabs';
+        // Every frame: where the pointer is, and the dragged tab and its place.
+        await t.ui(() => {
+          window.__dl = []; window.__pt = null; window.__upAt = 0;
+          window.__dlMove = (e) => { window.__pt = [e.clientX, e.clientY]; };
+          window.__dlUp = () => { window.__upAt = performance.now(); };
+          addEventListener('pointermove', window.__dlMove, true);
+          addEventListener('pointerup', window.__dlUp, true);
+          const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+          const tick = () => {
+            const g = document.querySelector('.tab-ghost');
+            const shown = (s) => { const e = g && g.querySelector(s); return !!e && getComputedStyle(e).display !== 'none'; };
+            window.__dl.push({ t: performance.now(), pt: window.__pt, g: box(g), ph: box(document.querySelector('.tab-placeholder')), title: shown('.tab-title'), close: shown('.tab-close') });
+            if (window.__dl.length < 600) requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        });
+        const sx = a.x + (horiz ? a.w / 2 : Math.min(a.w / 2, 30)), sy = a.y + a.h / 2;
+        const ex = horiz ? b.x + b.w * 0.8 : sx, ey = horiz ? sy : b.y + b.h * 0.8;
+        await x.move(sx, sy); await x.down(); await sleep(80);
+        for (let i = 1; i <= 14; i++) { await x.move(sx + (ex - sx) * i / 14, sy + (ey - sy) * i / 14); await sleep(30); }
+        await sleep(120);
+        await x.up(); await sleep(700); await x.move(900, 600);
+        const log = await t.ui(() => { removeEventListener('pointermove', window.__dlMove, true); removeEventListener('pointerup', window.__dlUp, true); return { frames: window.__dl.splice(0), up: window.__upAt }; });
+        const held = log.frames.filter((f) => f.g && f.pt && f.t < log.up);
+        const settling = log.frames.filter((f) => f.g && f.t > log.up + 20);
+        assert(held.length > 5, name + ': no dragged tab seen while held');
+        // Held: always the same distance from the pointer (where it was taken).
+        const off = [held[0].pt[0] - held[0].g[0], held[0].pt[1] - held[0].g[1]];
+        const drift = Math.max(...held.slice(1).map((f) => Math.max(Math.abs(f.pt[0] - f.g[0] - off[0]), Math.abs(f.pt[1] - f.g[1] - off[1]))));
+        assert(drift <= 3, `${name}: the dragged tab drifted ${drift.toFixed(1)}px from the pointer`);
+        // Let go: it glides from the pointer to its place, and nowhere else.
+        const start = held[held.length - 1].g, ph = held[held.length - 1].ph;
+        assert(ph, name + ': no place for it');
+        const lo = [Math.min(start[0], ph[0]) - 4, Math.min(start[1], ph[1]) - 4], hi = [Math.max(start[0], ph[0]) + 4, Math.max(start[1], ph[1]) + 4];
+        const astray = settling.find((f) => f.g[0] < lo[0] || f.g[0] > hi[0] || f.g[1] < lo[1] || f.g[1] > hi[1]);
+        assert(!astray, `${name}: on the drop it went to ${JSON.stringify(astray && astray.g.map(Math.round))}, between ${JSON.stringify(start.map(Math.round))} and its place ${JSON.stringify(ph.map(Math.round))}`);
+        if (settling.length) { const end = settling[settling.length - 1].g; assert(Math.abs(end[0] - ph[0]) <= 4 && Math.abs(end[1] - ph[1]) <= 4, `${name}: it ended at ${JSON.stringify(end.map(Math.round))}, its place is ${JSON.stringify(ph.map(Math.round))}`); }
+        // Looks like the tab it is: an icon tile in the collapsed sidebar (no title or close button sticking out).
+        if (name === 'collapsed sidebar') assert(!held.some((f) => f.title || f.close), 'the dragged icon tile shows a title or a close button');
+        const after = await t.ui((sel) => ({ ids: [...document.querySelectorAll(sel)].map((e) => e.dataset.id), left: document.querySelectorAll('.tab-ghost, .tab-placeholder').length }), sel);
+        assert(after.ids.indexOf(a.id) === 1 && after.ids[0] === b.id && !after.left, `${name}: order ${JSON.stringify(els.map((e) => e.id))} → ${JSON.stringify(after)}`);
+      }
+    } finally { await useLayout(LAYOUTS[0][1]); }
+  });
+
+  await R.step('tab groups: a line in the group’s color from its label along every tab in it, as in Chrome (sidebar, collapsed sidebar, horizontal tabs); none while the group is put away', async () => {
+    const pixels = (r) => t.main(async ({ BrowserWindow }, r) => {
+      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().startsWith('bifrost://ui'));
+      const img = await w.webContents.capturePage({ x: Math.round(r.x), y: Math.round(r.y), width: Math.max(1, Math.round(r.w)), height: Math.max(1, Math.round(r.h)) });
+      const s = img.getSize(), b = img.toBitmap();
+      return { w: s.width, h: s.height, px: [...b] };
+    }, r);
+    const at = (img, x, y) => { const i = (y * img.w + x) * 4; return [img.px[i + 2], img.px[i + 1], img.px[i]]; };
+    const near = (c, d, tol = 40) => Math.abs(c[0] - d[0]) <= tol && Math.abs(c[1] - d[1]) <= tol && Math.abs(c[2] - d[2]) <= tol;
+    let gid = null;
+    try {
+      await useLayout(LAYOUTS[0][1]);
+      // Three tabs in a green group (with the tab in front in it): click one, Ctrl+click two more, Group tabs.
+      for (const p of ['wide.html', 'colors.html']) { await open(site.url + '/' + p + '?grp', true); await sleep(300); }
+      await sleep(800);
+      const pick = (u) => t.ui((u) => { const e = [...document.querySelectorAll('#tablist .tab[data-id]')].find((el) => window.__wbTest.state.tabs.find((x) => x.id === el.dataset.id).url.includes(u)); const r = e.getBoundingClientRect(); return { x: r.x + 60, y: r.y + r.height / 2 }; }, u);
+      let p = await pick('/b.html'); await x.click(p.x, p.y); await sleep(300);
+      for (const u of ['wide.html?grp', 'colors.html?grp']) { p = await pick(u); await x.keyDown('Control_L'); await x.click(p.x, p.y); await x.keyUp('Control_L'); await sleep(250); }
+      await t.ui(() => window.__wbTest.command('groupTab'));
+      await sleep(700); await esc();
+      gid = await t.ui(() => { const S = window.__wbTest.state; const g = S.groups[S.groups.length - 1]; g.title = 'Research'; g.color = 'green'; window.__wbTest.render(); return g.id; });
+      const n = await t.ui((gid) => window.__wbTest.state.tabs.filter((x) => x.groupId === gid).length, gid);
+      assert(n === 3, 'grouped: ' + n);
+      await x.move(900, 600); await sleep(500);
+      for (const [name, cfg] of LAYOUTS) {
+        await useLayout(cfg);
+        await x.move(900, 600); await sleep(300);
+        if (name !== 'horizontal tabs') {
+          const geo = await t.ui((gid) => {
+            const g = document.querySelector(`.group[data-group="${gid}"]`);
+            const gr = g.getBoundingClientRect(), cs = getComputedStyle(g, '::after'), arm = getComputedStyle(g, '::before');
+            const dot = g.querySelector('.group-dot').getBoundingClientRect();
+            const tabs = [...g.querySelectorAll('.tab[data-id]')].map((e) => e.getBoundingClientRect());
+            const wrap = document.getElementById('tablist-wrap').getBoundingClientRect();
+            return { x: gr.left + parseFloat(cs.left) + parseFloat(cs.width) / 2, top: gr.top + parseFloat(cs.top), bottom: gr.bottom - parseFloat(cs.bottom), armY: gr.top + parseFloat(arm.top) + 1, armX: dot.left - 3, dot: [dot.left + dot.width / 2, dot.top + dot.height / 2], firstTop: tabs[0].top, lastBottom: tabs[tabs.length - 1].bottom, wrapLeft: wrap.left };
+          }, gid);
+          assert(geo.x - 1 >= geo.wrapLeft, `${name}: the line is outside the strip (${geo.x} < ${geo.wrapLeft})`);
+          assert(geo.top < geo.firstTop && geo.bottom > geo.lastBottom - 8, `${name}: the line doesn't run along all the tabs: ${JSON.stringify(geo)}`);
+          const img = await pixels({ x: 0, y: 0, w: 320, h: geo.bottom + 10 });
+          const green = at(img, Math.round(geo.dot[0]), Math.round(geo.dot[1]));
+          const xs = Math.floor(geo.x);
+          const miss = [];
+          for (let y = Math.ceil(geo.top) + 1; y < geo.bottom - 1; y += 3) if (!near(at(img, xs, y), green)) miss.push(y);
+          assert(!miss.length, `${name}: no line at x ${xs}, y ${miss.slice(0, 5).join(', ')}… (the group's color is ${green}, there: ${at(img, xs, miss[0])})`);
+          assert(near(at(img, Math.round(geo.armX), Math.round(geo.armY)), green), `${name}: the line doesn't reach the group's dot (${at(img, Math.round(geo.armX), Math.round(geo.armY))})`);
+          await t.shot('everyday-group-' + name.replace(/ /g, '-'));
+        } else {
+          const geo = await t.ui((gid) => {
+            const chip = document.querySelector(`.hgroup[data-group="${gid}"]`).getBoundingClientRect();
+            const tabs = [...document.querySelectorAll('#htabs .tab.grouped')].map((e) => e.getBoundingClientRect());
+            const bar = document.getElementById('hbar').getBoundingClientRect();
+            return { left: chip.left, right: tabs[tabs.length - 1].right, y: bar.bottom - 2, chipC: [chip.left + chip.width / 2, chip.top + chip.height / 2], n: tabs.length };
+          }, gid);
+          assert(geo.n === 3, 'grouped tabs shown: ' + geo.n);
+          const img = await pixels({ x: 0, y: 0, w: geo.right + 40, h: geo.y + 4 });
+          const green = await t.ui(() => { const e = document.createElement('span'); e.style.color = 'var(--green)'; document.body.append(e); const c = getComputedStyle(e).color; e.remove(); return c.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number); });
+          const miss = [];
+          for (let xx = Math.ceil(geo.left) + 8; xx < geo.right - 8; xx += 4) if (!near(at(img, xx, Math.floor(geo.y)), green, 50)) miss.push(xx);
+          assert(!miss.length, `horizontal tabs: no line under the group at x ${miss.slice(0, 6).join(', ')} (y ${Math.floor(geo.y)}; green is ${green}, there: ${at(img, miss[0], Math.floor(geo.y))})`);
+          assert(!near(at(img, Math.round(geo.right + 12), Math.floor(geo.y)), green, 50), 'horizontal tabs: the line goes on past the group');
+          await t.shot('everyday-group-horizontal');
+        }
+      }
+      // Put away (collapsed): the label alone, no line along the tabs.
+      await useLayout(LAYOUTS[0][1]);
+      const head = await t.ui((gid) => { const r = document.querySelector(`.group[data-group="${gid}"] .group-head`).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, gid);
+      await x.click(head.x, head.y); await sleep(700); await x.move(900, 600); await sleep(300);
+      const shut = await t.ui((gid) => { const g = document.querySelector(`.group[data-group="${gid}"]`); return { collapsed: g.classList.contains('collapsed'), line: getComputedStyle(g, '::after').opacity, arm: getComputedStyle(g, '::before').opacity }; }, gid);
+      assert(shut.collapsed && shut.line === '0' && shut.arm === '0', 'put away: ' + JSON.stringify(shut));
+      await x.click(head.x, head.y); await sleep(700); await x.move(900, 600);
+    } finally {
+      await useLayout(LAYOUTS[0][1]);
+      if (gid) await t.ui((gid) => { const S = window.__wbTest.state; for (const tb of S.tabs) if (tb.groupId === gid) tb.groupId = null; const i = S.groups.findIndex((g) => g.id === gid); if (i >= 0) S.groups.splice(i, 1); window.__wbTest.render(); }, gid);
+    }
+  });
+
   await R.step('copying the address from the address bar', async () => {
     await open(site.url + '/b.html?copy'); await sleep(900);
     await t.ui(() => window.__wbTest.command('focusAddress')); await sleep(250);

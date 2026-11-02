@@ -270,7 +270,28 @@ body {
 :root.sidebar-collapsed .group-head { justify-content: center; padding: 0; }
 
 /* ---------------------------------------------------------- groups */
-.group { --g: var(--blue); display: flex; flex-direction: column; }
+.group {
+  --g: var(--blue); display: flex; flex-direction: column; position: relative;
+  /* The group's line (Chrome draws one under a group's tabs): from its dot, round a corner and down the
+     side of every tab in it. --gl: where it runs; the arm reaches the dot. */
+  --gline: color-mix(in srgb, var(--g) 72%, transparent); --gl: 3px; --gw: 2px; --gr: 6px;
+  --gmid: calc(var(--tab-h) * .425);
+}
+.group.has-active { --gline: var(--g); }
+.group::before, .group::after { content: ""; position: absolute; pointer-events: none; transition: opacity var(--t-med); }
+.group::before {
+  left: var(--gl); top: calc(var(--gmid) - var(--gw) / 2);
+  width: calc(10px - var(--gl)); height: var(--gr);
+  border: var(--gw) solid var(--gline); border-right: 0; border-bottom: 0; border-top-left-radius: var(--gr);
+}
+.group::after {
+  left: var(--gl); top: calc(var(--gmid) + var(--gr) - var(--gw)); bottom: 3px;
+  width: var(--gw); border-radius: 0 0 var(--gw) var(--gw); background: var(--gline);
+}
+.group.collapsed::before, .group.collapsed::after { opacity: 0; }
+/* Collapsed sidebar: the line runs down the edge, beside the tiles; the arm reaches the dot in the middle. */
+:root.sidebar-collapsed .group { --gl: -6px; }
+:root.sidebar-collapsed .group::before { width: calc(50% - 5px - var(--gl)); }
 .group-head {
   display: flex; align-items: center; gap: 8px;
   height: calc(var(--tab-h) * .85); padding: 0 8px 0 10px;
@@ -290,10 +311,8 @@ body {
 .group-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--t-med) var(--ease-out), opacity var(--t-med); }
 .group.collapsed .group-body { grid-template-rows: 0fr; opacity: 0; }
 .group-inner { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: var(--tab-gap); padding-left: 10px; position: relative; }
-.group-inner::before { content: ""; position: absolute; left: 4px; top: 2px; bottom: 6px; width: 2px; border-radius: 2px; background: color-mix(in srgb, var(--g) 55%, transparent); }
 .group.collapsed.has-active .group-head { background: color-mix(in srgb, var(--g) 12%, transparent); }
 :root.sidebar-collapsed .group-inner { padding-left: 0; }
-:root.sidebar-collapsed .group-inner::before { left: -5px; }
 
 /* ---------------------------------------------------------- bottom */
 #sidebar-bottom.empty { display: none; }
@@ -383,7 +402,7 @@ body {
 #htabs-scroll::-webkit-scrollbar { display: none; }
 /* (min-width 0: the strip may be narrower than its tabs' full width, so they shrink to fit first, down to
    their minimum width, and only then does it scroll) */
-#htabs { display: flex; align-items: center; gap: max(1px, var(--tab-gap)); height: 100%; padding: 0 2px; min-width: 0; }
+#htabs { --hgap: max(1px, var(--tab-gap)); display: flex; align-items: center; gap: var(--hgap); height: 100%; padding: 0 2px; min-width: 0; }
 #htabs .tab {
   flex: 1 1 var(--tab-max); min-width: var(--tab-min); max-width: var(--tab-max); width: var(--tab-max);
   height: min(var(--tab-h), calc(var(--caption-h) - 8px)); padding: 0 4px 0 9px; gap: 8px;
@@ -397,11 +416,20 @@ body {
 }
 :root:not(.no-tabSwitch) #htabs .tab.active::after { animation: hrail var(--t-med) var(--ease-out); }
 @keyframes hrail { from { transform: scaleX(.2); opacity: 0; } }
-#htabs .tab.grouped { box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--g) 70%, transparent); }
-#htabs .tab.grouped.active { box-shadow: var(--shadow-1), inset 0 -2px 0 var(--g); }
+/* A group's line, as in Chrome: one line in the group's color under its label and every tab in it, just
+   below the tabs (each piece reaches back over the gap to the one before; it ends on the last one, g-last). */
+#htabs .tab.grouped::before, #htabs .tab-placeholder.grouped::before, .hgroup::after {
+  content: ""; position: absolute; height: 2px; background: var(--g); pointer-events: none;
+}
+#htabs .tab.grouped::before, #htabs .tab-placeholder.grouped::before {
+  left: calc(-1 * var(--hgap)); right: 0;
+  bottom: calc(1px - (var(--caption-h) - min(var(--tab-h), calc(var(--caption-h) - 8px))) / 2);
+}
+#htabs .grouped.g-last::before { right: 6px; border-radius: 0 2px 2px 0; }
 #htabs .tab.split { outline: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -1px; }
 .hgroup {
   --g: var(--blue);
+  position: relative;
   flex: none; display: inline-flex; align-items: center; gap: 6px;
   height: 22px; max-width: 160px; padding: 0 9px;
   border-radius: 999px;
@@ -413,6 +441,8 @@ body {
 .hgroup.empty { width: 14px; padding: 0; justify-content: center; }
 .hgroup.empty::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--g); }
 .hgroup.collapsed { box-shadow: inset 0 0 0 1.5px var(--g); }
+.hgroup::after { left: 6px; right: 0; bottom: calc(1px - (var(--caption-h) - 22px) / 2); border-radius: 2px 0 0 2px; }
+.hgroup.g-last::after { right: 6px; border-radius: 2px; }
 .hgroup-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .htab-new { flex: none; width: calc(var(--btn-size) - 4px); height: calc(var(--btn-size) - 4px); display: grid; place-items: center; border: 0; border-radius: var(--r-btn); background: none; color: var(--overlay); margin-left: 2px; }
 .htab-new:hover { background: var(--hover); color: var(--text); }
@@ -749,11 +779,18 @@ webview.js-dialog-hide { visibility: hidden !important; }
   scale: 1.02;
 }
 .tab-ghost.detach { opacity: .7; scale: .96; }
+/* (drawn outside the strip, it takes the look of the tab it is from these, as the strip's own rules key off
+   where a tab is: #tablist, #pinned, #htabs) An icon tile: the collapsed sidebar, pinned tabs. */
+.tab-ghost.g-tile { justify-content: center; padding: 0; gap: 0; }
+.tab-ghost.g-tile .tab-title, .tab-ghost.g-tile .tab-close, .tab-ghost.g-tile .tab-audio { display: none; }
+.tab-ghost.g-h { padding: 0 4px 0 9px; gap: 8px; }
+.tab-ghost.g-h.pinned { padding: 0; justify-content: center; }
+.tab-ghost.g-h.pinned .tab-title, .tab-ghost.g-h.pinned .tab-close { display: none; }
 .tab.drag-source { display: none; }
 .tab-placeholder { flex: none; height: var(--h, var(--tab-h)); border-radius: var(--tab-radius); background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 45%, transparent); }
-#htabs .tab-placeholder { width: var(--w); height: 30px; }
+#htabs .tab-placeholder { position: relative; width: var(--w); height: min(var(--tab-h), calc(var(--caption-h) - 8px)); }
 #pinned .tab-placeholder, .tab-placeholder.pinned { height: 40px; }
-#htabs .tab-placeholder.pinned { width: 38px; height: 30px; }
+#htabs .tab-placeholder.pinned { width: 38px; }
 .tab.drop-target { box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* ============================================================ launcher + results */

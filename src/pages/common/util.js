@@ -220,14 +220,18 @@ function amplify(frames) {
 
 // Web Animations wrapper: resolves when done, or immediately when the area's animations are off.
 // Entrances (ending at no transform) get a little overshoot in the playful style.
+// opts.exact: the frames are places, not nudges (a translate to where something is on screen): the
+// animation style's bigger or smaller motion mustn't scale them, or it goes somewhere else.
 export function animate(el, frames, opts, area) {
   if (!el || !anim(area)) return Promise.resolve();
   const o = Object.assign({ duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' }, opts || {});
+  const exact = !!o.exact;
+  delete o.exact;
   o.duration = dur(o.duration);
   const last = frames[frames.length - 1] || {};
-  if (A.spring && last.transform === 'none' && !/ease-in\b/.test(o.easing)) o.easing = 'cubic-bezier(.34, 1.45, .64, 1)';
+  if (!exact && A.spring && last.transform === 'none' && !/ease-in\b/.test(o.easing)) o.easing = 'cubic-bezier(.34, 1.45, .64, 1)';
   try {
-    const a = el.animate(amplify(frames), o);
+    const a = el.animate(exact ? frames : amplify(frames), o);
     return a.finished.catch(() => {});
   } catch { return Promise.resolve(); }
 }
