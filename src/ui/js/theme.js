@@ -1,17 +1,21 @@
 // Bifrost browser UI — applies the theme, layout options and animation switches to the document.
-import { S, on, curWs } from './state.js';
-import { setAnimConfig } from './util.js';
+import { S, on, curWs, activeTab } from './state.js';
+import { setAnimConfig, isInternal } from './util.js';
 
 const root = document.documentElement;
 const reducedMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
 export const ANIM_AREAS = ['tabOpenClose', 'tabSwitch', 'tabDrag', 'tabHover', 'loadingIndicator', 'workspaceSwitch', 'splitView', 'launcher', 'menus', 'panels', 'sidebar', 'pageTransitions', 'toasts', 'newTabPage', 'buttons', 'internalPages', 'bookmarksBar', 'ripple'];
 
 let lastCaption = '';
+let theme = null;          // the palette in use (resolved from the settings)
+let blendVars = null;      // with "Match the page": the colors from the current page (shared/themes.js blendVars)
+let blendKey = '';
 
 export function applyTheme() {
   const a = S.settings.appearance;
   const ws = curWs();
   const t = window.WBThemes.resolve(a, { systemDark: S.systemDark, workspaceColor: ws && ws.color });
+  theme = t;
   const vars = window.WBThemes.cssVars(t, a);
   for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
   root.dataset.scheme = t.dark ? 'dark' : 'light';
@@ -26,13 +30,49 @@ export function applyTheme() {
     root.style.setProperty('--accent', t.dark ? '#c4a7ff' : '#7c3aed');
   }
 
-  // Windows draws its caption buttons over the corner; keep their colors in step with ours.
-  const bg = getComputedStyle(root).getPropertyValue('--mantle').trim() || t.mantle;
-  const caption = bg + '|' + t.text + '|' + JSON.stringify(a.sizes || {});
-  if (caption !== lastCaption && S.platform === 'win32' && !S.ownCaption) {
-    lastCaption = caption;
-    window.wb.send('window:caption-colors', { background: bg, symbol: t.text });
-  }
+  blendKey = '';
+  applyBlend();
+}
+
+// Windows draws its caption buttons over the corner; keep their colors in step with ours (the page's,
+// with "Match the page").
+function syncCaption() {
+  if (!theme || S.platform !== 'win32' || S.ownCaption) return;
+  const bg = blendVars ? blendVars['--mantle'] : getComputedStyle(root).getPropertyValue('--mantle').trim() || theme.mantle;
+  const symbol = blendVars ? blendVars['--text'] : theme.text;
+  const caption = bg + '|' + symbol + '|' + JSON.stringify(S.settings.appearance.sizes || {});
+  if (caption === lastCaption) return;
+  lastCaption = caption;
+  window.wb.send('window:caption-colors', { background: bg, symbol });
+}
+
+// "Match the page" (Look & feel → Sidebar and toolbar): the color the window around the page takes from
+// the current tab: its page's color along the edge next to the sidebar (or along the top, with tabs on
+// top). Bifrost's own pages, error pages and pages not measured yet keep the theme's colors.
+export function pageTint() {
+  const a = S.settings.appearance;
+  if (a.blend !== 'page') return '';
+  const t = activeTab();
+  if (!t || !t.pageColor || isInternal(t.url) || t.error || t.crashed) return '';
+  const edge = a.tabLayout === 'horizontal' ? 'top' : a.sidebarSide === 'right' ? 'right' : 'left';
+  return t.pageColor[edge] || t.pageColor.left || '';
+}
+
+export function applyBlend() {
+  if (!theme) return;
+  const tint = pageTint();
+  const key = tint + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2;
+  if (key === blendKey) return;
+  blendKey = key;
+  blendVars = tint ? window.WBThemes.blendVars(tint, theme) : null;
+  let style = document.getElementById('blend-vars');
+  if (!style) { style = document.createElement('style'); style.id = 'blend-vars'; document.head.appendChild(style); }
+  const decl = blendVars ? Object.entries(blendVars).filter(([k]) => k.startsWith('--')).map(([k, v]) => `${k}: ${v};`).join(' ') : '';
+  // (on the bars only: menus, dialogs and side panels keep the theme)
+  style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; }\n:root.blend #sidebar, :root.blend #topbar { ${decl} }` : '';
+  root.classList.toggle('blend', !!blendVars);
+  root.dataset.blendScheme = blendVars ? (blendVars.dark ? 'dark' : 'light') : '';
+  syncCaption();
 }
 
 export function applyLayout() {
@@ -113,5 +153,7 @@ export function init() {
     if (!path || path.startsWith('animations') || path.startsWith('performance')) applyAnimations();
   });
   on('workspace', () => applyTheme());
+  on('active', () => applyBlend());
+  on('tab', (t, patch) => { if (t === activeTab() && ('pageColor' in patch || 'url' in patch || 'error' in patch || 'crashed' in patch)) applyBlend(); });
   reducedMQ.addEventListener('change', applyAnimations);
 }

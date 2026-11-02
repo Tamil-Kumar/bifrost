@@ -1174,6 +1174,7 @@ function sections() {
     { id: 'look', title: 'Look & feel', icon: 'ruler', desc: 'The window background, shadows, menus, how the current tab and loading look, the address bar, corner rounding, sizes and spacing.', groups: [
       { title: 'Style', id: 'style', items: [
         I.seg('appearance.chrome', 'Window background', 'Aurora lights the window around the page with the theme’s colors.', [['aurora', 'Aurora'], ['gradient', 'Gradient'], ['flat', 'Flat']], { keywords: 'background glow aurora gradient color depth window chrome sidebar' }),
+        I.seg('appearance.blend', 'Sidebar and toolbar', 'Match the page: they take the color of the page you’re on, with no edge between them and it, so the page and the window blend into one. Bifrost’s own pages keep the theme.', [['window', 'Window background'], ['page', 'Match the page']], { keywords: 'blend match page color tint seamless sidebar toolbar website theme-color arc zen safari' }),
         I.toggle('appearance.texture', 'Fine texture', 'A faint grain on the window around the page.', { keywords: 'grain noise texture film' }),
         I.seg('appearance.shadows', 'Shadows', 'Under the page, tabs, menus and dialogs.', [['none', 'None'], ['subtle', 'Subtle'], ['normal', 'Normal'], ['strong', 'Strong']], { keywords: 'shadow depth elevation flat' }),
         I.seg('appearance.menuStyle', 'Menus and dialogs', 'Glass is see-through and blurred.', [['solid', 'Solid'], ['glass', 'Glass']], { keywords: 'glass blur transparent acrylic frosted menus popups' }),

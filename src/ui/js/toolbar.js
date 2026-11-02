@@ -328,7 +328,7 @@ export function update() {
     if (document.documentElement.classList.contains('compact')) scheduleCenter();
     titlePill.replaceChildren(
       t ? faviconEl(url, t.favicon, icon, 'pill-fav') : '',
-      h('span.pill-host', null, !t || isNewTab(url) ? 'Search or enter an address' : isInternal(url) ? (t.title || 'Bifrost') : hostOf(url).replace(/^www\./, '')),
+      h('span.pill-host', null, !t ? 'Search or enter an address' : isNewTab(url) ? 'New tab' : isInternal(url) ? (t.title || 'Bifrost') : hostOf(url).replace(/^www\./, '')),
       t && !isNewTab(url) && !isInternal(url) && t.title ? h('span.pill-title', null, t.title) : '');
   }
   Omni.refresh();

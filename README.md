@@ -52,7 +52,8 @@ menus open at the pointer, things are where they're drawn), `web` (translation, 
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
-`sync-engine` cover sync's merging and its handling of broken files and missing folders).
+`sync-engine` cover sync's merging and its handling of broken files and missing folders, `file-guard`
+what local pages may load, `blend` the colors of "Match the page").
 
 ## Releases
 

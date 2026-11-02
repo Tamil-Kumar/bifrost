@@ -619,3 +619,73 @@ function setupKeys() {
   window.addEventListener('resize', () => { if (hints) exitHints(); });
   window.addEventListener('blur', () => { buffer = []; });
 }
+
+// The page's colors at its edges (left, right, top), for "Match the page" (Look & feel → Sidebar and
+// toolbar): the window around the page takes the color next to it, so the two blend. What's drawn there:
+// the first element under that point with an opaque background, else the page's own background, else the
+// page's default (white, or dark for a page that asks for dark). Measured as the page loads and whenever
+// it might change (its theme switching, resizing, scrolling to something else); the window hears only
+// of a change.
+if (isTop && /^(https?|file):$/.test(location.protocol)) {
+  const parse = (c) => {
+    const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)/i.exec(c || '');
+    if (!m) return null;
+    const a = m[4] == null ? 1 : m[5] ? parseFloat(m[4]) / 100 : parseFloat(m[4]);
+    return { r: Math.round(+m[1]), g: Math.round(+m[2]), b: Math.round(+m[3]), a };
+  };
+  const hex = (c) => '#' + [c.r, c.g, c.b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+  const canvas = () => {
+    for (const el of [document.documentElement, document.body]) {
+      const c = el && parse(getComputedStyle(el).backgroundColor);
+      if (c && c.a >= 0.5) return c;
+    }
+    const scheme = document.documentElement ? getComputedStyle(document.documentElement).colorScheme || '' : '';
+    const dark = /dark/.test(scheme) && (!/light/.test(scheme) || matchMedia('(prefers-color-scheme: dark)').matches);
+    return dark ? { r: 18, g: 18, b: 18, a: 1 } : { r: 255, g: 255, b: 255, a: 1 };
+  };
+  const at = (x, y) => {
+    let el = document.elementFromPoint(x, y);
+    for (; el && el.nodeType === 1 && el !== document.documentElement && el !== document.body; el = el.parentElement) {
+      const c = parse(getComputedStyle(el).backgroundColor);
+      if (c && c.a >= 0.85) return c;
+    }
+    return canvas();
+  };
+  // The color most of a few points along an edge share.
+  const edge = (points) => {
+    const n = new Map();
+    for (const [x, y] of points) { const c = hex(at(x, y)); n.set(c, (n.get(c) || 0) + 1); }
+    return [...n].sort((a, b) => b[1] - a[1])[0][0];
+  };
+  let last = '', timer = 0;
+  const measure = () => {
+    timer = 0;
+    if (!document.documentElement) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    if (!w || !h) return;
+    const sb = Math.max(0, w - document.documentElement.clientWidth);   // the page's scrollbar, on the right
+    const colors = {
+      left: edge([[1, h * 0.3], [1, h * 0.5], [1, h * 0.75]]),
+      right: edge([[w - sb - 2, h * 0.3], [w - sb - 2, h * 0.5], [w - sb - 2, h * 0.75]]),
+      top: edge([[w * 0.25, 1], [w * 0.5, 1], [w * 0.75, 1]]),
+    };
+    const key = JSON.stringify(colors);
+    if (key === last) return;
+    last = key;
+    try { ipcRenderer.sendToHost('wb-page-color', colors); } catch { /* host gone */ }
+  };
+  const soon = (ms = 150) => { clearTimeout(timer); timer = setTimeout(measure, ms); };
+  document.addEventListener('DOMContentLoaded', () => {
+    soon(0);
+    // A theme switch (a class or attribute on <html> or <body>) changes it at once.
+    const mo = new MutationObserver(() => soon(120));
+    mo.observe(document.documentElement, { attributes: true });
+    if (document.body) mo.observe(document.body, { attributes: true });
+  });
+  window.addEventListener('load', () => { soon(0); setTimeout(() => soon(0), 800); setTimeout(() => soon(0), 2500); });
+  window.addEventListener('resize', () => soon(250));
+  window.addEventListener('scroll', () => soon(400), { passive: true, capture: true });
+  window.addEventListener('pageshow', () => soon(0));
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') soon(50); });
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => soon(150)); } catch { /* old */ }
+}

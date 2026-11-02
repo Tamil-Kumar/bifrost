@@ -256,6 +256,7 @@ export function run(id, args = {}) {
     case 'toggleTabLayout': set('appearance.tabLayout', setting('appearance.tabLayout') === 'horizontal' ? 'vertical' : 'horizontal'); return;
     case 'toggleBookmarksBar': set('appearance.showBookmarksBar', !setting('appearance.showBookmarksBar')); return;
     case 'toggleCompact': set('appearance.compactToolbar', !setting('appearance.compactToolbar')); return;
+    case 'toggleBlend': set('appearance.blend', setting('appearance.blend') === 'page' ? 'window' : 'page'); return;
     case 'toggleTopbarAutoHide': set('appearance.topbarAutoHide', !setting('appearance.topbarAutoHide')); return;
     case 'toggleSidebarAutoHide': set('appearance.sidebarAutoHide', !setting('appearance.sidebarAutoHide')); return;
     // ---- panels and pages

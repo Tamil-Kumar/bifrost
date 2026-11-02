@@ -15,6 +15,8 @@ const site = await startSite(undefined, { routes: {
   '/tone.wav': (req, res) => { const b = wav(); res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': b.length }); res.end(b); },
   '/sound.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Sound</title><audio id=a src="/tone.wav" loop autoplay></audio><p>sound</p>'); },
   '/dl/file.zip': (req, res) => { res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="file.zip"' }); res.end(Buffer.alloc(1024)); },
+  // A dark page whose color comes from a wrapper, not from <body> (as in many web apps).
+  '/dark.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Dark</title><style>html,body{margin:0;height:100%}#app{position:fixed;inset:0;background:#13233a;color:#e8eef7;font:20px sans-serif;padding:40px}</style><div id="app">A dark app</div>'); },
 } });
 const t = await launch({ profile: 'behavior', args: [site.url + '/a.html'] });
 const x = xinput();
@@ -221,6 +223,36 @@ try {
     const excluded = await t.main(() => global.__bifrost.settings.get('keyboard.vim.excludedSites'));
     assert(excluded.includes('youtube.com'), 'YouTube isn’t excluded: ' + excluded.join(', '));
     await set('keyboard.vim.enabled', false);
+  });
+
+  await R.step('“Match the page”: the sidebar and toolbar take the page’s color, with text that reads on it; Bifrost’s own pages keep the theme', async () => {
+    const rgb = (c) => (String(c).match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
+    const light = (c) => { const [r, g, b] = rgb(c); return (r + g + b) / 3; };
+    const look = () => t.ui(() => {
+      const tab = document.querySelector('#tablist .tab.active .tab-title');
+      const ws = document.querySelector('#sidebar .wsb-name');
+      return { blend: document.documentElement.classList.contains('blend'), body: getComputedStyle(document.body).backgroundColor, tab: tab ? getComputedStyle(tab).color : '', ws: ws ? getComputedStyle(ws).color : '', addr: getComputedStyle(document.querySelector('.addr-display') || document.body).color, shadow: getComputedStyle(document.getElementById('stage')).boxShadow };
+    });
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { last = await fn(); if (last) return last; await sleep(150); } throw new Error('timed out waiting for ' + label); };
+    await open(site.url + '/dark.html', false);
+    await sleep(900);
+    let l = await look();
+    assert(!l.blend, 'it’s off by default');
+    await set('appearance.blend', 'page');
+    l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(19, 35, 58)' ? v : null; }, 4000, 'the dark page’s color');
+    assert(light(l.tab) > 170 && (!l.ws || light(l.ws) > 150) && light(l.addr) > 150, 'light text on the dark page: ' + JSON.stringify(l));
+    assert(l.shadow === 'none', 'no shadow between the page and the window: ' + l.shadow);
+    await t.shot('behavior-blend-dark');
+    await clickTab('/a.html');
+    l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(255, 247, 240)' ? v : null; }, 4000, 'the light page’s color');
+    assert(light(l.tab) < 110 && (!l.ws || light(l.ws) < 110) && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
+    await t.shot('behavior-blend-light');
+    await open('bifrost://settings/', false);
+    l = await until(async () => { const v = await look(); return !v.blend ? v : null; }, 4000, 'the theme on Settings');
+    await clickTab('/dark.html');
+    await until(async () => (await look()).blend, 3000, 'the page color again');
+    await set('appearance.blend', 'window');
+    await until(async () => !(await look()).blend, 3000, 'the theme again');
   });
 } finally {
   x.close();

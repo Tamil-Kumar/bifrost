@@ -141,6 +141,13 @@ function onGuestMessage(tab, channel, args) {
     emit('page-pointer', tab);
   } else if (channel === 'wb-popup-blocked') {
     popupBlocked(tab, String(args[0] || ''), String(args[1] || tab.url || ''));
+  } else if (channel === 'wb-page-color') {
+    // The page's colors at its edges (preload/tab.js), for "Match the page" (theme.js).
+    const c = args[0] || {};
+    const ok = (v) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v).toLowerCase() : '');
+    const pc = { left: ok(c.left), right: ok(c.right), top: ok(c.top) };
+    const was = tab.pageColor || {};
+    if (pc.left !== was.left || pc.right !== was.right || pc.top !== was.top) setTab(tab, { pageColor: pc, pageColorUrl: tab.url });
   }
 }
 

@@ -53,7 +53,8 @@ function tabEl(t) {
   tabEls.set(t.id, el);
   if (S.ready && anim('tabOpenClose')) {
     el.classList.add('entering');
-    el.addEventListener('animationend', () => el.classList.remove('entering'), { once: true });
+    // (A new tab in front of a full, scrolling strip grows into place: bring it into view once it has.)
+    el.addEventListener('animationend', () => { el.classList.remove('entering'); if (t === activeTab()) scrollToActive(); }, { once: true });
   }
   return el;
 }

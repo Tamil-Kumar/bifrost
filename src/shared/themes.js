@@ -129,5 +129,55 @@
     return vars;
   }
 
-  return { THEMES, ACCENT_KEYS, resolve, cssVars, mix, hexToRgb, rgba };
+  // Relative luminance (WCAG) of a #rrggbb color, and the contrast ratio between two.
+  function luminance(hex) {
+    const c = hexToRgb(hex);
+    if (!c) return 0;
+    const lin = c.map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+  }
+  function contrast(a, b) {
+    const x = luminance(a), y = luminance(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  }
+  // `color` moved toward `ink` until it stands out from `bg` at least `ratio` to 1.
+  function readable(color, bg, ink, ratio) {
+    let c = color;
+    for (let i = 1; i <= 10 && contrast(c, bg) < ratio; i++) c = mix(color, ink, i / 10);
+    return c;
+  }
+
+  // "Match the page" (Look & feel → Sidebar and toolbar): the window around the page in the page's own
+  // color `tint`. Its surfaces come from that color; text and lines read on it (dark on a light page, light
+  // on a dark one), and the theme's accents are kept, made darker or lighter where they wouldn't show.
+  function blendVars(tint, t) {
+    if (!hexToRgb(tint)) return null;
+    const dark = contrast(tint, '#ffffff') >= contrast(tint, '#000000');
+    const ink = dark ? '#ffffff' : '#000000';
+    const m = (k) => mix(tint, ink, k);
+    const base = dark ? m(0.1) : mix(tint, '#ffffff', 0.6);
+    const accent = readable(t.accent, tint, ink, 3);
+    const accent2 = readable(t.accent2 || t.accent, tint, ink, 3);
+    return {
+      '--page-tint': tint,
+      '--mantle': tint, '--chrome-low': tint,
+      '--crust': mix(tint, '#000000', dark ? 0.25 : 0.06),
+      '--base': base,
+      '--s0': m(dark ? 0.13 : 0.11), '--s1': m(dark ? 0.2 : 0.16), '--s2': m(dark ? 0.27 : 0.22),
+      '--overlay': m(dark ? 0.46 : 0.45), '--subtext': m(dark ? 0.7 : 0.64), '--text': m(dark ? 0.92 : 0.86),
+      '--hover': m(dark ? 0.07 : 0.06), '--active': m(dark ? 0.12 : 0.1),
+      '--surface-hi': m(dark ? 0.035 : 0.02),
+      '--border-tint': m(dark ? 0.14 : 0.12),
+      '--shadow-color': dark ? 'rgba(0, 0, 0, .5)' : 'rgba(0, 0, 0, .14)',
+      '--accent': accent, '--accent2': accent2,
+      '--accent-soft': mix(base, accent, dark ? 0.2 : 0.16),
+      '--accent2-soft': mix(base, accent2, dark ? 0.18 : 0.14),
+      '--accent-text': contrast(accent, '#000000') >= contrast(accent, '#ffffff') ? '#000000' : '#ffffff',
+      '--accent-grad': `linear-gradient(135deg, ${accent} 0%, ${accent2} 100%)`,
+      '--accent-glow': rgba(accent, dark ? 0.38 : 0.28),
+      dark,
+    };
+  }
+
+  return { THEMES, ACCENT_KEYS, resolve, cssVars, mix, hexToRgb, rgba, luminance, contrast, blendVars };
 });

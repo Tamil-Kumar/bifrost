@@ -189,6 +189,75 @@ try {
     assert(rows.some((r) => r.favs > 0), 'no tab icons');
     await t.shot('core-tasks');
   });
+
+  // (The tab in front, and what the toolbar says about it.)
+  const front = () => t.ui(() => {
+    const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); const tb = S.tabs.find((y) => y.id === ws.activeTabId);
+    const pill = document.querySelector('.title-pill'); const back = document.querySelector('[data-tb="back"]'); const disp = document.querySelector('.addr-display');
+    return { url: tb && tb.url, pill: pill ? pill.textContent : null, back: back ? back.disabled : null, display: disp ? disp.textContent : null };
+  });
+  const loadHere = (url) => t.ui((u) => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); S.tabs.find((y) => y.id === ws.activeTabId).wv.loadURL(u); }, url);
+
+  await R.step('closing the tab in front: the title pill (“New tab”), the address and Back follow the tab that takes its place', async () => {
+    await set('appearance.compactToolbar', true);
+    await t.ui(() => window.__wbTest.command('newTabPage'));
+    await sleep(500);
+    await open(site.url + '/a.html', false);
+    await sleep(1000);
+    await loadHere(site.url + '/b.html');
+    await sleep(1000);
+    let f = await front();
+    assert(/127\.0\.0\.1/.test(f.pill) && f.back === false, 'on the site: ' + JSON.stringify(f));
+    await t.ui(() => window.__wbTest.command('closeTab'));
+    await sleep(600);
+    f = await front();
+    assert(/newtab/.test(f.url), 'the new tab page should be in front: ' + f.url);
+    assert(f.pill === 'New tab', 'the pill says “' + f.pill + '”');
+    assert(f.back === true, 'Back is still enabled');
+    // …and back on a site after closing the new tab page in front of it.
+    await open(site.url + '/b.html', false);
+    await sleep(900);
+    await t.ui(() => window.__wbTest.command('newTabPage'));
+    await sleep(500);
+    await t.ui(() => window.__wbTest.command('closeTab'));
+    await sleep(600);
+    f = await front();
+    assert(/b\.html/.test(f.url) && /127\.0\.0\.1/.test(f.pill), 'after closing the new tab page: ' + JSON.stringify(f));
+    await set('appearance.compactToolbar', false);
+    await sleep(300);
+    f = await front();
+    assert(f.display && /127\.0\.0\.1/.test(f.display), 'the address bar shows ' + f.display);
+  });
+
+  await R.step('horizontal tabs shrink to fit the window, and scroll only once they’re as narrow as they get, with the one in front in view', async () => {
+    await set('appearance.tabLayout', 'horizontal');
+    await sleep(600);
+    const strip = () => t.ui(() => {
+      const sc = document.getElementById('htabs-scroll'); const r = sc.getBoundingClientRect();
+      const els = [...document.querySelectorAll('#htabs .tab[data-id]:not(.pinned):not(.leaving):not(.entering)')];
+      const act = document.querySelector('#htabs .tab.active'); const a = act && act.getBoundingClientRect();
+      const css = getComputedStyle(document.documentElement);
+      return { n: els.length, ws: els.map((e) => Math.round(e.getBoundingClientRect().width)), scrolls: sc.scrollWidth > sc.clientWidth + 1, inView: !!a && a.left >= r.left - 1 && a.right <= r.right + 1, entering: !!document.querySelector('#htabs .tab.entering'), onScreen: r.left >= -1 && r.right <= window.innerWidth + 1, min: parseFloat(css.getPropertyValue('--tab-min')), max: parseFloat(css.getPropertyValue('--tab-max')) };
+    });
+    const seen = [];
+    for (let i = 0; i < 16; i++) {
+      await open(site.url + '/a.html?h' + i, false);
+      // (once it has grown into place, and the strip has scrolled to it)
+      let s;
+      for (let k = 0; k < 15; k++) { await sleep(150); s = await strip(); if (s.inView && !s.entering) break; }
+      seen.push(s.n + ':' + Math.min(...s.ws) + (s.scrolls ? 's' : ''));
+      assert(s.onScreen, 'the strip runs off the window: ' + JSON.stringify(s));
+      assert(s.ws.every((v) => v >= s.min - 1 && v <= s.max + 1), 'tab widths ' + s.ws.join(','));
+      assert(!s.scrolls || Math.min(...s.ws) <= s.min + 1, 'it scrolls while tabs are still ' + Math.min(...s.ws) + ' px wide');
+      assert(s.inView, 'the tab in front is out of view (' + s.n + ' tabs)');
+    }
+    assert(seen.some((v) => !v.endsWith('s') && Number(v.split(':')[1]) < 200), 'they never shrank: ' + seen.join(' '));
+    assert(seen[seen.length - 1].endsWith('s'), 'with this many tabs the strip should scroll: ' + seen.join(' '));
+    await t.shot('core-htabs');
+    for (let i = 0; i < 20 && /\?h\d+$/.test((await front()).url || ''); i++) { await t.ui(() => window.__wbTest.command('closeTab')); await sleep(120); }
+    await set('appearance.tabLayout', 'vertical');
+    await sleep(500);
+  });
 } finally {
   x.close();
   const errs = (await t.pageLogs()).filter((l) => /pageerror|Uncaught/i.test(l));

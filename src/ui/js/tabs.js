@@ -89,11 +89,13 @@ export function openUrl(url, { where = 'current', opener = null, typed = false, 
 }
 
 // ----------------------------------------------------------------- select
-export function selectTab(tab, { focus = true } = {}) {
+// from: the tab that was in front, when it's gone already (closed, moved to another space): by then the
+// space has quietly made another tab its current one, which mustn't stop everything hearing of the switch.
+export function selectTab(tab, { focus = true, from } = {}) {
   if (!tab || !S.tabs.includes(tab)) return;
   if (tab.workspaceId !== S.activeWorkspaceId) { switchWorkspace(tab.workspaceId, { select: tab, focus }); return; }
   const ws = curWs();
-  const prev = activeTab();
+  const prev = from !== undefined ? from : activeTab();
   ws.activeTabId = tab.id;
   tab.lastActive = Date.now();
   const sp = splitOf(tab);
@@ -180,7 +182,7 @@ export function closeTab(tab, { remember = true } = {}) {
     return;
   }
   emit('structure', { removed: tab });
-  if (wasActive && next) selectTab(next);
+  if (wasActive && next) selectTab(next, { from: tab });
   else if (wasVisible) V.layout();
 }
 
@@ -378,7 +380,7 @@ export function moveTabToWorkspace(tab, wsId) {
     if (from === S.activeWorkspaceId) V.ensureView(t);
   }
   emit('structure');
-  if (wasActive) selectTab(next && next.workspaceId === from ? next : wsTabs(from)[0]);
+  if (wasActive) selectTab(next && next.workspaceId === from ? next : wsTabs(from)[0], { from: tab });
   else V.layout();
 }
 

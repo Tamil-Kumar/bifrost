@@ -381,7 +381,9 @@ body {
 #hws-button { color: var(--accent); }
 #htabs-scroll { flex: 0 1 auto; min-width: 0; height: 100%; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; display: flex; align-items: center; }
 #htabs-scroll::-webkit-scrollbar { display: none; }
-#htabs { display: flex; align-items: center; gap: max(1px, var(--tab-gap)); height: 100%; padding: 0 2px; }
+/* (min-width 0: the strip may be narrower than its tabs' full width, so they shrink to fit first, down to
+   their minimum width, and only then does it scroll) */
+#htabs { display: flex; align-items: center; gap: max(1px, var(--tab-gap)); height: 100%; padding: 0 2px; min-width: 0; }
 #htabs .tab {
   flex: 1 1 var(--tab-max); min-width: var(--tab-min); max-width: var(--tab-max); width: var(--tab-max);
   height: min(var(--tab-h), calc(var(--caption-h) - 8px)); padding: 0 4px 0 9px; gap: 8px;
@@ -1071,3 +1073,18 @@ body { background: var(--chrome-bg); }
 /* A new version is ready (main/updater.js): a dot on the menu button. */
 :root[data-update-ready] [data-tb="menu"] { position: relative; color: var(--accent); }
 :root[data-update-ready] [data-tb="menu"]::after { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--mantle); }
+
+/* ======================================================= match the page
+   Look & feel → Sidebar and toolbar → Match the page (theme.js): the window around the page takes the color
+   of the page next to it (the sidebar's and the toolbar's colors come from it too), with no glow, grain,
+   edge or shadow between them, so page and window read as one surface. */
+:root.blend body { background: var(--page-tint); transition: background-color var(--t-med, 220ms) ease; }
+:root.blend #sidebar, :root.blend #topbar { color: var(--text); }
+/* (behind the page too: its rounded corners then leave no lighter edge) */
+:root.blend webview.view { background: var(--page-tint); }
+:root.blend body::before { display: none; }
+:root.blend:not(.private) #stage { box-shadow: none; }
+:root.blend #stage { background: var(--page-tint); }
+:root.blend.no-page-frame #stage { border-top-color: transparent; }
+:root.blend[data-layout="vertical"].sidebar-autohide #sidebar { background: var(--page-tint); }
+:root.blend.topbar-autohide #topbar { background: var(--page-tint); }

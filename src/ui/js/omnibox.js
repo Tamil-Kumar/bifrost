@@ -171,19 +171,21 @@ export function refresh() {
   if (!root) return;
   const t = activeTab();
   const url = t ? (t.pendingUrl || t.url) : '';
-  if (document.activeElement === input && editing) return;
-  if (document.activeElement === input && !editing) {
+  const focused = document.activeElement === input;
+  if (focused && editing) return;
+  if (focused) {
     // Focused but nothing typed yet: keep it in step with the page, still all selected (so typing replaces it).
     const v = t && !isNewTab(url) ? url : '';
     if (input.value !== v) { input.value = v; input.select(); }
-    return;
   }
+  // The address shown when you're not typing: always the current tab's (also while it's hidden behind the
+  // focused field, so it's right the moment you leave it).
   const mode = (setting('appearance.address') || {}).show || 'path';
   const key = url + '|' + (t && t.error ? 'e' : '') + (t && t.loading ? 'l' : '') + '|' + mode;
   updateSiteIcon(t);
   if (key === lastUrlShown) return;
   lastUrlShown = key;
-  input.value = t && !isNewTab(url) ? url : '';
+  if (!focused) input.value = t && !isNewTab(url) ? url : '';
   display.replaceChildren();
   root.classList.toggle('is-empty', !t || isNewTab(url));
   if (!t || isNewTab(url)) { display.append(h('span.addr-ph', null, 'Search or enter an address')); return; }
