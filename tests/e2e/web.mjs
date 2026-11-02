@@ -141,7 +141,13 @@ try {
     const r = await t.guest('/opener.html', '(() => { const e = document.getElementById("b").getBoundingClientRect(); return { x: e.x + 20, y: e.y + e.height / 2 }; })()');
     const v = await t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => getComputedStyle(e).visibility !== 'hidden' && e.getBoundingClientRect().width > 50); const q = w.getBoundingClientRect(); return { x: q.x, y: q.y }; });
     await x.click(Math.round(v.x + r.x), Math.round(v.y + r.y));
-    const pop = await until(() => t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((b) => !b.isDestroyed() && b.webContents.getURL().startsWith('data:text/html')); const title = w ? w.webContents.getTitle() : ''; return title && !title.startsWith('data:') ? title : null; }), 6000, 'the warning in the pop-up');
+    let pop;
+    try { pop = await until(() => t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((b) => !b.isDestroyed() && b.webContents.getURL().startsWith('data:text/html')); const title = w ? w.webContents.getTitle() : ''; return title && !title.startsWith('data:') ? title : null; }), 12000, 'the warning in the pop-up'); }
+    catch (e) {
+      // (what there was instead, to tell a missed click from a slow pop-up)
+      console.log('  windows: ' + JSON.stringify(await t.main(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((b) => [b.webContents.getURL().slice(0, 60), b.webContents.getTitle().slice(0, 40)]))) + ' clicked at ' + JSON.stringify([v.x + r.x, v.y + r.y]));
+      throw e;
+    }
     assert(pop === 'Deceptive site ahead', 'its title: ' + pop);
     assert(!seen.some((s) => s.startsWith('phish.example.net')), 'the page was requested: ' + seen.join(', '));
     await t.main(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) if (w.webContents.getURL().startsWith('data:text/html')) w.close(); });

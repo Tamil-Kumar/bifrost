@@ -62,7 +62,8 @@
       toastPosition: 'bottom',   // bottom | top | bottom-right
       scrollbars: 'thin',        // thin | normal | hidden (in Bifrost's own pages and panels)
       chrome: 'aurora',          // the window around the page: aurora (lit with the theme's colors) | gradient | flat
-      blend: 'window',           // the sidebar and toolbar: window (the window background above) | page (the color of the page you're on, no edge between them)
+      blend: 'window',           // the sidebar and toolbar: window (the window background above) | page (the color of the page you're on, no edge between them) | blur (a blurred picture of the page)
+      blendBlur: 40,             // how blurred, with "blur" (px)
       texture: true,             // a fine grain on the window around the page
       webTheme: 'browser',       // websites light or dark: browser (like Bifrost's theme, the default, as in Firefox) | system | light | dark
       // show: path | host | full; position: center (middle of the toolbar) | window (middle of the window) | fill (between the buttons)
@@ -464,7 +465,7 @@
     ['toggleTabLayout', 'Switch vertical and horizontal tabs', 'Window', []],   // (not Ctrl+Shift+V: that's paste as plain text)
     ['toggleBookmarksBar', 'Show or hide the bookmarks bar', 'Window', ['Ctrl+Shift+B']],
     ['toggleCompact', 'Compact toolbar (address bar as a title pill)', 'Window', ['Ctrl+Shift+F']],
-    ['toggleBlend', 'Sidebar and toolbar match the page', 'Window', []],
+    ['toggleBlend', 'Sidebar and toolbar: the window, the page’s color, or the page blurred', 'Window', []],
     ['toggleTopbarAutoHide', 'Auto-hide the top bar', 'Window', []],
     ['toggleSidebarAutoHide', 'Auto-hide the sidebar', 'Window', []],
     ['customizeLayout', 'Customize toolbar and sidebar', 'Window', []],

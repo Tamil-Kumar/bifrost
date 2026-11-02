@@ -225,7 +225,7 @@ try {
     await set('keyboard.vim.enabled', false);
   });
 
-  await R.step('“Match the page”: the sidebar and toolbar take the page’s color, with text that reads on it; Bifrost’s own pages keep the theme', async () => {
+  await R.step('“Match the page”: the sidebar and toolbar take the page’s color, with text that reads on it; Bifrost’s own pages turn see-through to the window', async () => {
     const rgb = (c) => (String(c).match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
     const light = (c) => { const [r, g, b] = rgb(c); return (r + g + b) / 3; };
     const look = () => t.ui(() => {
@@ -233,7 +233,7 @@ try {
       const ws = document.querySelector('#sidebar .wsb-name');
       return { blend: document.documentElement.classList.contains('blend'), body: getComputedStyle(document.body).backgroundColor, tab: tab ? getComputedStyle(tab).color : '', ws: ws ? getComputedStyle(ws).color : '', addr: getComputedStyle(document.querySelector('.addr-display') || document.body).color, shadow: getComputedStyle(document.getElementById('stage')).boxShadow };
     });
-    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { last = await fn(); if (last) return last; await sleep(150); } throw new Error('timed out waiting for ' + label); };
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(150); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
     await open(site.url + '/dark.html', false);
     await sleep(900);
     let l = await look();
@@ -247,12 +247,43 @@ try {
     l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(255, 247, 240)' ? v : null; }, 4000, 'the light page’s color');
     assert(light(l.tab) < 110 && (!l.ws || light(l.ws) < 110) && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
     await t.shot('behavior-blend-light');
+    // Bifrost's own pages: see-through, sharing the window's background (the new tab page's glow too).
+    const own = () => t.ui(() => ({ see: document.documentElement.classList.contains('see-through'), ntp: document.documentElement.dataset.ntpBg || '', stage: getComputedStyle(document.getElementById('stage')).backgroundColor }));
     await open('bifrost://settings/', false);
-    l = await until(async () => { const v = await look(); return !v.blend ? v : null; }, 4000, 'the theme on Settings');
+    let o = await until(async () => { const v = await own(); return v.see ? v : null; }, 4000, 'Settings to be see-through');
+    assert(o.stage === 'rgba(0, 0, 0, 0)', 'the frame behind Settings: ' + o.stage);
+    const pageClear = await until(() => t.guest('bifrost://settings', 'document.documentElement.classList.contains("see-through") && getComputedStyle(document.body).backgroundColor'), 4000, 'Settings itself to be clear');
+    assert(pageClear === 'rgba(0, 0, 0, 0)', 'Settings draws its own background: ' + pageClear);
+    await t.ui(() => window.__wbTest.command('newTabPage'));
+    o = await until(async () => { const v = await own(); return v.see && v.ntp === 'gradient' ? v : null; }, 4000, 'the new tab page’s glow behind the whole window');
+    await t.shot('behavior-blend-newtab');
+    await t.ui(() => window.__wbTest.command('closeTab'));
     await clickTab('/dark.html');
     await until(async () => (await look()).blend, 3000, 'the page color again');
     await set('appearance.blend', 'window');
     await until(async () => !(await look()).blend, 3000, 'the theme again');
+    o = await own();
+    assert(!o.see && !o.ntp, 'still see-through: ' + JSON.stringify(o));
+  });
+
+  await R.step('“Blur the page”: a blurred picture of the page behind the sidebar and toolbar; over Bifrost’s own pages they’re frosted glass', async () => {
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(150); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    const blur = () => t.ui(() => {
+      const r = document.documentElement; const on = document.querySelector('#backdrop > div.on');
+      return { blur: r.classList.contains('blend-blur'), frosted: r.classList.contains('frosted'), img: on ? on.style.backgroundImage.slice(0, 30) : '', filter: on ? getComputedStyle(on).filter : '', bar: getComputedStyle(document.getElementById('sidebar')).backdropFilter };
+    });
+    await set('appearance.blend', 'blur');
+    await set('appearance.blendBlur', 30);
+    let b = await until(async () => { const v = await blur(); return v.blur && /data:image\/jpeg/.test(v.img) ? v : null; }, 6000, 'the blurred picture of the page');
+    assert(/blur\(30px\)/.test(b.filter), 'not blurred 30 px: ' + b.filter);
+    await t.shot('behavior-blur-page');
+    await open('bifrost://settings/', false);
+    b = await until(async () => { const v = await blur(); return v.frosted ? v : null; }, 4000, 'frosted bars over Settings');
+    assert(/blur\(30px\)/.test(b.bar), 'the sidebar isn’t frosted: ' + b.bar);
+    await t.shot('behavior-blur-settings');
+    await clickTab('/dark.html');
+    await set('appearance.blend', 'window');
+    await until(async () => { const v = await blur(); return !v.blur && !v.frosted ? v : null; }, 3000, 'the plain window again');
   });
 } finally {
   x.close();

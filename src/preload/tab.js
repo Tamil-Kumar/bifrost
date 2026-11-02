@@ -624,9 +624,10 @@ function setupKeys() {
 // toolbar): the window around the page takes the color next to it, so the two blend. What's drawn there:
 // the first element under that point with an opaque background, else the page's own background, else the
 // page's default (white, or dark for a page that asks for dark). Measured as the page loads and whenever
-// it might change (its theme switching, resizing, scrolling to something else); the window hears only
-// of a change.
-if (isTop && /^(https?|file):$/.test(location.protocol)) {
+// it might change (its theme switching, resizing, scrolling to something else); the window hears of the
+// colors when they change ("wb-page-color", a quick first guess) and of every such moment
+// ("wb-page-moved": it then looks at the page's real pixels, ui/js/ambient.js). Bifrost's own pages too.
+if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
   const parse = (c) => {
     const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)/i.exec(c || '');
     if (!m) return null;
@@ -669,6 +670,7 @@ if (isTop && /^(https?|file):$/.test(location.protocol)) {
       right: edge([[w - sb - 2, h * 0.3], [w - sb - 2, h * 0.5], [w - sb - 2, h * 0.75]]),
       top: edge([[w * 0.25, 1], [w * 0.5, 1], [w * 0.75, 1]]),
     };
+    try { ipcRenderer.sendToHost('wb-page-moved'); } catch { /* host gone */ }
     const key = JSON.stringify(colors);
     if (key === last) return;
     last = key;

@@ -134,7 +134,7 @@ export function appMenu(anchor) {
       { label: 'Hide the top bar until you point at it', checked: a.topbarAutoHide, accel: accelFor('toggleTopbarAutoHide'), action: () => set('appearance.topbarAutoHide', !a.topbarAutoHide) },
       '-',
       { label: 'Compact toolbar', checked: a.compactToolbar, accel: accelFor('toggleCompact'), action: cmd('toggleCompact') },
-      { label: 'Sidebar and toolbar match the page', checked: a.blend === 'page', accel: accelFor('toggleBlend'), action: cmd('toggleBlend') },
+      { label: 'Sidebar and toolbar', submenu: [['window', 'Window background'], ['page', 'Match the page'], ['blur', 'Blur the page']].map(([v, l]) => ({ label: l, checked: (a.blend || 'window') === v, action: () => set('appearance.blend', v) })) },
       { label: 'Bookmarks bar', checked: a.showBookmarksBar, accel: accelFor('toggleBookmarksBar'), action: cmd('toggleBookmarksBar') },
       '-',
       { label: 'Density', submenu: ['compact', 'comfortable', 'spacious'].map((d) => ({ label: d[0].toUpperCase() + d.slice(1), checked: a.density === d, action: () => set('appearance.density', d) })) },

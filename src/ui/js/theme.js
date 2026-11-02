@@ -1,6 +1,6 @@
 // Bifrost browser UI — applies the theme, layout options and animation switches to the document.
 import { S, on, curWs, activeTab } from './state.js';
-import { setAnimConfig, isInternal } from './util.js';
+import { setAnimConfig, isInternal, isNewTab, hostOf } from './util.js';
 
 const root = document.documentElement;
 const reducedMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -38,7 +38,9 @@ export function applyTheme() {
 // with "Match the page").
 function syncCaption() {
   if (!theme || S.platform !== 'win32' || S.ownCaption) return;
-  const bg = blendVars ? blendVars['--mantle'] : getComputedStyle(root).getPropertyValue('--mantle').trim() || theme.mantle;
+  // (Over a picture, the buttons go see-through: one color would be a block in the corner.)
+  const pictured = root.classList.contains('blend-blur') || root.classList.contains('ntp-bg') || root.classList.contains('frosted');
+  const bg = pictured ? '#00000000' : blendVars ? blendVars['--mantle'] : getComputedStyle(root).getPropertyValue('--mantle').trim() || theme.mantle;
   const symbol = blendVars ? blendVars['--text'] : theme.text;
   const caption = bg + '|' + symbol + '|' + JSON.stringify(S.settings.appearance.sizes || {});
   if (caption === lastCaption) return;
@@ -46,23 +48,91 @@ function syncCaption() {
   window.wb.send('window:caption-colors', { background: bg, symbol });
 }
 
-// "Match the page" (Look & feel → Sidebar and toolbar): the color the window around the page takes from
-// the current tab: its page's color along the edge next to the sidebar (or along the top, with tabs on
-// top). Bifrost's own pages, error pages and pages not measured yet keep the theme's colors.
+// "Match the page" and "Blur the page" (Look & feel → Sidebar and toolbar): the color the window around
+// the page takes from the tab in front: the color along the page's edge next to the sidebar (or along its
+// top, with tabs on top), as its pixels show it (ambient.js), or until they've been looked at, as its
+// styles say (the tab's preload; not for Bifrost's own pages, whose backgrounds are pictures and
+// gradients). "Blur the page" uses the average color of the part of the page behind the bars instead, and
+// shows a blurred picture of the page there. Error pages, and pages not measured yet, keep the theme.
 export function pageTint() {
   const a = S.settings.appearance;
-  if (a.blend !== 'page') return '';
+  if (a.blend !== 'page' && a.blend !== 'blur') return '';
   const t = activeTab();
-  if (!t || !t.pageColor || isInternal(t.url) || t.error || t.crashed) return '';
+  if (!t || t.error || t.crashed || seeThrough(t)) return '';
   const edge = a.tabLayout === 'horizontal' ? 'top' : a.sidebarSide === 'right' ? 'right' : 'left';
-  return t.pageColor[edge] || t.pageColor.left || '';
+  const px = t.pixelColor && t.pixelColorUrl === t.url ? t.pixelColor : null;
+  if (a.blend === 'blur' && px && px.ambient) return px.ambient[edge] || px.ambient.left || '';
+  const src = px || (!isInternal(t.url) ? t.pageColor : null);
+  return src ? src[edge] || src.left || '' : '';
+}
+
+// Bifrost's own pages are see-through with "Match the page" and "Blur the page" (pages/common/page.js):
+// the window shares their background instead (the new tab page's glow or picture too), so they need no
+// color of their own. Not Reader view, which keeps its paper.
+export function seeThrough(t) {
+  const a = S.settings.appearance;
+  return (a.blend === 'page' || a.blend === 'blur') && !!t && isInternal(t.url) && hostOf(t.url) !== 'reader' && !t.error && !t.crashed;
+}
+
+// The new tab page's background, drawn by the window when that page is see-through (as newtab.js does).
+function applyNtpBackground(on) {
+  const bd = backdrop();
+  const n = S.settings.appearance.newTab || {};
+  const kind = on ? (n.background === 'image' && n.image ? 'image' : n.background === 'gradient' ? 'gradient' : '') : '';
+  root.classList.toggle('ntp-bg', !!kind);
+  root.dataset.ntpBg = kind;
+  const layer = bd.querySelector('.ntp');
+  if (kind === 'image') {
+    const img = `url("bifrost://wallpaper/?v=${encodeURIComponent(n.image).slice(-40)}")`;
+    if (layer.style.backgroundImage !== img) layer.style.backgroundImage = img;
+    layer.style.setProperty('--dim', String(n.imageDim ?? 0.35));
+    layer.style.filter = n.imageBlur ? `blur(${n.imageBlur}px)` : '';
+  }
+}
+
+function backdrop() {
+  let bd = document.getElementById('backdrop');
+  if (!bd) {
+    bd = document.createElement('div');
+    bd.id = 'backdrop';
+    bd.setAttribute('aria-hidden', 'true');
+    const ntp = document.createElement('div');
+    ntp.className = 'ntp';
+    bd.append(document.createElement('div'), document.createElement('div'), ntp);
+    document.body.prepend(bd);
+  }
+  return bd;
+}
+
+// The blurred picture behind the bars: two layers, the new one fading in over the old.
+function applyBackdrop(thumb) {
+  const bd = backdrop();
+  const [a, b] = bd.children;
+  const cur = a.classList.contains('on') ? a : b.classList.contains('on') ? b : null;
+  if (!thumb) { a.classList.remove('on'); b.classList.remove('on'); return; }
+  if (cur && cur.dataset.src === thumb) return;
+  const next = cur === a ? b : a;
+  next.style.backgroundImage = `url("${thumb}")`;
+  next.dataset.src = thumb;
+  next.classList.add('on');
+  if (cur) cur.classList.remove('on');
 }
 
 export function applyBlend() {
   if (!theme) return;
+  const a = S.settings.appearance;
   const tint = pageTint();
+  const t = activeTab();
+  const see = seeThrough(t);
+  const thumb = a.blend === 'blur' && tint && t && t.pixelColorUrl === t.url ? t.pageThumb || '' : '';
+  root.style.setProperty('--blend-blur', Math.max(0, Math.min(120, Number(a.blendBlur) || 40)) + 'px');
+  applyBackdrop(thumb);
+  root.classList.toggle('blend-blur', !!thumb);
+  root.classList.toggle('see-through', see);
+  root.classList.toggle('frosted', see && a.blend === 'blur');
+  applyNtpBackground(see && isNewTab(t.url));
   const key = tint + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2;
-  if (key === blendKey) return;
+  if (key === blendKey) { syncCaption(); return; }
   blendKey = key;
   blendVars = tint ? window.WBThemes.blendVars(tint, theme) : null;
   let style = document.getElementById('blend-vars');
@@ -154,6 +224,7 @@ export function init() {
   });
   on('workspace', () => applyTheme());
   on('active', () => applyBlend());
-  on('tab', (t, patch) => { if (t === activeTab() && ('pageColor' in patch || 'url' in patch || 'error' in patch || 'crashed' in patch)) applyBlend(); });
+  on('tab', (t, patch) => { if (t === activeTab() && ('url' in patch || 'error' in patch || 'crashed' in patch)) applyBlend(); });
+  on('page-look', (t) => { if (t === activeTab()) applyBlend(); });
   reducedMQ.addEventListener('change', applyAnimations);
 }

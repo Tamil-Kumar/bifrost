@@ -12,6 +12,7 @@ import * as Prompts from './prompts.js';
 import * as Cmd from './commands.js';
 import * as TabSwitch from './tabswitch.js';
 import * as Flyouts from './flyouts.js';
+import * as Ambient from './ambient.js';
 import * as Swipe from './swipe.js';
 import * as BM from './bookmarks.js';
 import * as DL from './downloads.js';
@@ -147,7 +148,7 @@ function onGuestMessage(tab, channel, args) {
     const ok = (v) => (/^#[0-9a-f]{6}$/i.test(String(v)) ? String(v).toLowerCase() : '');
     const pc = { left: ok(c.left), right: ok(c.right), top: ok(c.top) };
     const was = tab.pageColor || {};
-    if (pc.left !== was.left || pc.right !== was.right || pc.top !== was.top) setTab(tab, { pageColor: pc, pageColorUrl: tab.url });
+    if (pc.left !== was.left || pc.right !== was.right || pc.top !== was.top) { tab.pageColor = pc; emit('page-look', tab); }
   }
 }
 
@@ -271,6 +272,7 @@ async function start() {
   window.addEventListener('keydown', onKey);
   TabSwitch.init();
   Flyouts.init();
+  Ambient.init();
   Swipe.init();
   window.addEventListener('beforeunload', () => flushSave());
 

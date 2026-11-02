@@ -123,6 +123,11 @@ code { font-family: var(--mono); font-size: .9em; background: var(--s0); padding
 .ix-fail { margin: 0; padding-left: 18px; color: var(--subtext); }
 .ix-fail li { margin: 4px 0; }
 
+/* See-through ("Match the page", "Blur the page"; common/page.js): the window behind draws the background,
+   glow included. */
+:root.see-through, :root.see-through body { background: transparent !important; }
+:root.see-through body:has(> .pg > .pg-head)::before { display: none; }
+
 /* ------------------------------------------------------------- depth (see browser.css)
    The pages with a header (settings, history, downloads, bookmarks, extensions, tasks) are lit like the window,
    from a fixed layer behind them (cheaper to scroll over than a fixed background). */

@@ -3,6 +3,8 @@ html, body { height: 100%; overflow-x: hidden; }
 body { background: var(--base); }
 
 #bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+/* (See-through: the window draws this background behind the sidebar and toolbar too; ui/browser.css.) */
+:root.see-through #bg { display: none; }
 #bg.gradient {
   /* The theme's own glows (themes.js): its accent at the top left, then its other colors around. */
   background:

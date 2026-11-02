@@ -27,6 +27,10 @@ export function applyTheme() {
   root.dataset.toasts = a.toastPosition || 'bottom';
   root.dataset.scrollbars = a.scrollbars || 'thin';
   root.dataset.chrome = ['aurora', 'gradient', 'flat'].includes(a.chrome) ? a.chrome : 'aurora';
+  // "Match the page" / "Blur the page" (Look & feel → Sidebar and toolbar): Bifrost's own pages are
+  // see-through to the window around them, which draws their background behind both (ui/js/theme.js), so
+  // page, sidebar and toolbar read as one. (Not Reader view: that keeps its paper.)
+  root.classList.toggle('see-through', (a.blend === 'page' || a.blend === 'blur') && location.host !== 'reader');
   const an = s.animations;
   const reduced = !!(an.respectReducedMotion && reducedMQ.matches);
   const p = window.WBDefaults.perf(s);

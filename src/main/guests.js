@@ -490,6 +490,7 @@ function guestAction(wcId, action, args = {}) {
       return guest.navigationHistory.restore({ entries: entries.map((e) => ({ url: e.url, title: e.title || '' })), index }).then(() => true, () => false);
     }
     case 'captureThumb': return guest.capturePage().then((img) => (img.isEmpty() ? null : img.resize({ width: Math.min(360, img.getSize().width) }).toDataURL()));
+    case 'pageLook': return pageLook(guest, args);
     case 'memory': return guest.getOSProcessId();
     case 'captureKeyboard': if (args.on) capturing.add(guest.id); else capturing.delete(guest.id); return true;
     case 'isAudible': return guest.isCurrentlyAudible();
@@ -542,6 +543,48 @@ async function fullPageCapture(guest) {
   } finally {
     if (attached) { try { dbg.detach(); } catch { /* already detached */ } }
   }
+}
+
+// What the page looks like right now, for "Match the page" and "Blur the page" (ui/js/ambient.js): the
+// colors along its edges (the one most of each edge shares), the average color of its left part (what a
+// blurred copy shows behind the sidebar), and with `thumb`, a small picture of it to blur.
+async function pageLook(guest, { thumb = false } = {}) {
+  const img = await guest.capturePage();
+  if (!img || img.isEmpty()) return null;
+  const small = img.resize({ width: 120, quality: 'good' });
+  const { width: w, height: h } = small.getSize();
+  if (w < 8 || h < 8) return null;
+  const px = small.toBitmap();   // BGRA
+  const rgb = (x, y) => { const i = (y * w + x) * 4; return [px[i + 2], px[i + 1], px[i]]; };
+  const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+  // The color most of these pixels share (to within a little), averaged over those pixels.
+  const dominant = (pts) => {
+    const groups = new Map();
+    for (const c of pts) {
+      const k = (c[0] >> 4) * 256 + (c[1] >> 4) * 16 + (c[2] >> 4);
+      const g = groups.get(k) || { n: 0, s: [0, 0, 0] };
+      g.n++; g.s[0] += c[0]; g.s[1] += c[1]; g.s[2] += c[2];
+      groups.set(k, g);
+    }
+    const best = [...groups.values()].sort((a, b) => b.n - a.n)[0];
+    return hex(best.s.map((v) => v / best.n));
+  };
+  const column = (x) => Array.from({ length: h - 2 }, (_, i) => rgb(x, i + 1));
+  const row = (y) => Array.from({ length: w - 2 }, (_, i) => rgb(i + 1, y));
+  const mean = (x0, x1, y0 = 0, y1 = h) => {
+    const s = [0, 0, 0];
+    let n = 0;
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const c = rgb(x, y); s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; n++; }
+    return hex(s.map((v) => v / n));
+  };
+  const out = {
+    left: dominant(column(0).concat(column(1))),
+    // (in from the right: the page's scrollbar is there)
+    right: dominant(column(w - 4).concat(column(w - 3))),
+    top: dominant(row(0).concat(row(1))),
+    ambient: { left: mean(0, Math.ceil(w * 0.3)), right: mean(Math.floor(w * 0.7), w), top: mean(0, w, 0, Math.ceil(h * 0.3)) },
+  };
+  return { edges: out, thumb: thumb ? 'data:image/jpeg;base64,' + small.toJPEG(82).toString('base64') : null };
 }
 
 async function screenshot(guest, { full = false } = {}) {
