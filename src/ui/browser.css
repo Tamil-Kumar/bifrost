@@ -276,6 +276,7 @@ body {
      side of every tab in it. --gl: where it runs; the arm reaches the dot. */
   --gline: color-mix(in srgb, var(--g) 72%, transparent); --gl: 3px; --gw: 2px; --gr: 6px;
   --gmid: calc(var(--tab-h) * .425);
+  --gdot: 14px;   /* the group's dot */
 }
 .group.has-active { --gline: var(--g); }
 .group::before, .group::after { content: ""; position: absolute; pointer-events: none; transition: opacity var(--t-med); }
@@ -290,8 +291,9 @@ body {
 }
 .group.collapsed::before, .group.collapsed::after { opacity: 0; }
 /* Collapsed sidebar: the line runs down the edge, beside the tiles; the arm reaches the dot in the middle. */
-:root.sidebar-collapsed .group { --gl: -6px; }
-:root.sidebar-collapsed .group::before { width: calc(50% - 5px - var(--gl)); }
+/* (there the dot is all the group shows: as big as a site's icon) */
+:root.sidebar-collapsed .group { --gl: -6px; --gdot: 18px; }
+:root.sidebar-collapsed .group::before { width: calc(50% - var(--gdot) / 2 - var(--gl)); }
 .group-head {
   display: flex; align-items: center; gap: 8px;
   height: calc(var(--tab-h) * .85); padding: 0 8px 0 10px;
@@ -301,7 +303,7 @@ body {
 }
 .group-head:hover { background: var(--hover); }
 .group-head.drop-hot { background: color-mix(in srgb, var(--g) 20%, transparent); }
-.group-dot { width: 10px; height: 10px; flex: none; border-radius: 4px; background: var(--g); }
+.group-dot { width: var(--gdot); height: var(--gdot); flex: none; border-radius: calc(var(--gdot) * .34); background: var(--g); }
 .group-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .group-title.empty::before { content: "Group"; opacity: .7; font-weight: 500; }
 .group-count { flex: none; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--g) 16%, transparent); font-size: .8rem; display: grid; place-items: center; }
@@ -438,8 +440,8 @@ body {
   transition: background var(--t-fast);
 }
 .hgroup:hover { background: color-mix(in srgb, var(--g) 32%, transparent); }
-.hgroup.empty { width: 14px; padding: 0; justify-content: center; }
-.hgroup.empty::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--g); }
+.hgroup.empty { width: 18px; padding: 0; justify-content: center; }
+.hgroup.empty::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--g); }
 .hgroup.collapsed { box-shadow: inset 0 0 0 1.5px var(--g); }
 .hgroup::after { left: 6px; right: 0; bottom: calc(1px - (var(--caption-h) - 22px) / 2); border-radius: 2px 0 0 2px; }
 .hgroup.g-last::after { right: 6px; border-radius: 2px; }
