@@ -1,0 +1,44 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Feed stand-in</title><link rel="icon" href="data:,">
+<style>
+  body { margin: 0; background: #0f0f0f; color: #f1f1f1; font: 14px Roboto, Arial, sans-serif; }
+  #contents { display: grid; grid-template-columns: repeat(3, 200px); gap: 16px; padding: 16px; }
+  ytd-rich-item-renderer, .tile { display: block; height: 120px; background: #272727; }
+  #secondary { width: 400px; padding: 16px; }
+  #player-ads { display: block; height: 250px; background: #fc0; color: #000; }
+</style>
+</head>
+<body>
+<!-- A stand-in for YouTube's pages with the ads they show when nothing is taken out of YouTube's data
+     (tests/e2e/youtube.mjs): the home feed, the masthead, search results, next to a video. The ids say
+     which are ads ("ad-") and which aren't ("ok-"). -->
+<div id="masthead-ad" class="ytd-rich-grid-renderer">Masthead ad</div>
+<ytd-banner-promo-renderer id="ad-banner-promo">Try Premium</ytd-banner-promo-renderer>
+<ytd-rich-grid-renderer>
+  <div id="contents" class="ytd-rich-grid-renderer">
+    <ytd-rich-item-renderer id="ok-1"><div id="content"><ytd-rich-grid-media>Video 1</ytd-rich-grid-media></div></ytd-rich-item-renderer>
+    <ytd-rich-item-renderer id="ad-tile"><div id="content"><ytd-ad-slot-renderer><ytd-in-feed-ad-layout-renderer>Sponsored</ytd-in-feed-ad-layout-renderer></ytd-ad-slot-renderer></div></ytd-rich-item-renderer>
+    <ytd-rich-item-renderer id="ok-2"><div id="content"><ytd-rich-grid-media>Video 2</ytd-rich-grid-media></div></ytd-rich-item-renderer>
+    <ytd-rich-item-renderer id="ok-3"><div id="content"><ytd-rich-grid-media>Video 3</ytd-rich-grid-media></div></ytd-rich-item-renderer>
+  </div>
+</ytd-rich-grid-renderer>
+<ytd-section-list-renderer>
+  <ytd-item-section-renderer>
+    <div id="contents" class="ytd-item-section-renderer">
+      <ytd-search-pyv-renderer id="ad-search">Promoted video</ytd-search-pyv-renderer>
+      <ytd-ad-slot-renderer id="ad-search-slot" class="style-scope ytd-item-section-renderer">Sponsored result</ytd-ad-slot-renderer>
+      <ytd-video-renderer id="ok-result" class="tile">A result</ytd-video-renderer>
+    </div>
+  </ytd-item-section-renderer>
+</ytd-section-list-renderer>
+<div id="secondary">
+  <div id="player-ads"><ytd-player-legacy-desktop-watch-ads-renderer>Companion ad</ytd-player-legacy-desktop-watch-ads-renderer></div>
+  <ytd-engagement-panel-section-list-renderer id="ad-panel" target-id="engagement-panel-ads">Ad panel</ytd-engagement-panel-section-list-renderer>
+  <ytd-engagement-panel-section-list-renderer id="ok-panel" target-id="engagement-panel-comments-section">Comments</ytd-engagement-panel-section-list-renderer>
+  <ytd-watch-next-secondary-results-renderer>
+    <ytd-ad-slot-renderer id="ad-related">Sponsored next to the video</ytd-ad-slot-renderer>
+    <ytd-compact-video-renderer id="ok-related" class="tile">Up next</ytd-compact-video-renderer>
+  </ytd-watch-next-secondary-results-renderer>
+  <ytd-merch-shelf-renderer id="ad-merch">Merch</ytd-merch-shelf-renderer>
+</div>
+</body></html>

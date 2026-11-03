@@ -1,0 +1,61 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shorts stand-in</title><link rel="icon" href="data:,">
+<style>
+  body { margin: 0; background: #0f0f0f; color: #f1f1f1; font: 14px Roboto, Arial, sans-serif; }
+  #shorts-inner-container { height: 400px; width: 240px; overflow-y: auto; scroll-snap-type: y mandatory; }
+  #shorts-inner-container > * { height: 400px; scroll-snap-align: start; display: block; background: #222; }
+  ytd-ad-slot-renderer { display: block; height: 100%; background: #fc0; color: #000; }
+</style>
+</head>
+<body>
+<!-- A stand-in for YouTube Shorts (tests/e2e/youtube.mjs). YouTube fetches the reels to show from
+     /youtubei/v1/reel/reel_watch_sequence; the ones that are ads say so in
+     entries[].command.reelWatchEndpoint.adClientParams.isAd (what uBlock Origin's Shorts filters take out).
+     Below, an ad reel that's already in the page (laid out as uBlock Origin's Shorts rule expects) and is the
+     one on. -->
+<ytd-shorts>
+  <div id="shorts-container">
+    <div id="shorts-inner-container">
+      <div class="reel-video-in-sequence-new style-scope ytd-shorts" id="reel-0"><ytd-reel-video-renderer class="style-scope ytd-shorts">Short one</ytd-reel-video-renderer></div>
+      <div class="reel-video-in-sequence-new style-scope ytd-shorts" id="reel-1"><div class="style-scope ytd-reel-video-renderer" is-active=""><ytd-ad-slot-renderer><video id="ad-video" loop></video>Sponsored short</ytd-ad-slot-renderer></div></div>
+      <div class="reel-video-in-sequence-new style-scope ytd-shorts" id="reel-2"><ytd-reel-video-renderer class="style-scope ytd-shorts">Short three</ytd-reel-video-renderer></div>
+    </div>
+  </div>
+  <div id="navigation-button-down"><ytd-button-renderer><button aria-label="Next video" onclick="window.__next = (window.__next || 0) + 1">Next</button></ytd-button-renderer></div>
+</ytd-shorts>
+<script>
+  const ids = (entries) => entries.map((e) => e.command.reelWatchEndpoint.videoId);
+  const body = JSON.stringify({ context: { client: { clientName: 'WEB' } }, sequenceParams: 'CA8' });
+  const post = (u) => ({ method: 'POST', body, headers: { 'content-type': 'application/json' } });
+  const SEQ = '/youtubei/v1/reel/reel_watch_sequence?prettyPrint=false';
+  window.__got = null;
+  Promise.all([
+    // As JSON
+    fetch(SEQ, post()).then((r) => r.json().then((j) => ({ ids: ids(j.entries), url: r.url, ok: r.ok, status: r.status, type: r.headers.get('content-type') }))),
+    // Through a Request, as text it parses, inside reelWatchSequenceResponse
+    fetch(new Request(SEQ + '&nested=1', post())).then((r) => r.text()).then((t) => ids(JSON.parse(t).reelWatchSequenceResponse.entries)),
+    // With the )]}' some answers start with
+    fetch(SEQ + '&xssi=1', post()).then((r) => r.text()).then((t) => ({ prefixed: t.startsWith(")]}'"), ids: ids(JSON.parse(t.slice(t.indexOf('\n') + 1)).entries) })),
+    // Another of YouTube's answers, read as JSON: not touched
+    fetch('/youtubei/v1/next?prettyPrint=false', post()).then((r) => r.json()).then((j) => ids(j.entries)),
+  ]).then(([json, text, xssi, other]) => { window.__got = { json, text, xssi, other }; }, (e) => { window.__got = { error: String(e) }; });
+  // A list of reels the page parses from somewhere else (as YouTube parses some).
+  window.__parsed = ids(JSON.parse(JSON.stringify({ entries: [
+    { command: { reelWatchEndpoint: { videoId: 'p1' } } },
+    { command: { reelWatchEndpoint: { videoId: 'p-ad', adClientParams: { isAd: true } } } },
+    { command: { reelWatchEndpoint: { videoId: 'p2', adClientParams: { isAd: false } } } },
+  ] })).entries);
+  // The ad reel's own video, playing (with sound) as it would.
+  const wav = (secs) => {
+    const rate = 8000, n = rate * secs, buf = new ArrayBuffer(44 + n), d = new DataView(buf);
+    const w = (o, s) => [...s].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); d.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+    d.setUint32(24, rate, true); d.setUint32(28, rate, true); d.setUint16(32, 1, true); d.setUint16(34, 8, true); w(36, 'data'); d.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) d.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  };
+  const av = document.getElementById('ad-video');
+  av.src = wav(30);
+  window.playAd = () => av.play().then(() => 'playing', (e) => 'not playing: ' + e.message);
+</script>
+</body></html>

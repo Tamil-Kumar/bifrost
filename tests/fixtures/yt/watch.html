@@ -1,0 +1,79 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Watch stand-in</title><link rel="icon" href="data:,">
+<style>
+  /* As YouTube's player is: the box its ad cover is drawn in. */
+  body { margin: 0; background: #0f0f0f; color: #f1f1f1; font: 14px Roboto, Arial, sans-serif; }
+  .html5-video-player { position: relative; width: 640px; height: 360px; overflow: hidden; z-index: 0; background: #000; margin: 24px; }
+  .html5-video-player video { width: 100%; height: 100%; background: #c00; }
+  .video-ads { position: absolute; left: 12px; bottom: 12px; z-index: 30; }
+  .ytp-ad-badge { background: #fc0; color: #000; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+  .ytp-skip-ad-button { margin-left: 8px; }
+</style>
+</head>
+<body>
+<!-- A stand-in for YouTube's watch page player (tests/e2e/youtube.mjs). The player switches to an ad the way
+     YouTube's does: it takes the ad-showing class, and its <video> plays the ad. A red video is the ad.
+     ?mode=stream  the ad is a stream of its own (10 s; the video is 300 s), which ends when it's run to its end
+     ?mode=ssap    the ad is stitched into the video's stream; the player's API says so and seeks past it
+     ?mode=unknown no player API to tell; the ad ends when Skip is pressed
+     ?mode=stitched the API doesn't say SSAP, but the <video> holds the video's own stream (as long as the
+                   video): running it to its end would skip the video, so nothing may do that
+     &skip=0       no Skip button          &ad=0  no ad to start with -->
+<div id="movie_player" class="html5-video-player">
+  <div class="html5-video-container"><video id="v" preload="auto"></video></div>
+  <div class="video-ads ytp-ad-module"></div>
+</div>
+<p id="state">no ad</p>
+<script>
+  // Seconds of silence as a WAV, so the <video> has a length.
+  const wav = (secs) => {
+    const rate = 8000, n = rate * secs, buf = new ArrayBuffer(44 + n), d = new DataView(buf);
+    const w = (o, s) => [...s].forEach((c, i) => d.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); d.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt '); d.setUint32(16, 16, true); d.setUint16(20, 1, true); d.setUint16(22, 1, true);
+    d.setUint32(24, rate, true); d.setUint32(28, rate, true); d.setUint16(32, 1, true); d.setUint16(34, 8, true); w(36, 'data'); d.setUint32(40, n, true);
+    for (let i = 0; i < n; i++) d.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  };
+  const q = new URLSearchParams(location.search);
+  const mode = q.get('mode') || 'stream';
+  const p = document.getElementById('movie_player'), v = document.getElementById('v'), ads = p.querySelector('.video-ads');
+  const LENGTH = mode === 'stitched' ? 10 : 300;
+  // What the page saw: how the player looked while its ad was on (when it was skipped, sought…), how it ended.
+  window.__log = [];
+  const look = (why) => window.__log.push({
+    why, ad: p.classList.contains('ad-showing'), cover: getComputedStyle(p, '::after').content,
+    opacity: getComputedStyle(v).opacity, muted: v.muted, rate: v.playbackRate, at: Math.round(v.currentTime * 100) / 100,
+  });
+  if (mode !== 'unknown') {
+    p.getStatsForNerds = () => ({ debug_info: mode === 'ssap' ? 'SSAP, AD 1 of 1' : '' });
+    // During a stitched-in ad the player reports the ad's own progress; seeking to its end ends it.
+    p.getProgressState = () => ({ current: v.currentTime, duration: mode === 'ssap' ? 4 : v.duration, loaded: v.duration });
+    p.getPlayerResponse = () => ({ videoDetails: { videoId: 'abc', lengthSeconds: String(LENGTH) } });
+    p.seekTo = (t) => { look('seekTo'); v.currentTime = t; if (mode === 'ssap') endAd('seekTo'); };
+  }
+  window.startAd = () => {
+    v.src = wav(mode === 'stitched' ? LENGTH : 10);
+    p.classList.add('ad-showing');
+    document.getElementById('state').textContent = 'ad';
+    ads.innerHTML = '<span class="ytp-ad-badge">Sponsored</span>';
+    if (q.get('skip') !== '0') {
+      const b = document.createElement('button');
+      b.className = 'ytp-skip-ad-button'; b.textContent = 'Skip';
+      b.onclick = () => { look('skip'); endAd('skip'); };
+      ads.append(b);
+    }
+  };
+  window.endAd = (how) => {
+    if (!p.classList.contains('ad-showing')) return;
+    p.classList.remove('ad-showing');
+    ads.innerHTML = '';
+    document.getElementById('state').textContent = 'video';
+    window.__log.push({ ended: how });
+  };
+  // An ad in a stream of its own is over when it's been run to its end.
+  v.addEventListener('seeked', () => {
+    if (p.classList.contains('ad-showing') && mode === 'stream' && v.currentTime >= v.duration - 0.2) { look('ran to its end'); endAd('ran to its end'); }
+  });
+  if (q.get('ad') !== '0') startAd();
+</script>
+</body></html>

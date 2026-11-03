@@ -230,17 +230,18 @@ export function openLauncher({ mode = 'current', text = '', selectText = false, 
       return;
     }
     if (a === 'web') { searchWeb(); return; }
-    if (it.type === 'command' && REOPENS.has(it.command)) { emit('command', it.command, { source: 'launcher' }); return; }
+    if (it.type === 'command' && REOPENS.has(it.command)) { if (!S.isPrivate) wb.send('search:picked', { raw: input.value, command: it.command }); emit('command', it.command, { source: 'launcher' }); return; }
     // Settings → Launcher → "Stay open after opening a result in the background": to open several.
     if (a === 'background' && cfg.backgroundStaysOpen && it.type !== 'command' && !(it.type === 'tab' && it.tab && it.tab.windowId === S.windowId)) {
-      openResult(it, a);
+      openResult(it, a, input.value);
       toast({ text: 'Opened in the background', iconName: 'check', timeout: 1200 });
       input.focus();
       return;
     }
     // (a command, or a background tab: the keyboard goes back where it was; the rest put it somewhere new)
+    const typed = input.value;
     close({ restoreFocus: it.type === 'command' || a === 'background' });
-    openResult(it, a);
+    openResult(it, a, typed);
   }
 
   // The web search for what was typed (a keyword engine's, if one was typed), where Enter opens things.

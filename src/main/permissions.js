@@ -1,7 +1,7 @@
 'use strict';
 // Site permissions: camera/microphone, location, notifications, clipboard, screen sharing, MIDI…
 // Decisions are asked in the browser UI (a prompt under the address bar) and remembered per site.
-const { BrowserWindow, dialog, desktopCapturer, webContents: WC } = require('electron');
+const { BrowserWindow, dialog, desktopCapturer, ipcMain, webContents: WC } = require('electron');
 const ctx = require('./context');
 
 const ALWAYS = new Set(['fullscreen', 'pointerLock', 'keyboardLock', 'clipboard-sanitized-write', 'speaker-selection', 'mediaKeySystem', 'top-level-storage-access']);
@@ -22,10 +22,71 @@ function originOf(url) {
 }
 function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }
 
-// Stored decision for a site: 'allow' | 'block' | undefined
-function decision(host, perm) {
+// Answers given just for now ("Remember for this site" unticked, and every answer in a private window):
+// they hold until Bifrost closes. private|host|perm → 'allow' | 'block'.
+const sessionDecisions = new Map();
+const skey = (isPrivate, host, perm) => (isPrivate ? 'p|' : 'n|') + host + '|' + perm;
+
+// The decision for a site: 'allow' | 'block' | undefined (ask). A remembered one, or one for now.
+function decision(host, perm, isPrivate = false) {
   if (!host) return undefined;
+  const now = sessionDecisions.get(skey(isPrivate, host, perm));
+  if (now) return now;
   return ctx.db.siteSettings(host)['perm:' + perm];
+}
+
+// Set from the address bar's permissions button or the site's info (value null: ask again). Pages from
+// that site hear of it straight away (preload/tab.js: Notification.permission follows without a reload).
+function setDecision(host, perm, value) {
+  for (const k of [skey(false, host, perm), skey(true, host, perm)]) sessionDecisions.delete(k);
+  ctx.db.setSiteSetting(host, 'perm:' + perm, value || null);
+  pushState(host);
+}
+function pushState(host) {
+  for (const wc of WC.getAllWebContents()) {
+    if (wc.isDestroyed() || wc.getType() !== 'webview') continue;
+    let frames = [];
+    try { frames = wc.mainFrame.framesInSubtree; } catch { continue; }
+    const isPrivate = !!(wc.session && wc.session.__bifrostPrivate);
+    for (const f of frames) {
+      if (hostOf(f.url) !== host) continue;
+      try { f.send('tab-perm', { notifications: decision(host, 'notifications', isPrivate) || null }); } catch { /* frame gone */ }
+    }
+  }
+}
+
+// What the page asked for and what it got: the window shows it on the address bar's permissions button.
+function tellWindow(wc, host, keys, allowed, asked) {
+  try {
+    const ctl = ownerController(wc);
+    if (ctl && wc.getType() === 'webview') ctl.send('perm-asked', { wcId: wc.id, host, keys, allowed: !!allowed, asked: !!asked });
+  } catch { /* window gone */ }
+}
+
+// For the tab preload: the page's own view of its notifications permission (Notification.permission), asked
+// before the page's scripts run.
+function initIpc() {
+  ipcMain.on('tab:perm-state', (event) => {
+    let v = null;
+    try {
+      const wc = event.sender;
+      const isPrivate = !!(wc.session && wc.session.__bifrostPrivate);
+      // (the asking frame's own site: never another's)
+      v = decision(hostOf((event.senderFrame && event.senderFrame.url) || wc.getURL()), 'notifications', isPrivate) || null;
+    } catch { v = null; }
+    event.returnValue = v;
+  });
+  // A site's notification was clicked: its tab comes to the front, in its window.
+  ipcMain.on('tab:notification-click', (event) => {
+    try {
+      const wc = event.sender;
+      const ctl = ownerController(wc);
+      if (!ctl) return;
+      if (ctl.win.isMinimized()) ctl.win.restore();
+      ctl.win.show(); ctl.win.focus();
+      ctl.send('focus-wc', wc.id);
+    } catch { /* gone */ }
+  });
 }
 
 function permKeys(permission, details) {
@@ -73,6 +134,7 @@ async function prompt(wc, permission, details, origin, keys) {
 }
 
 function attach(ses, { isPrivate }) {
+  ses.__bifrostPrivate = !!isPrivate;
   ses.setPermissionRequestHandler(async (wc, permission, callback, details) => {
     try {
       const url = (details && (details.requestingUrl || details.securityOrigin)) || (wc && wc.getURL()) || '';
@@ -87,11 +149,17 @@ function attach(ses, { isPrivate }) {
         if (ext && /^(https?|mailto|tel):/i.test(ext)) return callback(true);
       }
       const keys = permKeys(permission, details);
-      const stored = keys.map((k) => decision(host, k));
-      if (stored.every((d) => d === 'allow')) return callback(true);
-      if (stored.some((d) => d === 'block')) return callback(false);
+      const stored = keys.map((k) => decision(host, k, isPrivate));
+      if (stored.every((d) => d === 'allow')) { tellWindow(wc, host, keys, true, false); return callback(true); }
+      if (stored.some((d) => d === 'block')) { tellWindow(wc, host, keys, false, false); return callback(false); }
       const r = await prompt(wc, permission, details, origin, keys);
-      if (r.remember && host && !isPrivate) for (const k of keys) ctx.db.setSiteSetting(host, 'perm:' + k, r.allow ? 'allow' : 'block');
+      if (host) {
+        if (r.remember && !isPrivate) for (const k of keys) ctx.db.setSiteSetting(host, 'perm:' + k, r.allow ? 'allow' : 'block');
+        // (just for now: until Bifrost closes, so what the page is told and what it's let do agree)
+        else for (const k of keys) sessionDecisions.set(skey(isPrivate, host, k), r.allow ? 'allow' : 'block');
+        if (keys.includes('notifications')) pushState(host);
+      }
+      tellWindow(wc, host, keys, !!r.allow, true);
       callback(!!r.allow);
     } catch (e) {
       console.error('[permissions]', e);
@@ -106,10 +174,12 @@ function attach(ses, { isPrivate }) {
     if (origin.startsWith('chrome-extension://')) return true;
     const host = hostOf(origin);
     const keys = permKeys(permission, details);
-    const stored = keys.map((k) => decision(host, k));
+    const stored = keys.map((k) => decision(host, k, isPrivate));
     if (stored.some((d) => d === 'block')) return false;
     if (stored.every((d) => d === 'allow')) return true;
-    // Unset: let sites ask for camera/mic/location (the request then prompts); report notifications as off.
+    // Unset: let sites ask for camera/mic/location (the request then prompts). Notifications: not yet (a
+    // notification can't show), but the page is told "not decided" rather than "blocked" (preload/tab.js),
+    // so it asks, as it would in any browser.
     return permission === 'media' || permission === 'geolocation' || permission === 'clipboard-read';
   });
 
@@ -135,15 +205,22 @@ function attach(ses, { isPrivate }) {
   });
 
   if (ses.setDevicePermissionHandler) {
-    ses.setDevicePermissionHandler((d) => decision(hostOf(d.origin), d.deviceType) === 'allow');
+    ses.setDevicePermissionHandler((d) => decision(hostOf(d.origin), d.deviceType, isPrivate) === 'allow');
   }
 }
 
-function listForHost(host) {
+// A site's decisions (remembered, and for now in this window: forNow marks those).
+function listForHost(host, isPrivate = false) {
   const s = ctx.db.siteSettings(host);
   const out = {};
   for (const [k, v] of Object.entries(s)) if (k.startsWith('perm:')) out[k.slice(5)] = v;
+  const forNow = [];
+  for (const [k, v] of sessionDecisions) {
+    const [p, h, perm] = k.split('|');
+    if (h === host && (p === 'p') === !!isPrivate) { out[perm] = v; forNow.push(perm); }
+  }
+  if (forNow.length) out.__forNow = forNow;
   return out;
 }
 
-module.exports = { attach, listForHost, LABEL, originOf };
+module.exports = { attach, initIpc, listForHost, setDecision, decision, LABEL, originOf };

@@ -564,6 +564,13 @@ function bookmarkFoldersEditor() {
   return { el: box, update: () => { if (!typingIn(box)) draw(); } };
 }
 
+// Settings → Launcher → Ranking: forget what the launcher learned from what you opened.
+async function forgetPicks() {
+  if (!await confirmDialog('Forget what the launcher learned from what you opened?', { detail: 'Your history and bookmarks stay; it just starts learning again.', ok: 'Forget' })) return;
+  await wb.invoke('search:forget-picks');
+  toast({ text: 'The launcher starts learning again', iconName: 'check' });
+}
+
 // The launcher's default search engine (the list is Search → Search engines, shown here too).
 function defaultEngineSelect() {
   const sel = h('select.field');
@@ -1538,6 +1545,9 @@ function sections() {
         I.range('launcher.wVisits', 'Visit count', 'How often you’ve visited the page.', { min: 0, max: 3, step: 0.05, fmt: X2, keywords: 'weight ranking visits' }),
         I.range('launcher.wRecency', 'Recency', 'How recently you visited the page, or added the bookmark if you never have.', { min: 0, max: 3, step: 0.05, fmt: X2, keywords: 'weight ranking recent' }),
         I.range('launcher.recencyHalfLifeDays', 'Recency half-life', 'A page last visited this long ago gets half the recency credit.', { min: 1, max: 180, step: 1, fmt: (v) => v + (v === 1 ? ' day' : ' days') }),
+        I.toggle('launcher.learnPicks', 'Learn from what you open', 'What you open from the launcher (or the address bar’s list) counts as using it, and for what you typed to find it, it comes up first next time. Never from a private window; clearing history clears it.', { keywords: 'learn adaptive frecency picks most used' }),
+        I.range('launcher.wPicks', 'What you opened before', 'How much higher something you opened before for what you’re typing comes up.', { min: 0, max: 3, step: 0.05, fmt: X2, when: (st) => st.launcher.learnPicks !== false, keywords: 'weight picks learned' }),
+        I.button('Forget what it learned', 'Your history and bookmarks stay as they are.', 'Forget', forgetPicks, { iconName: 'rotate', keywords: 'forget learned picks reset' }),
         I.range('launcher.visitsSaturation', 'Visits for full credit', 'Pages visited more than this all get the same visit score.', { min: 5, max: 500, step: 5, keywords: 'saturation' }),
         I.toggle('launcher.fuzzy', 'Fuzzy matching', 'Match letters in order even when they aren’t next to each other, so “gthb” finds GitHub.'),
         I.range('launcher.minScore', 'Hide results below', 'Results scoring under this are dropped. Turn on “Show scores” below to tune it.', { min: 0, max: 1, step: 0.01, fmt: X2, keywords: 'minimum score threshold' }),
@@ -1623,7 +1633,7 @@ function sections() {
       { title: 'Ad and tracker blocking', items: [
         I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy and uBlock Origin’s lists.', { keywords: 'adblock ublock' }),
         I.toggle('privacy.adblock.cosmetic', 'Hide leftover ad spaces', 'Removes empty boxes and runs uBlock’s anti-adblock fixes.', { when: (st) => st.privacy.adblock.enabled }),
-        I.toggle('privacy.adblock.youtubeSkip', 'Skip YouTube video ads', 'Mutes them, runs them to their end and presses “Skip”.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads skip video' }),
+        I.toggle('privacy.adblock.youtubeSkip', 'Hide and skip YouTube ads', 'A video ad is covered and muted the moment it starts, then skipped. The ads in YouTube’s pages are hidden and ads are taken out of Shorts. YouTube itself is left as it is, so it keeps loading.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads skip video shorts' }),
         I.toggle('privacy.adblock.youtubeFilters', 'Remove YouTube ads before they play (experimental)', 'Runs the lists’ page scripts on YouTube and blocks its own ad requests. YouTube can get stuck loading with this on; reload YouTube after changing it.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads scriptlets filters' }),
         I.toggle('privacy.adblock.lists.ads', 'Ads', '', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.lists.tracking', 'Trackers', '', { when: (st) => st.privacy.adblock.enabled }),

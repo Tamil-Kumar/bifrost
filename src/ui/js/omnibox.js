@@ -130,12 +130,13 @@ function onKey(e) {
 const dropping = () => setting('launcher.omnibox') !== false;
 
 function pick(it, how) {
+  const typed = input.value;
   editing = false;
   hideDrop();
   searcher.cancel();
   selfBlur = true;
   input.blur();
-  openResult(it, how || 'current');
+  openResult(it, how || 'current', typed);
   refresh();
 }
 

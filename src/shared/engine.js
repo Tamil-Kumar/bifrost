@@ -189,24 +189,66 @@
     return !!(b.ancestors && b.ancestors.some((id) => ids.includes(Number(id))));
   }
 
+  // ---------------------------------------------------------------- picks
+  // What you opened from the launcher (or the address bar's list), learned so it comes up first:
+  // ctx.picks = { byKey: Map(key -> { n, last, pk }), byInput: Map(what you'd typed -> Map(key -> { n, last })) }.
+  // A pick counts as PICK_VISITS visits of the page (you chose it; a visit may be any link), and for what you
+  // type, what you picked when you typed the same (or the start of it, or more) is raised (Firefox's
+  // "adaptive history", Chrome's shortcuts).
+  const PICK_VISITS = 3;
+  const PICK_HALF = 864e5 * 30;   // a pick a month old counts half
+  function pickOf(key, ctx) { return (key && ctx.picks && ctx.picks.byKey && ctx.picks.byKey.get(key)) || null; }
+  // For the text typed: key → how strongly it was picked for that text (0…1).
+  function learnedFor(full, ctx) {
+    const P = ctx.picks;
+    if (!full || !P || !P.byInput || !P.byInput.size) return null;
+    const holder = ctx.cache || ctx;
+    if (holder._learned && holder._learned.full === full && holder._learned.P === P) return holder._learned.map;
+    const now = Date.now();
+    const map = new Map();
+    for (const [input, keys] of P.byInput) {
+      if (!(input.startsWith(full) || full.startsWith(input))) continue;
+      const closeness = Math.min(full.length, input.length) / Math.max(full.length, input.length);
+      for (const [key, e] of keys) {
+        const s = closeness * Math.min(1, Math.log1p(e.n || 0) / Math.log1p(4)) * Math.pow(0.5, Math.max(0, now - (e.last || 0)) / PICK_HALF);
+        if (s > (map.get(key) || 0)) map.set(key, s);
+      }
+    }
+    holder._learned = { full, P, map };
+    return map;
+  }
+
   // -------------------------------------------------------------- scoring
-  // ctx: { bookmarks:[prepped], visitIndex: Map(key -> history entry), tabs:[prepped], tabByKey: Map, commands:[prepped], activeTab: {windowId, wcId} }
+  // ctx: { bookmarks:[prepped], visitIndex: Map(key -> history entry), tabs:[prepped], tabByKey: Map, commands:[prepped], activeTab: {windowId, wcId},
+  //        redirects: Map(bookmark key -> { key, pk } of where opening it ends up), picks (see above) }
+  // use: how much a bookmark is used (bookmarkUsage: its page and the pages under it), in place of its
+  // own page's history entry. learned: how much it was picked for what's typed (learnedFor).
   function makeScorer(L, ctx) {
     const now = Date.now();
     const wSum = (L.wMatch + L.wVisits + L.wRecency) || 1;
     const sat = Math.log1p(Math.max(1, L.visitsSaturation));
     const half = 864e5 * Math.max(0.1, L.recencyHalfLifeDays);
-    return function score(src, m, o, path, fallbackTs, h) {
-      if (h === undefined) h = ctx.visitIndex.get(o.key);
-      const vc = h ? h.visitCount || 0 : 0;
-      const ts = (h && h.lastVisitTime) || fallbackTs || 0;
+    const learn = L.learnPicks !== false;
+    const wPicks = Number.isFinite(L.wPicks) ? Math.max(0, L.wPicks) : 1;
+    return function score(src, m, o, path, fallbackTs, h, use, learned) {
+      let vc, ts;
+      if (use) { vc = use.visits || 0; ts = use.last || fallbackTs || 0; }
+      else {
+        if (h === undefined) h = ctx.visitIndex.get(o.key);
+        vc = h ? h.visitCount || 0 : 0;
+        ts = (h && h.lastVisitTime) || 0;
+        const p = learn ? pickOf(o.key, ctx) : null;
+        if (p) { vc += PICK_VISITS * (p.n || 0); ts = Math.max(ts, p.last || 0); }
+        ts = ts || fallbackTs || 0;
+      }
       const v = vc ? Math.min(1, Math.log1p(vc) / sat) : 0;
       const r = ts ? Math.pow(0.5, Math.max(0, now - ts) / half) : 0;
       const base = m * (L.wMatch + L.wVisits * v + L.wRecency * r) / wSum;
       const sw = L.sources[src].weight;
       const df = o.host ? domainFactorHost(o.host, L) : 1;
       const ff = folderFactor(path, L);
-      return { score: base * sw * df * ff, breakdown: { m, v, r, sw, df, ff } };
+      const p = learn && learned ? learned.get(o.key) || 0 : 0;
+      return { score: base * sw * df * ff * (1 + wPicks * p), breakdown: { m, v, r, sw, df, ff, p } };
     };
   }
 
@@ -216,6 +258,7 @@
     const want = (src) => S[src] && S[src].enabled && S[src].max > 0 && (!q.only || q.only === src);
     const full = q.text.toLowerCase();
     const score = makeScorer(L, ctx);
+    const learned = L.learnPicks !== false ? learnedFor(full, ctx) : null;
     const out = [];
 
     if (want('bookmarks')) {
@@ -223,7 +266,9 @@
         if (!folderAllowed(b, L)) continue;
         const m = matchPrepped(q.tokens, full, prep(b), L.fuzzy);
         if (!m) continue;
-        const sc = score('bookmarks', m, b, b.path, b.dateAdded);
+        // (a bookmark counts as used whenever its site is: its own page, the pages under it, and where it
+        // sends you; not just the one address saved in it)
+        const sc = score('bookmarks', m, b, b.path, b.dateAdded, undefined, bookmarkUsage(b, ctx, L), learned);
         out.push({ type: 'bookmark', title: b.title || displayUrl(b.url), url: b.url, key: b.key, folder: b.path, bookmarkId: b.id, favicon: b.favicon, bookmarked: true, score: sc.score, breakdown: sc.breakdown });
       }
     }
@@ -231,7 +276,7 @@
       for (const h of ctx.visitIndex.values()) {
         const m = matchPrepped(q.tokens, full, prep(h), L.fuzzy);
         if (!m) continue;
-        const sc = score('history', m, h, null, h.lastVisitTime, h);
+        const sc = score('history', m, h, null, h.lastVisitTime, h, undefined, learned);
         out.push({ type: 'history', title: h.title || displayUrl(h.url), url: h.url, key: h.key, favicon: h.favicon, score: sc.score, breakdown: sc.breakdown });
       }
     }
@@ -239,7 +284,7 @@
       for (const t of ctx.tabs) {
         const m = matchPrepped(q.tokens, full, prep(t), L.fuzzy);
         if (!m) continue;
-        const sc = score('tabs', m, t, null, t.lastActive);
+        const sc = score('tabs', m, t, null, t.lastActive, undefined, undefined, learned);
         out.push({ type: 'tab', title: t.title || displayUrl(t.url), url: t.url, key: t.key, tab: t.ref, favicon: t.favicon, score: sc.score, breakdown: sc.breakdown });
       }
     }
@@ -248,11 +293,14 @@
     const palette = q.only === 'commands';
     if (want('commands') && (palette || full.replace(/\s+/g, '').length >= 2)) {
       const base = palette ? 2 : L.wMatch / ((L.wMatch + L.wVisits + L.wRecency) || 1);
+      const wPicks = Number.isFinite(L.wPicks) ? Math.max(0, L.wPicks) : 1;
       for (const c of ctx.commands) {
         const m = matchPrepped(q.tokens, full, palette && c.palette ? c.palette : c, L.fuzzy);
         if (!m) continue;
-        const s = m * L.sources.commands.weight * base;
-        out.push({ type: 'command', title: c.title, command: c.id, category: c.category, keys: c.keys, key: 'cmd:' + c.id, score: s, breakdown: { m, v: 0, r: 0, sw: L.sources.commands.weight, df: 1, ff: 1 } });
+        // (a command you run from here comes up first for what you typed to find it)
+        const p = learned ? learned.get('cmd:' + c.id) || 0 : 0;
+        const s = m * L.sources.commands.weight * base * (1 + wPicks * p);
+        out.push({ type: 'command', title: c.title, command: c.id, category: c.category, keys: c.keys, key: 'cmd:' + c.id, score: s, breakdown: { m, v: 0, r: 0, sw: L.sources.commands.weight, df: 1, ff: 1, p } });
       }
     }
     return out;
@@ -344,7 +392,7 @@
   // -------------------------------------------------------- empty state
   function subtreeVisits(ctx) {
     const holder = ctx.cache || ctx;
-    if (holder._subtree && holder._subtree.size === ctx.visitIndex.size) return holder._subtree.map;
+    if (holder._subtree && holder._subtree.index === ctx.visitIndex && holder._subtree.size === ctx.visitIndex.size) return holder._subtree.map;
     const map = new Map();
     for (const h of ctx.visitIndex.values()) {
       const key = h.pk !== undefined ? h.pk : pathKey(h.url);
@@ -359,19 +407,63 @@
         else map.set(acc, { visits: vc, last });
       }
     }
-    holder._subtree = { size: ctx.visitIndex.size, map };
+    holder._subtree = { index: ctx.visitIndex, size: ctx.visitIndex.size, map };
     return map;
   }
 
   // Visits to a bookmark and every page under it; bookmarks with a query string count only themselves.
-  function bookmarkUsage(b, ctx) {
-    prep(b);
-    if (!/\?./.test((b.url || '').split('#')[0])) {
-      const e = b.pk && subtreeVisits(ctx).get(b.pk);
-      if (e) return { visits: e.visits, last: e.last };
+  // A bookmark whose address sends you somewhere else (a sign-in, mail.example.com → its inbox) counts
+  // the visits there too (ctx.redirects: noted as you open it).
+  function usageAt(key, pk, exact, ctx, picks) {
+    let u = { visits: 0, last: 0 };
+    if (!exact && pk) {
+      const e = subtreeVisits(ctx).get(pk);
+      if (e) u = { visits: e.visits, last: e.last };
     }
-    const h = ctx.visitIndex.get(b.key);
-    return h ? { visits: h.visitCount || 0, last: h.lastVisitTime || 0 } : { visits: 0, last: 0 };
+    if (!u.visits && !u.last) {
+      const h = key && ctx.visitIndex.get(key);
+      if (h) u = { visits: h.visitCount || 0, last: h.lastVisitTime || 0 };
+    }
+    if (picks) {
+      // (opened from here: its own page, or a page under it, such as the tab it's open in)
+      const p = !exact && pk ? subtreePicks(ctx).get(pk) : pickOf(key, ctx);
+      if (p) u = { visits: u.visits + PICK_VISITS * p.n, last: Math.max(u.last, p.last) };
+    }
+    return u;
+  }
+  function bookmarkUsage(b, ctx, L) {
+    prep(b);
+    const picks = !L || L.learnPicks !== false;
+    const exact = /\?./.test((b.url || '').split('#')[0]);
+    const u = usageAt(b.key, b.pk, exact, ctx, picks);
+    const to = ctx.redirects && ctx.redirects.get(b.key);
+    // (unless it ends up somewhere already counted: under the bookmark's own address)
+    if (to && to.key !== b.key && !(b.pk && to.pk && !exact && (to.pk === b.pk || to.pk.startsWith(b.pk + '/')))) {
+      const v = usageAt(to.key, to.pk, exact, ctx, picks);
+      return { visits: u.visits + v.visits, last: Math.max(u.last, v.last) };
+    }
+    return u;
+  }
+  // Picks of each page and every page under it, by path ("github.com/me" holds picks of github.com/me/repo).
+  function subtreePicks(ctx) {
+    const holder = ctx.cache || ctx;
+    const P = ctx.picks && ctx.picks.byKey;
+    if (!P || !P.size) return new Map();
+    if (holder._subPicks && holder._subPicks.P === P && holder._subPicks.size === P.size) return holder._subPicks.map;
+    const map = new Map();
+    for (const e of P.values()) {
+      if (!e.pk) continue;
+      const parts = e.pk.split('/');
+      let acc = '';
+      for (let i = 0; i < parts.length; i++) {
+        acc = i === 0 ? parts[0] : acc + '/' + parts[i];
+        const x = map.get(acc);
+        if (x) { x.n += e.n || 0; if ((e.last || 0) > x.last) x.last = e.last || 0; }
+        else map.set(acc, { n: e.n || 0, last: e.last || 0 });
+      }
+    }
+    holder._subPicks = { P, size: P.size, map };
+    return map;
   }
 
   function emptyState(L, ctx) {
@@ -400,7 +492,7 @@
         if (!prev || (b.dateAdded || 0) < (prev.dateAdded || 0)) firsts.set(b.key, b);
       }
       return [...firsts.values()]
-        .map((b) => { const u = bookmarkUsage(b, ctx); return { b, u, w: u.visits * (b.host ? domainFactorHost(b.host, L) : 1) * folderFactor(b.path, L) }; })
+        .map((b) => { const u = bookmarkUsage(b, ctx, L); return { b, u, w: u.visits * (b.host ? domainFactorHost(b.host, L) : 1) * folderFactor(b.path, L) }; })
         .sort((a, b) => b.w - a.w || b.u.last - a.u.last || (b.b.dateAdded || 0) - (a.b.dateAdded || 0))
         .slice(0, n)
         .map(({ b, u }) => withTab({ type: 'bookmark', title: b.title || displayUrl(b.url), url: b.url, key: b.key, folder: b.path, bookmarkId: b.id, favicon: b.favicon, bookmarked: true, score: 0, visits: u.visits }));
@@ -435,6 +527,6 @@
   return {
     hostOf, normUrl, displayUrl, pathKey, looksLikeUrl, toUrl, fillTemplate,
     prep, matchPrepped, fuzzyRatio, parseQuery, searchLocal, wantsSuggestions, rank, emptyState, startState, browse,
-    bookmarkUsage, folderAllowed, domainFactorHost, folderFactor,
+    bookmarkUsage, folderAllowed, domainFactorHost, folderFactor, learnedFor, PICK_VISITS,
   };
 });

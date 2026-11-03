@@ -81,6 +81,75 @@ if (/^(https?|file):$/.test(location.protocol)) {
   } catch { /* old Electron */ }
 }
 
+// Notifications, as in any browser. A site you haven't answered yet is told "not decided" (the page's
+// Notification.permission says 'default', the Permissions API 'prompt'), so it asks you: Electron itself
+// would say "denied", and sites then tell you to unblock them in your browser's settings instead of asking
+// (what claude.ai did). What you answer, in the prompt or with the address bar's permissions button, reaches
+// the page straight away. A click on one of its notifications brings its tab to the front.
+if (/^https?:$/.test(location.protocol) && typeof Notification === 'function') {
+  const read = () => { let v = null; try { v = ipcRenderer.sendSync('tab:perm-state'); } catch { v = null; } return v === 'allow' ? 'granted' : v === 'block' ? 'denied' : 'default'; };
+  let push = null;
+  ipcRenderer.on('tab-perm', (_e, d) => { if (d && push) { const v = d.notifications; try { push(v === 'allow' ? 'granted' : v === 'block' ? 'denied' : 'default'); } catch { /* page gone */ } } });
+  try {
+    contextBridge.executeInMainWorld({
+      func: (initial, hooks) => {
+        const N = window.Notification;
+        if (typeof N !== 'function') return;
+        let state = initial;
+        const statuses = [];
+        const permState = () => (state === 'default' ? 'prompt' : state);
+        const set = (s) => {
+          if (s === state) return;
+          state = s;
+          for (const st of statuses) { try { st.dispatchEvent(new Event('change')); } catch { /* gone */ } }
+        };
+        hooks.listen(set);
+        try { Object.defineProperty(N, 'permission', { get: () => state, configurable: true, enumerable: true }); } catch { /* sealed */ }
+        const nativeRequest = N.requestPermission;
+        if (typeof nativeRequest === 'function') {
+          const requestPermission = function requestPermission(cb) {
+            const p = Promise.resolve(Reflect.apply(nativeRequest, N, [])).then(() => { set(hooks.read()); return state; }, () => state);
+            if (typeof cb === 'function') p.then((r) => { try { cb(r); } catch { /* the page's */ } });
+            return p;
+          };
+          try { Object.defineProperty(N, 'requestPermission', { value: requestPermission, writable: true, configurable: true }); } catch { /* sealed */ }
+        }
+        const P = navigator.permissions;
+        if (P && typeof P.query === 'function') {
+          const nativeQuery = P.query;
+          const query = function query(desc) {
+            return Reflect.apply(nativeQuery, P, [desc]).then((st) => {
+              const name = desc && desc.name;
+              if (name === 'notifications' || name === 'push') {
+                try { Object.defineProperty(st, 'state', { get: permState, configurable: true, enumerable: true }); statuses.push(st); } catch { /* sealed */ }
+              }
+              return st;
+            });
+          };
+          try { Object.defineProperty(P, 'query', { value: query, writable: true, configurable: true }); } catch { /* sealed */ }
+        }
+        // (push messages need the same permission: Electron can't receive them, but a site that checks first
+        // is told the same as for notifications)
+        const PM = window.PushManager;
+        if (PM && PM.prototype && typeof PM.prototype.permissionState === 'function') {
+          const nativeState = PM.prototype.permissionState;
+          try { Object.defineProperty(PM.prototype, 'permissionState', { value: function permissionState(opts) { return Promise.resolve(Reflect.apply(nativeState, this, [opts])).then(permState, permState); }, writable: true, configurable: true }); } catch { /* sealed */ }
+        }
+        // (the page's notifications: a click also brings its tab to the front)
+        const Wrapped = new Proxy(N, {
+          construct(target, args, newTarget) {
+            const n = Reflect.construct(target, args, newTarget === Wrapped ? target : newTarget);
+            try { n.addEventListener('click', () => { try { hooks.clicked(); } catch { /* gone */ } }); } catch { /* not one */ }
+            return n;
+          },
+        });
+        try { Object.defineProperty(window, 'Notification', { value: Wrapped, writable: true, configurable: true, enumerable: false }); } catch { /* sealed */ }
+      },
+      args: [read(), { read, clicked: () => { try { ipcRenderer.send('tab:notification-click'); } catch { /* gone */ } }, listen: (fn) => { push = fn; } }],
+    });
+  } catch { /* the page sees Electron's own answer */ }
+}
+
 // Your own style for this site (its info popover → Add a style). Applied the way a userstyle is: after the
 // page's own styles, so it wins over them where both say something, and as a constructed stylesheet, which
 // a site's Content-Security-Policy can't block (a <style> element would be). Frames from that site get it too.

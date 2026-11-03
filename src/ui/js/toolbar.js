@@ -69,9 +69,12 @@ const ITEMS = {
     // Shown on pages in another language than yours (and on translated ones, to go back); right-click
     // for another language or to stop offering for this one.
     const translateB = h('button.addr-btn.translateb', { type: 'button', hidden: true, onclick: () => emit('command', 'translatePage'), oncontextmenu: (e) => { e.preventDefault(); translateMenu(e.currentTarget); } }, icon('translate'));
-    for (const b of [zoom, star, splitB, readerB, translateB]) b.addEventListener('mousedown', (e) => e.preventDefault());
-    actions.append(translateB, readerB, zoom, splitB, star);
-    btn.zoom = zoom; btn.star = star; btn.readerB = readerB; btn.translateB = translateB;
+    // The site's permissions (notifications, camera, location…): what it may do, changed right here. It
+    // shows what the page just asked for, and stands out when that was blocked.
+    const permsB = h('button.addr-btn.permsb', { type: 'button', title: 'Site permissions', hidden: true, onclick: (e) => emit('site-permissions', e.currentTarget) }, icon('sliders'));
+    for (const b of [zoom, star, splitB, readerB, translateB, permsB]) b.addEventListener('mousedown', (e) => e.preventDefault());
+    actions.append(translateB, readerB, permsB, zoom, splitB, star);
+    btn.zoom = zoom; btn.star = star; btn.readerB = readerB; btn.translateB = translateB; btn.permsB = permsB;
     titlePill = h('button.title-pill.no-drag', { type: 'button', title: tip('Edit the address', 'focusAddress'), onclick: () => emit('command', 'focusAddress') });
     titlePill.addEventListener('mousedown', (e) => e.preventDefault());
     return h('div.tb-address', null, root, titlePill);
@@ -319,6 +322,7 @@ export function update() {
     btn.zoom.textContent = Math.round(Math.pow(1.2, z) * 100) + '%';
   }
   if (btn.readerB) btn.readerB.hidden = !t || !/^https?:/i.test(url);
+  if (btn.permsB) updatePermsButton(t, url);
   if (btn.translateB) {
     const translated = !!t && Tr.isTranslated(url);
     btn.translateB.hidden = !translated && !offerTranslation(t);
@@ -333,6 +337,24 @@ export function update() {
       t && !isNewTab(url) && !isInternal(url) && t.title ? h('span.pill-title', null, t.title) : '');
   }
   Omni.refresh();
+}
+
+// The address bar's permissions button: on web pages. What the page asked for shows on it: in the
+// permission's icon, and marked when it was blocked (click to change it).
+const PERM_ICONS = { notifications: 'bell', camera: 'video', microphone: 'mic', geolocation: 'location', 'clipboard-read': 'copy', 'display-capture': 'monitor', midi: 'keyboard', midiSysex: 'keyboard', openExternal: 'external' };
+const PERM_NAMES = { notifications: 'Notifications', camera: 'Camera', microphone: 'Microphone', geolocation: 'Location', 'clipboard-read': 'Clipboard', 'display-capture': 'Screen sharing', midi: 'MIDI devices', midiSysex: 'MIDI devices', openExternal: 'Opening apps', hid: 'HID devices', serial: 'Serial ports', usb: 'USB devices' };
+function updatePermsButton(t, url) {
+  const b = btn.permsB;
+  const web = !!t && /^https?:/i.test(url);
+  b.hidden = !web;
+  if (!web) return;
+  const asks = t.permAsks && t.permAsks.host === hostOf(url) ? t.permAsks.list : [];
+  const blocked = asks.filter((a) => !a.allowed);
+  const shown = blocked[0] || null;
+  const name = shown ? (shown.key === 'notifications' ? 'bellOff' : PERM_ICONS[shown.key] || 'sliders') : 'sliders';
+  if (b.dataset.icon !== name) { b.dataset.icon = name; b.replaceChildren(icon(name)); }
+  b.classList.toggle('blocked', !!shown);
+  b.title = shown ? `${PERM_NAMES[shown.key] || shown.key} blocked on ${hostOf(url).replace(/^www\./, '')}: click to allow` : 'Site permissions';
 }
 
 // ------------------------------------------------------------- translation
@@ -384,7 +406,7 @@ export function init() {
   on('workspace', () => update());
   on('tab', (t, patch) => {
     if (t !== activeTab()) return;
-    if ('canGoBack' in patch || 'canGoForward' in patch || 'loading' in patch || 'blocked' in patch || 'zoom' in patch || 'url' in patch || 'title' in patch || 'favicon' in patch || 'lang' in patch) update();
+    if ('canGoBack' in patch || 'canGoForward' in patch || 'loading' in patch || 'blocked' in patch || 'zoom' in patch || 'url' in patch || 'title' in patch || 'favicon' in patch || 'lang' in patch || 'permAsks' in patch) update();
   });
   on('settings', (path) => {
     if (!path || path.startsWith('appearance.toolbar') || path.startsWith('appearance.sidebarTop') || path.startsWith('appearance.sidebarBottom') || path === 'appearance' || path.startsWith('appearance.tabLayout') || path.startsWith('keyboard')) build();

@@ -1,5 +1,5 @@
 // Bifrost browser UI — the site information popover (address bar icon) and the ad blocker popover.
-import { on, emit, activeTab, setting } from './state.js';
+import { on, emit, activeTab, setting, setTab } from './state.js';
 import { h, hostOf, isInternal, isNewTab, pageName, faviconEl } from './util.js';
 import { icon } from './icons.js';
 import { popover } from './menus.js';
@@ -103,6 +103,59 @@ async function siteInfo(anchor) {
   const pop = popover(body, { anchor, side: 'bottom', align: 'start' }, { className: 'si-pop' });
 }
 
+// The address bar's permissions button: every permission for this site, Ask / Allow / Block, changed right
+// here. What the page asked for comes first, saying what it got. Notifications apply at once (the page is
+// told: preload/tab.js); the others from the next time the page loads, so it offers a reload.
+const LIVE = new Set(['notifications']);
+const ASKED_LABEL = { notifications: 'show notifications', camera: 'use your camera', microphone: 'use your microphone', geolocation: 'know your location', 'clipboard-read': 'see what you copy', 'display-capture': 'share your screen', midi: 'use MIDI devices', midiSysex: 'control MIDI devices', openExternal: 'open an app' };
+async function sitePermissions(anchor) {
+  const t = activeTab();
+  if (!t || !/^https?:/i.test(t.url)) return;
+  const url = t.url;
+  const host = hostOf(url);
+  const info = await wb.invoke('site:info', url).catch(() => null);
+  if (!info) return;
+  const name = host.replace(/^www\./, '');
+  const asks = t.permAsks && t.permAsks.host === host ? t.permAsks.list : [];
+  const body = h('div.si.perms', { dataset: { host } }, h('div.si-head', null, h('span.si-fav', null, icon('sliders')),
+    h('div', null, h('div.si-host', null, name), h('div.si-sec', null, 'What this site may do'))));
+  const notice = h('p.si-note', { hidden: true }, 'Reload the page to apply this. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); V.reload(t); pop.close(); } }, 'Reload'));
+  const set = async (key, value) => {
+    await wb.invoke('site:set', host, 'perm:' + key, value || null);
+    if (!LIVE.has(key)) notice.hidden = false;
+    // (what the page asked for and was told: it has an answer now)
+    if (t.permAsks && t.permAsks.host === host) setTab(t, { permAsks: { host, list: t.permAsks.list.map((a) => (a.key === key ? Object.assign({}, a, { allowed: value === 'allow' }) : a)) } });
+  };
+  // What it just asked for: one click to allow (or block) it.
+  for (const a of asks) {
+    const val = info.permissions[a.key];
+    const allowNow = h('button.btn.small' + (a.allowed ? '' : '.primary'), { type: 'button', dataset: { act: 'allow-' + a.key }, onclick: async () => { await set(a.key, a.allowed ? 'block' : 'allow'); pop.close(); } }, a.allowed ? 'Block' : 'Allow');
+    body.append(h('div.si-section.perm-asked' + (a.allowed ? '' : '.blocked'), null, row(PERMS.find((p) => p[0] === a.key) ? PERMS.find((p) => p[0] === a.key)[2] : 'shield',
+      `It asked to ${ASKED_LABEL[a.key] || a.key}`, allowNow,
+      a.allowed ? 'Allowed' : val === 'block' ? 'Blocked for this site' : a.asked ? 'You said no' : 'Blocked')));
+  }
+  const list = h('div.si-section', null, h('div.si-title', null, 'Permissions'));
+  for (const [key, label, ic] of PERMS) {
+    const val = info.permissions[key] || '';
+    const sel = h('select.select-sm', { dataset: { perm: key } },
+      h('option', { value: '' }, 'Ask'), h('option', { value: 'allow' }, 'Allow'), h('option', { value: 'block' }, 'Block'));
+    sel.value = val;
+    sel.addEventListener('change', () => set(key, sel.value));
+    const forNow = (info.permissions.__forNow || []).includes(key);
+    list.append(row(ic, label, sel, forNow ? 'For now (until Bifrost closes)' : null));
+  }
+  list.append(notice);
+  body.append(list);
+  body.append(h('div.si-links', null,
+    h('button.link-btn', { type: 'button', onclick: async () => {
+      for (const [key] of PERMS) if (info.permissions[key]) await wb.invoke('site:set', host, 'perm:' + key, null);
+      pop.close();
+      toast({ text: `${name} will ask again`, iconName: 'rotate', actions: [{ label: 'Reload', action: () => V.reload(t) }] });
+    } }, icon('rotate'), 'Reset permissions'),
+    h('button.link-btn', { type: 'button', onclick: () => { pop.close(); emit('command', 'openSettings', { section: 'sites', host }); } }, icon('sliders'), 'All site settings')));
+  const pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'si-pop perms-pop' });
+}
+
 async function editSiteCss(host, css, tab) {
   const v = await promptDialog({ title: `Custom style for ${host}`, label: 'CSS for every page on this site. It wins over the site’s own styles, like a userstyle, and applies as soon as you save.', value: css || '', ok: 'Save', multiline: true, mono: true, placeholder: 'body { font-size: 18px; }' });
   if (v == null) return;
@@ -129,7 +182,7 @@ async function adblockPopover(anchor) {
     // On YouTube: how its video ads are handled (privacy.adblock.youtubeFilters).
     web && on && info && info.youtube
       ? row('video', 'Remove ads before they play', toggle(!!setting('privacy.adblock.youtubeFilters'), async (v) => { await wb.invoke('settings:set', 'privacy.adblock.youtubeFilters', v); V.reload(t); pop.close(); }),
-        setting('privacy.adblock.youtubeFilters') ? 'Experimental: YouTube can get stuck loading' : 'Off: video ads are skipped as they play')
+        setting('privacy.adblock.youtubeFilters') ? 'Experimental: YouTube can get stuck loading' : 'Off: video ads are covered and skipped as they start')
       : null,
     h('div.si-links', null, h('button.link-btn', { type: 'button', onclick: () => { pop.close(); emit('command', 'openSettings', { section: 'privacy' }); } }, icon('sliders'), 'Filter lists and settings')));
   const pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'ab-pop' });
@@ -137,5 +190,6 @@ async function adblockPopover(anchor) {
 
 export function init() {
   on('site-info', (anchor) => siteInfo(anchor));
+  on('site-permissions', (anchor) => sitePermissions(anchor));
   on('adblock-popover', (anchor) => adblockPopover(anchor));
 }

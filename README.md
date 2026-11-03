@@ -12,7 +12,7 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 ad blocker, dangerous-site warnings (safety.js), extensions (extensions/), imports from
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
-                ui.js (the browser window), adblock.js (cosmetic filtering)
+                ui.js (the browser window), adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
 src/ui          the browser window (bifrost://ui): browser.html, browser.css, js/
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
@@ -44,17 +44,20 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
 task manager), `behavior` (settings that change behavior, the Launcher section's included), `everyday` (video, full screen and what shows
-over it, PDFs, pop-ups, Leave site?, permissions, the keyboard following the tab on screen, find, zoom,
+over it, PDFs, pop-ups, Leave site?, permissions and the address bar's permissions button, notifications, the keyboard following the tab on screen, find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures`, `hidpi` (a 150% display:
 menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),
 `passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),
+`youtube` (YouTube's ads against a local stand-in for youtube.com: video ads covered and skipped, whatever
+kind; the ads in its pages hidden; ads taken out of Shorts; embedded players; the settings that turn it off),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders, `file-guard`
-what local pages may load, `blend` the colors of "Match the page", `launcher-settings` that every setting
+what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you
+use and open comes first), `launcher-settings` that every setting
 of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and
 what Enter and the launcher's other keys do).
 

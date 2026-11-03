@@ -34,6 +34,8 @@ function broadcastAll(channel, payload) {
 }
 
 function register() {
+  // Pages' own view of their notifications permission, and their notifications' clicks (permissions.js).
+  permissions.initIpc();
   // --------------------------------------------------------------- window/UI
   ipc.handle('ui:init', 'ui', (event) => {
     const ctl = ctlOf(event);
@@ -133,6 +135,9 @@ function register() {
   // ------------------------------------------------------------------ search
   ipc.handle('search:query', 'ui', (event, { raw, activeWcId }) => ctx.search.query({ raw, ctl: ctlOf(event), activeWcId }));
   ipc.handle('search:more', 'ui', (event, { raw, activeWcId }) => ctx.search.more({ raw, ctl: ctlOf(event), activeWcId }));
+  // (a result opened from the launcher or the address bar's list: it ranks higher next time, search.js picks)
+  ipc.on('search:picked', 'ui', (event, data) => { if (data && typeof data === 'object') ctx.search.picked({ raw: data.raw, url: data.url, command: data.command, ctl: ctlOf(event) }); });
+  ipc.handle('search:forget-picks', 'internal', () => { ctx.search.forgetPicks(); return true; });
   ipc.handle('search:focus-tab', 'ui', (event, ref) => {
     const target = ref && ctx.registry.get(ref.windowId);
     if (!target) return false;
@@ -251,8 +256,9 @@ function register() {
     let host = '';
     try { host = new URL(url).hostname; } catch { /* no host */ }
     const s = host ? ctx.db.siteSettings(host) : {};
+    const ctl = ctlOf(event);
     return {
-      host, permissions: host ? permissions.listForHost(host) : {}, zoom: s.zoom || 0,
+      host, permissions: host ? permissions.listForHost(host, !!(ctl && ctl.isPrivate)) : {}, zoom: s.zoom || 0,
       adblockAllowed: ctx.adblock ? ctx.adblock.allowlisted(host) : false,
       youtube: require('./adblock').isYouTube(host),
       vimOff: (ctx.settings.get('keyboard.vim.excludedSites') || []).some((h) => host === h || host.endsWith('.' + h)),
@@ -262,6 +268,8 @@ function register() {
   ipc.handle('site:set', 'internal', (event, host, key, value) => {
     if (!host || !/^[a-z0-9.:\-\[\]]+$/i.test(host)) throw new Error('bad host');
     if (!/^(perm:[a-zA-Z-]+|zoom|httpAllowed|css|popups)$/.test(key)) throw new Error('bad key');
+    // (a permission: its answer for now goes too, and the site's open pages hear of it)
+    if (key.startsWith('perm:')) { permissions.setDecision(host, key.slice(5), value === 'allow' || value === 'block' ? value : null); return true; }
     ctx.db.setSiteSetting(host, key, value);
     if (key === 'css') { broadcastAll('site-css-changed', { host }); require('./guests').pushSiteCss(host); }
     return true;

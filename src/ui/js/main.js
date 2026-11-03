@@ -68,6 +68,16 @@ function listen() {
     if (action === 'select') T.selectTab(t); else if (action === 'close') T.closeTab(t);
   });
   wb.on('select-tab', (tabId) => { const t = tabById(tabId); if (t) T.selectTab(t); });
+  // A site asked for a permission (camera, notifications…) and got it or not (main/permissions.js): the
+  // address bar's permissions button shows it.
+  wb.on('perm-asked', ({ wcId, host, keys, allowed, asked }) => {
+    const t = tabByWc(wcId);
+    if (!t || !Array.isArray(keys)) return;
+    const prev = t.permAsks && t.permAsks.host === host ? t.permAsks.list.filter((x) => !keys.includes(x.key)) : [];
+    setTab(t, { permAsks: { host, list: prev.concat(keys.map((key) => ({ key, allowed: !!allowed, asked: !!asked }))) } });
+  });
+  // One of a site's notifications was clicked: its tab, in front.
+  wb.on('focus-wc', (wcId) => { const t = tabByWc(wcId); if (t) T.selectTab(t); });
   wb.on('adopt-tab', (data) => T.adopt(data));
   wb.on('extension-activate-action', ({ id }) => EXT.activateById(id));
   wb.on('extension-side-panel', (o) => Panels.extensionPanel(o || {}));

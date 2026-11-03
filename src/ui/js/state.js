@@ -105,6 +105,7 @@ export function makeTab(p = {}) {
     lazy: !!p.lazy,
     find: null,
     prompts: [],                       // pending permission prompts
+    permAsks: null,                    // what this site asked for and got: { host, list: [{ key, allowed, asked }] }
     typed: false,
   };
 }

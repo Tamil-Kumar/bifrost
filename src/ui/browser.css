@@ -949,6 +949,16 @@ webview.js-dialog-hide { visibility: hidden !important; }
 .si-zoom-label { flex: 1; }
 .si-zoom-val { min-width: 46px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 .si-links { display: flex; flex-wrap: wrap; gap: 4px; padding-top: 8px; }
+/* The address bar's permissions button, and its popover. */
+.addr-btn.permsb { position: relative; }
+.addr-btn.permsb.blocked { color: var(--peach); }
+.addr-btn.permsb.blocked::after { content: ""; position: absolute; right: 3px; top: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 1.5px var(--base); }
+.perms .si-fav { color: var(--accent); }
+.perms .si-fav svg.i { width: 16px; height: 16px; }
+.perm-asked { border-top-color: transparent; padding: 4px 0; }
+.perm-asked .si-row { padding: 6px 8px; border-radius: 10px; background: color-mix(in srgb, var(--green) 10%, transparent); }
+.perm-asked.blocked .si-row { background: color-mix(in srgb, var(--peach) 12%, transparent); }
+.perm-asked .si-ico { background: var(--base); }
 .ab { width: 300px; }
 .ab-head { display: flex; align-items: center; gap: 10px; }
 .ab-head small { display: block; color: var(--overlay); }

@@ -210,21 +210,6 @@ var DOMMonitor = class {
 
 // ---------------------------------------------------------------------------------------------------------
 
-(() => {
-  const href = location.href;
-  if (!/^https?:/i.test(href)) return;
-  const isTop = window === window.top;
-  // The page itself waits for its rules (its scriptlets must run before its own scripts); frames inside it
-  // don't hold anything up and apply theirs when they arrive.
-  if (isTop) {
-    let first = null;
-    try { first = ipcRenderer.sendSync('bifrost-adblock:start', href, true); } catch { /* no blocker */ }
-    if (first) apply(first, href, true);
-  } else {
-    ipcRenderer.invoke('bifrost-adblock:start-frame', href).then((first) => { if (first) apply(first, href, false); }).catch(() => {});
-  }
-})();
-
 function apply(first, href, isTop) {
   if (first.styles) { try { webFrame.insertCSS(first.styles, { cssOrigin: 'user' }); } catch { /* frame gone */ } }
   for (const script of first.scripts || []) {
@@ -232,7 +217,7 @@ function apply(first, href, isTop) {
     try { webFrame.executeJavaScript(script).catch(() => {}); } catch { /* ignore */ }
   }
   // YouTube, or a YouTube player embedded in another page.
-  if (first.youtube) youtubeAds();
+  if (first.youtube) youtubeAds(first.youtube);
   if (!first.watch) return;
   let monitor = null;
   const startWatching = () => {
@@ -250,70 +235,248 @@ function apply(first, href, isTop) {
   window.addEventListener('pagehide', () => { if (monitor) { monitor.stop(); monitor = null; } }, { once: true, passive: true });
 }
 
-// YouTube: a video ad is skipped as it starts. It's muted and sped up, "Skip" is pressed as soon as it's
-// there, and it's run to its end: an ad stitched into the video stream itself ("SSAP", where the <video>
-// plays ad and video as one) with the player's own seek, the way uBlock Origin's YouTube fix does it; an ad
-// that's a stream of its own by running that stream to its end. When it can't tell which kind it is, it
-// leaves the position alone (running the whole stream to its end would skip the video too). Your sound and
-// speed come back when the video does.
-function youtubeAds() {
-  let mutedByUs = false, rateBefore = null;
+// ---------------------------------------------------------------------------------------------------------
+// YouTube. Nothing of YouTube's own is changed for its video ads (taken out of its data, YouTube can stop
+// loading at its grey placeholders or tell you off for blocking ads; that's privacy.adblock.youtubeFilters),
+// so they're dealt with as they come, and you don't see or hear them:
+//  · A video ad is covered, picture and buttons, from the moment the player switches to it (a style, so
+//    before any script here runs), muted and sped up, and skipped: "Skip" is pressed as soon as it's there,
+//    an ad that's a stream of its own is run to its end, and one stitched into the video's own stream
+//    ("SSAP") is passed with the player's own seek, the way uBlock Origin's YouTube fix does it. When it
+//    can't tell which kind it is, the position is left alone (running the video's own stream to its end would
+//    skip the video). Your sound and speed come back with the video.
+//  · The ads in YouTube's pages are hidden: the home feed, search, next to the video, the masthead.
+//  · Shorts: the reels marked as ads are taken out of the reels YouTube fetches, before it shows them (what
+//    uBlock Origin's Shorts filters do); an ad reel that gets through anyway is hidden and passed, and an
+//    ad's own video is muted and paused.
+
+// The player while it shows an ad: a black cover over all of it. (Not when the player has said "ad" for so long
+// that it's surely stuck saying it: data-bifrost-ad-stuck, below.)
+const YT_COVER = `
+:is(.html5-video-player.ad-showing, .html5-video-player.ad-interrupting):not([data-bifrost-ad-stuck])::after {
+  content: "Skipping an ad\\2026" !important; position: absolute !important; inset: 0 !important;
+  z-index: 2147483647 !important; display: flex !important; align-items: center !important;
+  justify-content: center !important; background: #000 !important; color: rgba(255, 255, 255, 0.6) !important;
+  font: 500 14px/1.4 Roboto, Arial, sans-serif !important; pointer-events: auto !important; cursor: default !important;
+}
+:is(.html5-video-player.ad-showing, .html5-video-player.ad-interrupting):not([data-bifrost-ad-stuck]) video { opacity: 0 !important; }
+.ytp-ad-overlay-slot, .ytp-ad-overlay-container, .ytp-ad-image-overlay, .ytp-ad-text-overlay,
+.ytp-ad-message-container, .ytp-ad-progress-list { visibility: hidden !important; }
+`;
+
+// The ads in YouTube's pages (with element hiding on). #player-ads, the box next to the video its companion
+// ads go in, is shrunk out of sight rather than taken out: uBlock Origin's lists leave it alone on YouTube, as
+// they do the player's own ad box (the cover above is over that one).
+const YT_PAGE_ADS = `
+ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytd-display-ad-renderer, ytd-promoted-sparkles-web-renderer,
+ytd-promoted-sparkles-text-search-renderer, ytd-promoted-video-renderer, ytd-compact-promoted-video-renderer,
+ytd-search-pyv-renderer, ytd-video-masthead-ad-v3-renderer, ytd-primetime-promo-renderer, ytd-banner-promo-renderer,
+#masthead-ad, ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"], ytd-merch-shelf-renderer,
+yt-overlay-product-sticker, ytd-rich-item-renderer:has(ytd-ad-slot-renderer),
+#shorts-inner-container > :has(> ytd-ad-slot-renderer),
+#shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer),
+ad-slot-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-companion-ad-renderer,
+ytm-rich-item-renderer:has(> ad-slot-renderer) { display: none !important; }
+#player-ads { visibility: hidden !important; width: 1px !important; height: 1px !important; min-height: 0 !important;
+  margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
+`;
+
+// A reel in the Shorts player that is an ad (its content is an ad slot).
+const AD_REEL = ':scope > :is(:has(> ytd-ad-slot-renderer), .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer))';
+
+function youtubeAds(opts) {
+  try { webFrame.insertCSS(YT_COVER + (opts && opts.hide === false ? '' : YT_PAGE_ADS), { cssOrigin: 'user' }); } catch { /* frame gone */ }
+  shortsData();
   const SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, button[id^="skip-button"], .ytp-ad-skip-button-container button, .ytp-skip-ad button';
-  const PLAYER = '#movie_player, .html5-video-player';
+  const PLAYERS = '#movie_player, .html5-video-player';
   const isAd = (p) => p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting');
-  // In the page's own world, where the player's methods are (they can't be seen from this one): what kind
-  // of ad this is, and for one in the stream, the seek past it. Nothing of the page is changed.
+  const watched = new WeakSet(), heard = new WeakSet(), mutedByUs = new WeakSet(), rateBefore = new WeakMap(), adSince = new WeakMap();
+  // Ads, however many in a row, are past in seconds; a player that says "ad" for longer than this is stuck saying
+  // it, and is left alone (you see and hear what it plays) rather than covering your video.
+  const STUCK_MS = (opts && opts.stuckMs) || 120e3;
+  const stuck = (p) => {
+    if (!isAd(p)) { adSince.delete(p); if (p.hasAttribute('data-bifrost-ad-stuck')) p.removeAttribute('data-bifrost-ad-stuck'); return false; }
+    if (!adSince.has(p)) adSince.set(p, Date.now());
+    if (Date.now() - adSince.get(p) < STUCK_MS) return false;
+    if (!p.hasAttribute('data-bifrost-ad-stuck')) p.setAttribute('data-bifrost-ad-stuck', '');
+    return true;
+  };
+  // In the page's own world, where the players' methods are (they can't be seen from this one): for each
+  // player (in the order of the same query here), what kind of ad it's showing, and the length of the video
+  // it's in front of; one stitched into the stream is seeked past here. Nothing of the page is changed.
   const pageSide = () => {
     try {
       return contextBridge.executeInMainWorld({
-        func: (sel) => {
-          const p = document.querySelector(sel);
-          if (!p || !(p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting'))) return 'none';
+        func: (sel) => [...document.querySelectorAll(sel)].map((p) => {
+          if (!(p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting')) || p.hasAttribute('data-bifrost-ad-stuck')) return { kind: 'none', len: 0 };
+          let len = 0;
+          try { const r = typeof p.getPlayerResponse === 'function' ? p.getPlayerResponse() : null; const n = Number(r && r.videoDetails && r.videoDetails.lengthSeconds); if (n > 0) len = n; } catch { /* no response */ }
           let info = null;
           try { const st = typeof p.getStatsForNerds === 'function' ? p.getStatsForNerds() : null; info = st && typeof st.debug_info === 'string' ? st.debug_info : null; } catch { /* no stats */ }
-          if (info === null) return 'unknown';
-          if (!/^SSAP,\s*AD/i.test(info)) return 'own-stream';
+          if (info === null) return { kind: 'unknown', len };
+          if (!/^SSAP,\s*AD/i.test(info)) return { kind: 'own-stream', len };
           try {
             const s = p.getProgressState();
-            if (s && s.duration > 0 && s.current < s.duration - 0.25) p.seekTo(s.duration);
-            return 'seeked';
-          } catch { return 'unknown'; }
-        },
-        args: [PLAYER],
+            if (s && s.duration > 0 && s.current < s.duration - 0.25) { p.seekTo(s.duration); return { kind: 'seeked', len }; }
+          } catch { /* no seek */ }
+          return { kind: 'ssap', len };
+        }),
+        args: [PLAYERS],
       });
-    } catch { return 'unknown'; }
+    } catch { return null; }
+  };
+  const quiet = (v) => {
+    if (!v.muted) { v.muted = true; mutedByUs.add(v); }
+    if (!rateBefore.has(v)) rateBefore.set(v, v.playbackRate || 1);
+    try { if (v.playbackRate !== 16) v.playbackRate = 16; } catch { /* not allowed */ }
+  };
+  const pass = (p, v, k) => {
+    // An ad in a stream of its own, to its end. Only a stream shorter than the video: one with the ad
+    // stitched in is the video's own and longer (when the video's length isn't known, a few minutes at most).
+    const d = v.duration;
+    if ((k.kind === 'own-stream' || k.kind === 'unknown') && isFinite(d) && d > 0 && v.currentTime < d - 0.1
+      && (k.len > 0 ? d < k.len - 1 : k.kind === 'own-stream' && d <= 180)) {
+      try { v.currentTime = d - 0.05; } catch { /* not seekable yet */ }
+    }
+    const skip = p.querySelector(SKIP) || document.querySelector(SKIP);
+    if (skip) skip.click();
+  };
+  const restore = (v) => {
+    if (mutedByUs.has(v)) { mutedByUs.delete(v); if (v.muted) v.muted = false; }
+    if (rateBefore.has(v)) {
+      const r = rateBefore.get(v);
+      rateBefore.delete(v);
+      // (unless YouTube has already set the video's own speed)
+      try { if (v.playbackRate === 16) v.playbackRate = r; } catch { /* ignore */ }
+    }
+  };
+  let nextAt = 0;
+  const shorts = () => {
+    for (const v of document.querySelectorAll('ytd-ad-slot-renderer video, ad-slot-renderer video')) {
+      if (!v.muted) v.muted = true;
+      if (!v.paused) { try { v.pause(); } catch { /* ignore */ } }
+    }
+    // The reel YouTube has on is an ad (it's hidden, so you'd see nothing play): on to the next one.
+    const inner = document.getElementById('shorts-inner-container');
+    if (!inner || Date.now() < nextAt) return;
+    const on = [...inner.querySelectorAll(AD_REEL)].find((r) => r.hasAttribute('is-active') || r.querySelector('[is-active]'));
+    if (!on) return;
+    nextAt = Date.now() + 1000;
+    const next = document.querySelector('#navigation-button-down button, #navigation-button-down [role="button"]');
+    if (next) next.click();
+    else if (on.nextElementSibling) on.nextElementSibling.scrollIntoView({ block: 'start' });
   };
   const tick = () => {
-    const player = document.querySelector(PLAYER);
-    if (!player) return;
-    const v = player.querySelector('video');
-    if (isAd(player) && v) {
-      if (!v.muted) { v.muted = true; mutedByUs = true; }
-      if (rateBefore == null) rateBefore = v.playbackRate || 1;
-      try { if (v.playbackRate !== 16) v.playbackRate = 16; } catch { /* not allowed */ }
-      const kind = pageSide();
-      if (kind === 'own-stream' && isFinite(v.duration) && v.duration > 0 && v.currentTime < v.duration - 0.1) {
-        try { v.currentTime = v.duration - 0.05; } catch { /* not seekable yet */ }
-      }
-      const skip = player.querySelector(SKIP) || document.querySelector(SKIP);
-      if (skip) skip.click();
-    } else if (v) {
-      if (mutedByUs) { v.muted = false; mutedByUs = false; }
-      if (rateBefore != null) { try { v.playbackRate = rateBefore; } catch { /* ignore */ } rateBefore = null; }
+    const list = document.querySelectorAll(PLAYERS);
+    let ads = false;
+    const off = new Set();
+    for (const p of list) {
+      if (!watched.has(p)) { watched.add(p); new MutationObserver(tick).observe(p, { attributes: true, attributeFilter: ['class'] }); }
+      if (stuck(p)) off.add(p);
+      else if (isAd(p)) ads = true;
     }
+    const videos = [...list].map((p) => {
+      const v = p.querySelector('video');
+      if (v && !heard.has(v)) {
+        // As soon as an ad's stream has a length (to run it to its end), and as it plays.
+        heard.add(v);
+        const on = () => { const q = v.closest(PLAYERS); if (q && isAd(q)) tick(); };
+        for (const e of ['loadedmetadata', 'durationchange', 'playing', 'timeupdate']) v.addEventListener(e, on, { passive: true });
+      }
+      if (v && isAd(p) && !off.has(p)) quiet(v);
+      return v;
+    });
+    // (muted first: one stitched into the stream is seeked past in there)
+    const kinds = ads ? pageSide() : null;
+    list.forEach((p, i) => {
+      const v = videos[i];
+      if (!v) return;
+      if (isAd(p) && !off.has(p)) pass(p, v, (kinds && kinds[i]) || { kind: 'unknown', len: 0 });
+      else restore(v);
+    });
     for (const b of document.querySelectorAll('.ytp-ad-overlay-close-button')) b.click();
+    if (location.pathname.startsWith('/shorts')) shorts();
   };
-  const start = () => {
-    setInterval(tick, 250);
-    // Faster than the interval when the player switches to an ad (or back).
-    const watch = () => {
-      const player = document.querySelector(PLAYER);
-      if (!player) { setTimeout(watch, 500); return; }
-      new MutationObserver(tick).observe(player, { attributes: true, attributeFilter: ['class'] });
-      tick();
-    };
-    watch();
-  };
-  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', start, { once: true });
-  else start();
+  setInterval(tick, 250);
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', tick, { once: true });
+  else tick();
 }
+
+// Shorts: the reels marked as ads are taken out of the reels YouTube fetches (reel_watch_sequence), whether it
+// reads them as JSON or as text it parses, and out of any list of reels it parses from elsewhere, before it
+// shows them. In the page's own world, where its fetch and JSON.parse are.
+function shortsData() {
+  try {
+    contextBridge.executeInMainWorld({
+      func: () => {
+        const parse = JSON.parse, stringify = JSON.stringify;
+        const MARK = 'adClientParams';
+        const isAdReel = (e) => {
+          try { const ep = e && e.command && e.command.reelWatchEndpoint; return !!(ep && ep.adClientParams && ep.adClientParams.isAd); } catch { return false; }
+        };
+        // Takes the ad reels out of every list of "entries" in o; how many it took out.
+        const prune = (o, depth) => {
+          if (!o || typeof o !== 'object' || depth > 10) return 0;
+          let n = 0;
+          if (Array.isArray(o)) { for (const x of o) n += prune(x, depth + 1); return n; }
+          for (const k of Object.keys(o)) {
+            const v = o[k];
+            if (!v || typeof v !== 'object') continue;
+            if (k === 'entries' && Array.isArray(v) && v.some(isAdReel)) { o[k] = v.filter((e) => !isAdReel(e)); n += v.length - o[k].length; }
+            n += prune(o[k], depth + 1);
+          }
+          return n;
+        };
+        JSON.parse = new Proxy(parse, {
+          apply(target, self, args) {
+            const out = Reflect.apply(target, self, args);
+            try { if (out && typeof out === 'object' && typeof args[0] === 'string' && args[0].includes(MARK)) prune(out, 0); } catch { /* left as it was */ }
+            return out;
+          },
+        });
+        const fetch0 = window.fetch;
+        if (typeof fetch0 !== 'function') return;
+        window.fetch = new Proxy(fetch0, {
+          apply(target, self, args) {
+            const pending = Reflect.apply(target, self, args);
+            let url = '';
+            try { const a = args[0]; url = typeof a === 'string' ? a : (a && typeof a.url === 'string' ? a.url : String(a)); } catch { return pending; }
+            if (!/\/youtubei\/v1\/reel\/|\/reel_watch_sequence/.test(url)) return pending;
+            return pending.then((res) => {
+              if (!res || !res.ok || res.type === 'opaque' || res.bodyUsed) return res;
+              return res.clone().text().then((text) => {
+                if (!text.includes(MARK)) return res;
+                // (an answer can start with )]}' to keep other sites from reading it as a script)
+                let pre = '';
+                if (text.startsWith(")]}'")) { const nl = text.indexOf('\n'); pre = nl >= 0 ? text.slice(0, nl + 1) : ")]}'"; }
+                const obj = parse(text.slice(pre.length));
+                if (!prune(obj, 0)) return res;
+                const out = new Response(pre + stringify(obj), { status: res.status, statusText: res.statusText, headers: res.headers });
+                Object.defineProperties(out, { url: { value: res.url }, redirected: { value: res.redirected }, type: { value: res.type } });
+                return out;
+              }).catch(() => res);
+            });
+          },
+        });
+      },
+      args: [],
+    });
+  } catch { /* no page world */ }
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Start (last: what it runs is all declared above).
+(() => {
+  const href = location.href;
+  if (!/^https?:/i.test(href)) return;
+  const isTop = window === window.top;
+  // The page itself waits for its rules (its scriptlets must run before its own scripts); frames inside it
+  // don't hold anything up and apply theirs when they arrive.
+  if (isTop) {
+    let first = null;
+    try { first = ipcRenderer.sendSync('bifrost-adblock:start', href, true); } catch { /* no blocker */ }
+    if (first) apply(first, href, true);
+  } else {
+    ipcRenderer.invoke('bifrost-adblock:start-frame', href).then((first) => { if (first) apply(first, href, false); }).catch(() => {});
+  }
+})();

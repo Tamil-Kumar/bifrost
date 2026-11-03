@@ -112,7 +112,7 @@ export class ResultList {
     } else if (it.type !== 'suggestion' && look.showBadges !== false) meta.append(h('span.r-badge.badge', null, (it.type === 'tab' && look.tabBadge) || BADGE[it.type] || ''));
     if (showScores && Number.isFinite(it.score) && it.breakdown) {
       const b = it.breakdown, f = (n) => (Number.isFinite(n) ? n.toFixed(2) : '');
-      meta.append(h('span.r-score.score', { title: `match ${f(b.m)} · visits ${f(b.v)} · recency ${f(b.r)}\nsource ×${f(b.sw)} · domain ×${f(b.df)} · folder ×${f(b.ff)}` }, f(it.score)));
+      meta.append(h('span.r-score.score', { title: `match ${f(b.m)} · visits ${f(b.v)} · recency ${f(b.r)}\nsource ×${f(b.sw)} · domain ×${f(b.df)} · folder ×${f(b.ff)}` + (b.p ? `\nopened before for this ×${f(1 + (setting('launcher.wPicks') ?? 1) * b.p)}` : '') }, f(it.score)));
     }
     // (the launcher: Alt+1…9 or Ctrl+1…9 opens the first nine; the numbers show while that key is held)
     if (i < 9 && (look.quickPick === 'alt' || look.quickPick === 'ctrl')) meta.append(h('kbd.r-num', { 'aria-hidden': 'true' }, String(i + 1)));
@@ -206,8 +206,12 @@ export function howFromEvent(e, fallback = null) {
 }
 
 // Opens a chosen result. how: 'current' | 'newtab' | 'background' | 'window' | 'private' | 'split'.
-export function openResult(it, how = 'current') {
+// typed: what was typed to find it (the launcher learns what you pick for it; search.js picks).
+export function openResult(it, how = 'current', typed = '') {
   if (!it) return;
+  if (!S.isPrivate && (it.type === 'command' || it.type === 'bookmark' || it.type === 'history' || it.type === 'tab')) {
+    wb.send('search:picked', { raw: String(typed || ''), url: it.url || '', command: it.type === 'command' ? it.command : undefined });
+  }
   if (it.type === 'command') { emit('command', it.command, { source: 'launcher' }); return; }
   // A tab result switches to that tab (for split view: puts it beside this one; for a new window: opens its
   // address there). A bookmark or history result that's open in a tab switches to it (Settings → Launcher →

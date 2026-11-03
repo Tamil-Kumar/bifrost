@@ -203,6 +203,7 @@
       // shared/engine.js. Where Waypoint and Bifrost behaved differently, the default is Bifrost's.
       // Ranking
       wMatch: 1.0, wVisits: 0.5, wRecency: 0.35,
+      learnPicks: true, wPicks: 1.0,  // what you open from it ranks higher, most of all for what you'd typed
       recencyHalfLifeDays: 14, visitsSaturation: 50,
       fuzzy: true, minScore: 0.05, maxResults: 10,
       searchRowPosition: 'auto', autoThreshold: 0.45, suggestionDecay: 0.08,
@@ -271,7 +272,7 @@
       adblock: {
         enabled: true,
         cosmetic: true,
-        youtubeSkip: true,           // skip YouTube video ads as they start
+        youtubeSkip: true,           // YouTube's ads: video ads covered and skipped, its pages' ads hidden, ads out of Shorts
         youtubeFilters: false,       // on YouTube, the lists' page scripts and blocking of YouTube's own ad requests (can stop YouTube loading)
         lists: { ads: true, tracking: true, annoyances: false, cookieNotices: false },
         customFilters: '',

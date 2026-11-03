@@ -15,6 +15,7 @@ const site = await startSite(undefined, { routes: {
   // "Sign in with…": the site opens the provider's page in a sized pop-up, which signs in (a cookie), tells
   // the site through window.opener and closes itself.
   '/signin.html': html('<button id=b style="font-size:30px;padding:30px" onclick="window.open(\'/auth.html\', \'auth\', \'width=480,height=600\')">Sign in</button><script>document.cookie = "site=1; path=/"; addEventListener("message", (e) => { if (e.data && e.data.signedIn) { window.__auth = { ...e.data, siteSees: document.cookie }; document.title = "signed in"; } });</script>', 'Sign in'),
+  '/notify.html': html('<button id=ask style="font-size:30px;padding:30px">Turn on notifications</button><script>window.__log = []; const log = (x) => window.__log.push(x); log("initial " + Notification.permission); navigator.permissions.query({ name: "notifications" }).then((r) => { window.__st = r; log("query " + r.state); r.onchange = () => log("changed " + r.state); }); document.getElementById("ask").onclick = async () => { const r = await Notification.requestPermission(); log("requested " + r); }; window.notify = () => { const n = new Notification("Hello", { body: "From the page" }); window.__n = n; n.onclick = () => log("clicked"); return n instanceof Notification; };</script>', 'Notify'),
   '/auth.html': html('<p>Signing you in…</p><script>document.cookie = "sid=popup123; path=/"; setTimeout(() => { window.opener.postMessage({ signedIn: true, popupSees: document.cookie, ua: navigator.userAgent }, "*"); setTimeout(() => window.close(), 400); }, 300);</script>', 'Provider'),
 } });
 const t = await launch({ profile: 'everyday', args: [site.url + '/a.html'] });
@@ -192,6 +193,44 @@ try {
     await x.click(b.x, b.y);
     const title = await until(() => t.guest('/geo.html', 'document.title').then((v) => (v !== 'Geo' ? v : null)), 4000, 'the page’s answer');
     assert(title === 'geo 1', 'the page got: ' + title);
+  });
+
+  await R.step('notifications: a site you haven’t answered can ask (it isn’t told “blocked”); the address bar’s permissions button shows what was blocked and allows it at once; a notification’s click brings its tab to the front', async () => {
+    const logOf = () => t.guest('/notify.html', 'window.__log');
+    await open(site.url + '/notify.html'); await sleep(1500);
+    const first = await logOf();
+    assert(first.includes('initial default') && first.includes('query prompt'), 'the page is told: ' + JSON.stringify(first));
+    const btnState = () => t.ui(() => { const b = document.querySelector('.addr-btn.permsb'); return b && { hidden: b.hidden, icon: b.dataset.icon, blocked: b.classList.contains('blocked'), title: b.title }; });
+    let bs = await btnState();
+    assert(bs && !bs.hidden && !bs.blocked, 'the permissions button: ' + JSON.stringify(bs));
+    // The site asks (from a click), and is told no.
+    await clickIn('/notify.html', '#ask');
+    const block = await until(() => t.ui(() => { const b = [...document.querySelectorAll('.perm-pop .btn')].find((e) => /Block/.test(e.textContent)); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }), 4000, 'the prompt');
+    await x.click(block.x, block.y);
+    await until(async () => (await logOf()).includes('requested denied'), 3000, 'the page to hear no');
+    bs = await until(async () => { const v = await btnState(); return v && v.blocked ? v : null; }, 3000, 'the button to show it was blocked');
+    assert(bs.icon === 'bellOff' && /Notifications blocked/.test(bs.title), 'the button: ' + JSON.stringify(bs));
+    // The button: what it asked for, and Allow, which the page hears straight away (no reload).
+    const pb = await t.ui(() => { const r = document.querySelector('.addr-btn.permsb').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await x.click(pb.x, pb.y);
+    const allow = await until(() => t.ui(() => { const b = document.querySelector('.perms-pop [data-act="allow-notifications"]'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }), 3000, 'the permissions popover');
+    await t.shot('everyday-permissions');
+    await x.click(allow.x, allow.y);
+    await until(async () => (await t.guest('/notify.html', 'Notification.permission')) === 'granted', 3000, 'the page to be allowed');
+    assert(await t.guest('/notify.html', 'window.__st.state') === 'granted' && (await logOf()).includes('changed granted'), 'the Permissions API didn’t follow: ' + JSON.stringify(await logOf()));
+    const stored = await t.main(() => global.__bifrost.db.siteSettings('127.0.0.1')['perm:notifications']);
+    assert(stored === 'allow', 'stored: ' + stored);
+    bs = await btnState();
+    assert(!bs.blocked, 'still marked blocked: ' + JSON.stringify(bs));
+    // A notification, clicked while another tab is in front.
+    assert(await t.guest('/notify.html', 'window.notify()') === true, 'no notification');
+    await open(site.url + '/a.html?front'); await sleep(900);
+    await t.guest('/notify.html', 'window.__n.dispatchEvent(new Event("click")), 1');
+    await until(() => t.ui(() => { const S = window.__wbTest.state; const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); return /notify\.html/.test(S.tabs.find((x) => x.id === w.activeTabId).url); }), 3000, 'its tab in front');
+    // Back to Ask (as from the popover): the page is told it isn't decided.
+    await t.ui(() => window.wb.invoke('site:set', '127.0.0.1', 'perm:notifications', null));
+    await until(async () => (await t.guest('/notify.html', 'Notification.permission')) === 'default', 3000, 'the page to be told “ask”');
+    await esc();
   });
 
   await R.step('the keyboard follows the tab on screen (Ctrl+Tab, a new tab, a link opening a tab, reopening a closed tab)', async () => {

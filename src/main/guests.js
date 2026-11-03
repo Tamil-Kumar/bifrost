@@ -186,6 +186,7 @@ function setup(guest, ctl) {
   guest.__wbWindow = ctl.id;
   let lastUrl = '';
   let typedUrl = null;
+  let navStart = null;   // where the page being loaded was asked for (before any server redirects)
 
   if (!isPrivate && ctx.extensions) ctx.extensions.addTab(guest, ctl.win);
 
@@ -247,9 +248,14 @@ function setup(guest, ctl) {
   };
   guest.on('did-start-navigation', (e) => {
     if (!e.isMainFrame || e.isSameDocument) return;
+    navStart = e.url;
     ua.applyForUrl(guest, e.url);
   });
   guest.on('did-navigate', (e, url, code) => {
+    // (a bookmark's address that sent you on: the launcher counts the visits where you ended up as using it)
+    const start = navStart;
+    navStart = null;
+    if (start && !isPrivate && ctx.search && start !== url) { try { ctx.search.noteRedirect(start, url); } catch { /* not ready */ } }
     if (code && code >= 400 && code !== 404) { lastUrl = url; return; }
     record(url, 'link');
     lastUrl = url;

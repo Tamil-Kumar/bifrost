@@ -22,6 +22,10 @@ const site = await startSite(undefined, { routes: {
   '/dark.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Dark</title><style>html,body{margin:0;height:100%}#app{position:fixed;inset:0;background:#13233a;color:#e8eef7;font:20px sans-serif;padding:40px}</style><div id="app">A dark app</div>'); },
   // A page to visit and then remove from history from the launcher.
   '/forget.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Forget me soon</title><p>forget me</p>'); },
+  // Three pages to bookmark, for the launcher's ranking.
+  '/rank-alpha.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Alpha page</title><p>alpha</p>'); },
+  '/rank-beta.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Beta page</title><p>beta</p>'); },
+  '/rank-gamma.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Gamma page</title><p>gamma</p>'); },
 } });
 const t = await launch({ profile: 'behavior', args: [site.url + '/a.html'] });
 const x = xinput();
@@ -872,6 +876,61 @@ try {
       await L('open', DEF_L.open);
       await L('keys', DEF_L.keys);
       await closeSettingsTabs();
+    }
+  });
+
+  await R.step('launcher, Ranking: the bookmark you use more comes first, and what you open for what you type comes first for it', async () => {
+    const rows = async (text) => { await openL(text); await sleep(300); const r = await rowsNow(); await shutL(); return r.filter((x) => x.type === 'bookmark').map((x) => x.title); };
+    const ids = await t.main((_, base) => {
+      const db = global.__bifrost.db;
+      return ['alpha', 'beta', 'gamma'].map((n) => db.createBookmark({ title: 'Docs ' + n, url: `${base}/rank-${n}.html` }).id);
+    }, site.url);
+    try {
+      await clickTab('/a.html');
+      // Nothing to go on yet: all three, in no particular order.
+      const first = await rows('docs');
+      assert(first.length === 3, 'bookmarks found: ' + JSON.stringify(first));
+      // Use gamma: four visits (tabs opened and closed).
+      for (let i = 0; i < 4; i++) { await open(site.url + '/rank-gamma.html?v=' + i, true); await sleep(500); }
+      await sleep(600);
+      await closeAll('/rank-gamma.html');
+      await clickTab('/a.html');
+      let o = await rows('docs');
+      assert(o[0] === 'Docs gamma', 'the used one isn’t first: ' + JSON.stringify(o));
+      // Open alpha from the launcher three times, typing "docs": it comes first for "docs" (and "doc")…
+      for (let i = 0; i < 3; i++) {
+        await openL('docs'); await sleep(300);
+        const r = await rowsNow();
+        const k = r.findIndex((x) => x.title === 'Docs alpha');
+        assert(k >= 0, 'alpha isn’t listed: ' + JSON.stringify(r));
+        for (let j = 0; j < k; j++) await x.key('Down');
+        await x.key('Return'); await sleep(900);
+        assert(/rank-alpha\.html/.test(await activeUrl()), 'alpha didn’t open: ' + await activeUrl());
+        await closeAll('/rank-alpha.html');
+        await clickTab('/a.html');
+      }
+      o = await rows('docs');
+      assert(o[0] === 'Docs alpha', 'what was opened for “docs” isn’t first: ' + JSON.stringify(o));
+      o = await rows('doc');
+      assert(o[0] === 'Docs alpha', 'for “doc”: ' + JSON.stringify(o));
+      // It's kept (with the profile)…
+      await sleep(1800);
+      const kept = await t.main(() => JSON.stringify(global.__bifrost.db.kvGet('launcherPicks', null) || {}));
+      assert(/rank-alpha/.test(kept) && /"docs"/.test(kept), 'not kept: ' + kept.slice(0, 200));
+      // …off with Learn from what you open (gamma's visits decide again)…
+      await L('learnPicks', false);
+      o = await rows('docs');
+      assert(o[0] === 'Docs gamma', 'with learning off: ' + JSON.stringify(o));
+      await resetL('learnPicks');
+      // …and forgotten with "Forget what it learned".
+      await t.main(() => global.__bifrost.search.forgetPicks());
+      o = await rows('docs');
+      assert(o[0] === 'Docs gamma', 'after forgetting: ' + JSON.stringify(o));
+    } finally {
+      await shutL();
+      await resetL('learnPicks');
+      await t.main((_, ids) => { for (const id of ids) { try { global.__bifrost.db.removeBookmark(id); } catch { /* gone */ } } }, ids);
+      await closeAll('/rank-');
     }
   });
 

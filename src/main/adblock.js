@@ -12,15 +12,15 @@ const { EventEmitter } = require('node:events');
 const ctx = require('./context');
 
 // YouTube. Its pages get no page scripts from the lists unless you ask for them (privacy.adblock.youtubeFilters):
-// with them YouTube can stop loading at its grey placeholders, so by default its video ads are skipped
-// instead (preload/adblock.js), its own requests are left alone, and only other sites' ads and trackers on
-// it are blocked. youtube.test is the stand-in the tests use (youtube.com is HTTPS-only in Chromium).
-const TEST = process.env.BIFROST_TEST === '1';
-const YT_SITE = TEST ? /(^|\.)(youtube\.com|youtube-nocookie\.com|youtubekids\.com|youtube\.test)$/i : /(^|\.)(youtube\.com|youtube-nocookie\.com|youtubekids\.com)$/i;
-const YT_OWN_URL = TEST
-  ? /^(https?|wss?):\/\/([^/?#@]*\.)?(youtube\.com|youtube-nocookie\.com|youtubekids\.com|googlevideo\.com|ytimg\.com|ggpht\.com|youtube\.test)(:\d+)?([/?#]|$)/i
-  : /^(https?|wss?):\/\/([^/?#@]*\.)?(youtube\.com|youtube-nocookie\.com|youtubekids\.com|googlevideo\.com|ytimg\.com|ggpht\.com)(:\d+)?([/?#]|$)/i;
+// with them YouTube can stop loading at its grey placeholders, so by default its own requests are left alone,
+// only other sites' ads and trackers on it are blocked, and its ads are dealt with in the page instead
+// (preload/adblock.js: video ads covered and skipped, the ads in its pages hidden, ads taken out of Shorts).
+// The tests point www.youtube.com at a local stand-in (tests/e2e/youtube.mjs).
+const YT_SITE = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtubekids\.com)$/i;
+const YT_OWN_URL = /^(https?|wss?):\/\/([^/?#@]*\.)?(youtube\.com|youtube-nocookie\.com|youtubekids\.com|googlevideo\.com|ytimg\.com|ggpht\.com)(:\d+)?([/?#]|$)/i;
 const isYouTube = (host) => !!host && YT_SITE.test(host);
+// (the tests make "a player stuck saying it's showing an ad" seconds instead of minutes)
+const YT_STUCK_MS = process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_YT_STUCK_MS) || 0 : 0;
 const hostOf = (url) => { try { return new URL(url).hostname; } catch { return ''; } };
 
 // Stand-ins for what a filter redirects (an ad script that pages call into, a tracking pixel…), served
@@ -284,7 +284,7 @@ class AdBlock extends EventEmitter {
 
   cosmeticsFor(event, url, { first, isTop = false, features = {} }) {
     const s = this.settings;
-    if (!this.engine || !s.enabled) return null;
+    if (!s.enabled) return null;
     const sender = event.sender;
     if (!sender || !this.sessions.has(sender.session)) return null;
     if (!/^https?:/i.test(url || '')) return null;
@@ -293,14 +293,18 @@ class AdBlock extends EventEmitter {
     let host = '';
     try { host = new URL(top).hostname; } catch { /* keep '' */ }
     if (this.allowlisted(host)) return null;
+    // YouTube (the page, or a player embedded in another one): its ads are dealt with in the page, lists or no
+    // lists (so also in the seconds after a start while they load). Its pages' ads are hidden with element
+    // hiding on.
+    const ytHere = isYouTube(hostOf(url));
+    const youtube = first && ytHere && s.youtubeSkip !== false ? { hide: !!s.cosmetic, stuckMs: YT_STUCK_MS || undefined } : null;
+    if (!this.engine) return youtube ? { styles: '', scripts: [], watch: false, youtube } : null;
     // Request works out the host and its registrable domain (sub.example.co.uk -> example.co.uk).
     const { Request } = blockerModule();
     const req = Request.fromRawDetails({ url, type: 'mainFrame' });
     const hostname = req.hostname || '', domain = req.domain || hostname;
-    // On YouTube (the page, or a player embedded in another one) scriptlets only if you turned them on.
-    const ytHere = isYouTube(hostname);
+    // On YouTube scriptlets only if you turned them on.
     const scriptlets = first && (!(ytHere || isYouTube(host)) || !!s.youtubeFilters);
-    const youtube = first && ytHere && s.youtubeSkip !== false;
     // The first answer for a site (its own rules and scriptlets) is the same every time: keep it a minute.
     const cacheKey = first ? [isTop ? 'T' : 'F', hostname, s.cosmetic ? 1 : 0, scriptlets ? 1 : 0, youtube ? 1 : 0].join('|') : null;
     if (cacheKey) {
@@ -320,7 +324,7 @@ class AdBlock extends EventEmitter {
       getRulesFromDOM: !first,
       callerContext: { frameId: event.frameId, processId: event.processId },
     });
-    if (!r || r.active === false) return null;
+    if (!r || r.active === false) return youtube ? { styles: '', scripts: [], watch: false, youtube } : null;
     const value = { styles: s.cosmetic ? r.styles || '' : '', scripts: scriptlets ? this.bundle(r.scripts || []) : [], watch: !!s.cosmetic, youtube };
     if (cacheKey) {
       const m = this.cosmeticCache.map;
