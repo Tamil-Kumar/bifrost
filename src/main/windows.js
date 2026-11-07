@@ -137,16 +137,20 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
   win.webContents.on('will-attach-webview', (e, webPreferences, params) => {
     if (params.partition !== ctl.partition) { e.preventDefault(); return; }
     delete webPreferences.preloadURL;
-    // An extension's side panel (announced by the UI just before) is an extension page, not a tab.
-    const panel = ctl.pendingPanel;
-    if (panel && params.src === panel.url && !ctl.isPrivate) {
-      ctl.pendingPanel = null;
-      ctl.attachingPanel = panel;
+    // An extension's side panel, or a website in it (announced by the UI just before), isn't a tab. A website
+    // gets what a page in a tab gets from the tab preload (the user agent its site needs, notifications it can
+    // ask for, Bifrost's dialogs, the pop-up blocker, site styles, browser shortcuts the page lets through), and
+    // the ad blocker's, in its frames too.
+    const i = (ctl.pendingPanels || []).findIndex((p) => p.url === params.src && Date.now() - p.at < 10000);
+    const panel = i >= 0 ? ctl.pendingPanels.splice(i, 1)[0] : null;
+    if (panel && (panel.web || !ctl.isPrivate)) {
+      ctl.attachingPanels = (ctl.attachingPanels || []).slice(-8).concat({ panel, instanceId: params.instanceId, url: params.src });
       delete webPreferences.preload;
       Object.assign(webPreferences, {
-        nodeIntegration: false, nodeIntegrationInSubFrames: false, nodeIntegrationInWorker: false, contextIsolation: true, sandbox: true,
+        nodeIntegration: false, nodeIntegrationInSubFrames: !!panel.web, nodeIntegrationInWorker: false, contextIsolation: true, sandbox: true,
         webSecurity: true, allowRunningInsecureContent: false, webviewTag: false, navigateOnDragDrop: false, spellcheck: ctx.settings.get('advanced.spellcheck'),
       });
+      if (panel.web) Object.assign(webPreferences, { preload: PRELOAD_TAB, plugins: true, enableWebSQL: false, safeDialogs: true, safeDialogsMessage: 'Stop this site from showing more dialogs', scrollBounce: true });
       return;
     }
     // A tab coming back with its back/forward history starts with no page at all, because history
@@ -167,8 +171,11 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
     if (process.platform === 'win32' && ctx.settings.get('advanced.middleClickAutoscroll') !== false) webPreferences.enableBlinkFeatures = 'MiddleClickAutoscroll';
   });
   win.webContents.on('did-attach-webview', (e, guest) => {
-    const panel = ctl.attachingPanel;
-    ctl.attachingPanel = null;
+    // (which one this is: by the <webview> it's for, else by the address it's loading)
+    const list = ctl.attachingPanels || [];
+    let i = list.findIndex((a) => a.instanceId != null && a.instanceId === guest.viewInstanceId);
+    if (i < 0) { let url = ''; try { url = guest.getURL(); } catch { /* gone */ } i = list.findIndex((a) => a.url === url); }
+    const panel = i >= 0 ? list.splice(i, 1)[0].panel : null;
     if (panel) guests.setupPanel(guest, ctl, panel);
     else guests.setup(guest, ctl);
   });

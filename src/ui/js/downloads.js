@@ -1,5 +1,5 @@
 // Bifrost browser UI — the downloads button (with a progress ring) and its popover.
-import { S, on, emit } from './state.js';
+import { S, on, emit, setting } from './state.js';
 import { h, fmtBytes, fmtDuration, timeAgo } from './util.js';
 import { icon } from './icons.js';
 import { popover } from './menus.js';
@@ -73,7 +73,10 @@ function openPopover(anchor, { auto = false } = {}) {
     h('button.dl-all', { type: 'button', onclick: () => { pop.close(); emit('command', 'openDownloads'); } }, 'Show all downloads', icon('chevronRight')));
   pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'dl-popover', modal: !auto, focus: !auto, exclusive: !auto, onClose: () => { pop = null; listEl = null; clearTimeout(autoTimer); } });
   if (auto) {
-    const start = () => { clearTimeout(autoTimer); autoTimer = setTimeout(() => pop && pop.close(), 5000); };
+    // As long as Settings → Downloads says (the pointer over it holds it open), or until you close it.
+    const secs = Number(setting('downloads.showOnStartFor'));
+    const forever = !(secs > 0 && secs <= 60);
+    const start = () => { clearTimeout(autoTimer); if (!forever) autoTimer = setTimeout(() => pop && pop.close(), secs * 1000); };
     pop.el.addEventListener('mouseenter', () => clearTimeout(autoTimer));
     pop.el.addEventListener('mouseleave', start);
     start();

@@ -264,6 +264,8 @@ export function run(id, args = {}) {
     case 'panelBookmarks': Panels.toggle('bookmarks'); return;
     case 'panelHistory': Panels.toggle('history'); return;
     case 'panelDownloads': Panels.toggle('downloads'); return;
+    case 'panelToggle': Panels.toggleLast(); return;
+    case 'panelAddPage': Panels.addPage(activeTab()); return;
     case 'customizeLayout': openInternal('settings', '#customize'); return;
     case 'openSettings': openInternal('settings', args.section ? '#' + args.section + (args.host ? '/' + encodeURIComponent(args.host) : '') : ''); return;
     case 'openHistory': openInternal('history'); return;

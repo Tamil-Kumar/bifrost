@@ -191,7 +191,7 @@ function iconFor(it, favicons = 'browser') {
 }
 
 function commandIcon(it) {
-  const byId = { newTab: 'plus', closeTab: 'close', reopenTab: 'rotate', openSettings: 'sliders', screenshot: 'camera', readerMode: 'reader', translatePage: 'translate', print: 'print', savePage: 'save', devtools: 'code', find: 'search', bookmarkPage: 'star', toggleVim: 'vim', cycleTheme: 'palette', taskManager: 'cpu', newPrivateWindow: 'mask', pictureInPicture: 'pip', toggleAnimations: 'sparkle', zoomIn: 'zoomIn', zoomOut: 'zoomOut', panelHistory: 'clock', panelBookmarks: 'book', panelDownloads: 'download', openExtensions: 'puzzle', importData: 'import', clearData: 'trash', muteTab: 'volumeOff', pinTab: 'pin', sleepTab: 'moon', copyUrl: 'link' };
+  const byId = { newTab: 'plus', closeTab: 'close', reopenTab: 'rotate', openSettings: 'sliders', screenshot: 'camera', readerMode: 'reader', translatePage: 'translate', print: 'print', savePage: 'save', devtools: 'code', find: 'search', bookmarkPage: 'star', toggleVim: 'vim', cycleTheme: 'palette', taskManager: 'cpu', newPrivateWindow: 'mask', pictureInPicture: 'pip', toggleAnimations: 'sparkle', zoomIn: 'zoomIn', zoomOut: 'zoomOut', panelHistory: 'clock', panelBookmarks: 'book', panelDownloads: 'download', panelToggle: 'sidebar', panelAddPage: 'sidebar', openExtensions: 'puzzle', importData: 'import', clearData: 'trash', muteTab: 'volumeOff', pinTab: 'pin', sleepTab: 'moon', copyUrl: 'link' };
   const name = byId[it.command] || CMD_ICON[it.category] || 'bolt';
   return ICONS[name] ? name : 'bolt';
 }

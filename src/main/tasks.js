@@ -42,7 +42,9 @@ function metrics() {
     if (type === 'webview' && !ext) {
       const known = ctx.registry.find(wc.id);
       const tab = known && known.tab;
-      label = { kind: 'tab', title: wc.getTitle() || (tab && tab.title) || url || 'New tab', url, wcId: wc.id, audible: wc.isCurrentlyAudible(), favicon: (tab && /^(https?|data|bifrost):/.test(tab.favicon || '') ? tab.favicon : '') };
+      // (a website in the side panel says so)
+      const title = wc.getTitle() || (tab && tab.title) || url || 'New tab';
+      label = { kind: 'tab', title: !tab && wc.__wbPanel ? 'Side panel: ' + title : title, url, wcId: wc.id, audible: wc.isCurrentlyAudible(), favicon: (tab && /^(https?|data|bifrost):/.test(tab.favicon || '') ? tab.favicon : '') };
     } else if (ext) {
       const what = type === 'backgroundPage' ? 'background page' : /popup/i.test(url) ? 'popup' : 'page';
       label = { kind: 'extension', title: `${ext.name} (${what})`, url, wcId: wc.id, favicon: extIcon(ext) };

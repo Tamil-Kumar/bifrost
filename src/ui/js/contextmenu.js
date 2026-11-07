@@ -81,14 +81,27 @@ function extensionItems(menuId, list) {
 }
 
 // An extension's side panel: links, editing, its own menu items, Reload and Inspect.
+// The side panel's page: a website there, or an extension's panel.
 function panelMenu(wv, p) {
   const items = [];
+  const web = wv.dataset.sidePanel === 'web';
   const link = p.linkURL && !/^javascript:/i.test(p.linkURL) ? p.linkURL : '';
   const sel = (p.selectionText || '').trim();
+  const src = p.srcURL || '';
+  if (p.misspelledWord) {
+    const sug = (p.dictionarySuggestions || []).slice(0, 5);
+    if (sug.length) items.push(...sug.map((w) => ({ label: w, action: () => wv.replaceMisspelling(w) })));
+    else items.push({ label: 'No spelling suggestions', disabled: true });
+    items.push('-');
+  }
   if (link) {
     items.push(
       /^(https?|ftp):/i.test(link) ? { label: 'Open link in new tab', icon: 'plus', action: () => T.openTab({ url: link, active: false }) } : null,
+      web && /^https?:/i.test(link) ? { label: 'Open link here', icon: 'sidebar', action: () => wv.loadURL(link) } : null,
       { label: 'Copy link address', icon: 'link', action: () => copyText(link) }, '-');
+  }
+  if (web && (p.mediaType === 'image' || p.hasImageContents) && /^(https?|data):/i.test(src)) {
+    items.push({ label: 'Open image in new tab', icon: 'external', action: () => T.openTab({ url: src, active: false }) }, { label: 'Copy image address', icon: 'link', action: () => copyText(src) }, '-');
   }
   if (p.isEditable) {
     const f = p.editFlags || {};
@@ -104,7 +117,19 @@ function panelMenu(wv, p) {
   } else if (sel) {
     items.push({ label: 'Copy', icon: 'copy', accel: 'Ctrl+C', action: () => wv.copy() }, '-');
   }
-  items.push({ label: 'Reload', icon: 'reload', action: () => wv.reload() });
+  if (web && !link && !p.isEditable && !sel) {
+    let back = false, fwd = false, url = '';
+    try { back = wv.canGoBack(); fwd = wv.canGoForward(); url = wv.getURL(); } catch { /* not attached */ }
+    items.push(
+      { label: 'Back', icon: 'back', disabled: !back, action: () => wv.goBack() },
+      { label: 'Forward', icon: 'forward', disabled: !fwd, action: () => wv.goForward() },
+      { label: 'Reload', icon: 'reload', action: () => wv.reload() },
+      '-',
+      { label: 'Open page in new tab', icon: 'external', disabled: !/^https?:/i.test(url), action: () => T.openTab({ url, active: true }) },
+      { label: 'Copy page address', icon: 'link', disabled: !url, action: () => copyText(url) });
+  } else {
+    items.push({ label: 'Reload', icon: 'reload', action: () => wv.reload() });
+  }
   if (p.extensions && p.extensions.length) items.push('-', ...extensionItems(p.menuId, p.extensions));
   items.push('-', { label: 'Inspect', icon: 'wrench', action: () => wb.invoke('guest:action', p.wcId, 'inspect', { x: p.x, y: p.y }).catch(() => {}) });
   popupMenu(items, menuPosition(wv, p));

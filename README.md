@@ -1,6 +1,7 @@
 # Bifrost
 
-A keyboard-first browser built on Electron: vertical or horizontal tabs, spaces, split view, a launcher
+A keyboard-first browser built on Electron: vertical or horizontal tabs, spaces, split view, a side panel
+for bookmarks, history, websites and extensions (with a side bar, as in Firefox), a launcher
 that searches bookmarks, tabs, history and the web, a built-in ad blocker, warnings for dangerous sites,
 page translation, Chrome extensions (Manifest V2 and V3), sync between your computers through a cloud
 folder, and a lot of settings — every animation can be turned off.
@@ -43,11 +44,13 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 ```
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
-task manager), `behavior` (settings that change behavior, the Launcher section's included; the settings page opening with what
+task manager), `behavior` (settings that change behavior, the Launcher section's included, how long the downloads box stays; the settings page opening with what
 you see and building the rest after), `everyday` (video, full screen and what shows
-over it, PDFs, pop-ups, Leave site?, permissions and the address bar's permissions button, notifications, the keyboard following the tab on screen, find, zoom,
+over it, PDFs, pop-ups, Leave site?, permissions and the address bar's permissions button, notifications, the keyboard following the tab on screen,
+Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
+questions, notifications, dialogs), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
-onInstalled, storage and alarm events in the worker, context menus, popups, Dark Reader, Stylus with a
+onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures`, `hidpi` (a 150% display:
 menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),
 `passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),

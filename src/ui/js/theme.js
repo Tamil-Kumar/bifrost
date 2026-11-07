@@ -158,7 +158,7 @@ export function applyBlend() {
   // (from one page color to the next on the same tab; never from none: the window behind would show)
   root.classList.toggle('blend-fade', !!blendVars && sameTab && root.classList.contains('blend'));
   // (on the bars only: menus, dialogs and side panels keep the theme)
-  style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; }\n:root.blend #sidebar, :root.blend #topbar { ${decl} }` : '';
+  style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; }\n:root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { ${decl} }` : '';
   root.classList.toggle('blend', !!blendVars);
   root.dataset.blendScheme = blendVars ? (blendVars.dark ? 'dark' : 'light') : '';
   syncCaption();

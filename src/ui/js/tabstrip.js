@@ -392,6 +392,7 @@ export function tabMenu(t, pos) {
     '-',
     { label: multi ? 'Bookmark tabs…' : 'Bookmark', icon: 'star', action: () => emit('bookmark-tabs', sel) },
     { label: 'Copy link' + (multi ? 's' : ''), icon: 'link', action: () => copyText(sel.map((x) => x.url).join('\n')).then(() => toast({ text: multi ? 'Links copied' : 'Link copied', iconName: 'check', timeout: 1600 })) },
+    !multi && /^https?:/i.test(t.url || '') ? { label: 'Add to the side panel', icon: 'sidebar', action: () => emit('panel-add-web', { url: t.url, title: t.title }) } : null,
     '-',
     { label: multi ? `Close ${sel.length} tabs` : 'Close', icon: 'close', accel: multi ? '' : accelFor('closeTab'), action: () => { selection.clear(); T.requestClose(sel); } },
     { label: 'Close other tabs', disabled: list.filter((x) => !sel.includes(x) && !x.pinned).length === 0, action: () => T.requestClose(list.filter((x) => !sel.includes(x) && !x.pinned)) },

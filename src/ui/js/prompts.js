@@ -12,11 +12,23 @@ export { dialog, confirmDialog, promptDialog, toast };
 // ------------------------------------------------------------- permissions
 const PERM_ICON = { camera: 'video', microphone: 'mic', geolocation: 'location', notifications: 'bell', 'clipboard-read': 'copy', 'display-capture': 'monitor', midi: 'keyboard', midiSysex: 'keyboard', openExternal: 'external' };
 
+// Websites in the side panel ask too (panels.js says which page is whose, and where its questions go while
+// the panel shows it).
+let panelSide = { owner: () => null, all: () => [], anchor: () => null };
+export function setPanelPrompts(o) { panelSide = Object.assign({}, panelSide, o); }
+export function refreshPrompts() { showPrompts(); showJsDialog(); }
+// A website in the side panel went away: what it asked goes unanswered (as "no").
+export function forgetOwner(owner) {
+  for (const p of owner.prompts || []) { if (p.handle) p.handle.close('closed'); p.resolve({ allow: false, remember: false }); }
+  owner.prompts = [];
+  for (let i = jsQueue.length - 1; i >= 0; i--) if (jsQueue[i].tab === owner) { const q = jsQueue.splice(i, 1)[0]; q.resolve(q.none); }
+}
+
 export function permissionPrompt(args) {
   return new Promise((resolve) => {
-    const tab = tabByWc(args.wcId);
-    if (!tab) { resolve({ allow: false, remember: false }); return; }
-    tab.prompts.push({ args, resolve, handle: null });
+    const owner = tabByWc(args.wcId) || panelSide.owner(args.wcId);
+    if (!owner) { resolve({ allow: false, remember: false }); return; }
+    owner.prompts.push({ args, resolve, handle: null });
     showPrompts();
   });
 }
@@ -32,15 +44,16 @@ function anchorFor(tab) {
 
 function showPrompts() {
   const vis = visibleTabs();
-  for (const tab of S.tabs) {
+  const owners = S.tabs.map((t) => [t, vis.includes(t)]).concat(panelSide.all().map((o) => [o, !!panelSide.anchor(o)]));
+  for (const [tab, shown] of owners) {
     for (const p of tab.prompts) {
-      if (!vis.includes(tab)) { if (p.handle) { p.handle.close('hidden'); p.handle = null; } continue; }
+      if (!shown) { if (p.handle) { p.handle.close('hidden'); p.handle = null; } continue; }
     }
     const p = tab.prompts[0];
-    if (!p || p.handle || !vis.includes(tab)) continue;
+    if (!p || p.handle || !shown) continue;
     // A page in full screen asking: it leaves full screen so the question can be seen and answered.
     if (tab === S.htmlFullscreenTab) { V.leaveHtmlFullscreen().then(() => setTimeout(showPrompts, 60)); continue; }
-    const pos = anchorFor(tab);
+    const pos = tab.panelPrompts ? panelSide.anchor(tab) : anchorFor(tab);
     if (!pos) continue;
     const a = p.args;
     const remember = h('input', { type: 'checkbox', checked: !S.isPrivate });
@@ -117,20 +130,22 @@ export function extensionPermissionPrompt({ name, warnings = [] }) {
 // can be stopped until it's reloaded or left.
 const jsQueue = [];   // { tab, args, resolve }
 let jsShowing = null;
+// (A website in the side panel asks while the panel shows it.)
 export function jsDialog(args) {
   return new Promise((resolve) => {
     const tab = tabByWc(args.wcId);
+    const owner = tab || panelSide.owner(args.wcId);
     const none = args.type === 'confirm' ? false : args.type === 'prompt' ? null : true;
-    if (!tab || tab.dialogsBlocked) { resolve(none); return; }
-    jsQueue.push({ tab, args, resolve, none, wasFullscreen: S.htmlFullscreenTab === tab });
-    if (tab !== activeTab()) { tab.attention = true; emit('tab', tab, { attention: true }); }
+    if (!owner || owner.dialogsBlocked) { resolve(none); return; }
+    jsQueue.push({ tab: owner, args, resolve, none, wasFullscreen: !!tab && S.htmlFullscreenTab === tab });
+    if (tab && tab !== activeTab()) { tab.attention = true; emit('tab', tab, { attention: true }); }
     showJsDialog();
   });
 }
 
 function showJsDialog() {
   if (jsShowing) return;
-  const i = jsQueue.findIndex((q) => q.tab === activeTab());
+  const i = jsQueue.findIndex((q) => (q.tab.panelPrompts ? !!panelSide.anchor(q.tab) : q.tab === activeTab()));
   if (i < 0) return;
   // A page in full screen asking: it leaves full screen first (from the window's side, as the page itself is
   // waiting for the answer), so the dialog can be seen and answered, as in Chrome.

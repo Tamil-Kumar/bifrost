@@ -77,7 +77,7 @@ function listen() {
     setTab(t, { permAsks: { host, list: prev.concat(keys.map((key) => ({ key, allowed: !!allowed, asked: !!asked }))) } });
   });
   // One of a site's notifications was clicked: its tab, in front.
-  wb.on('focus-wc', (wcId) => { const t = tabByWc(wcId); if (t) T.selectTab(t); });
+  wb.on('focus-wc', (wcId) => { const t = tabByWc(wcId); if (t) T.selectTab(t); else Panels.showByWc(wcId); });
   wb.on('adopt-tab', (data) => T.adopt(data));
   wb.on('extension-activate-action', ({ id }) => EXT.activateById(id));
   wb.on('extension-side-panel', (o) => Panels.extensionPanel(o || {}));
@@ -298,7 +298,7 @@ async function start() {
   saveSoon();
   wb.send('ui:ready');
   // Hooks for automated tests and debugging from the window's DevTools.
-  window.__wbTest = { command: (id, args) => Cmd.run(id, args || {}), state: S, render: () => emit('structure'), tabSwitch: () => TabSwitch._state(), flyouts: () => Flyouts._state(), swipe: () => Swipe._state(), swipeLast: () => Swipe._last() };
+  window.__wbTest = { command: (id, args) => Cmd.run(id, args || {}), state: S, render: () => emit('structure'), tabSwitch: () => TabSwitch._state(), flyouts: () => Flyouts._state(), swipe: () => Swipe._state(), swipeLast: () => Swipe._last(), panels: () => Panels._state() };
   requestAnimationFrame(() => root.classList.add('ready'));
 }
 

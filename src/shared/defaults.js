@@ -173,6 +173,7 @@
       // tabs in order. 'mru': keeps going back through tabs in the order you used them while Ctrl is held.
       ctrlTab: 'recent',
       ctrlTabHoldMs: 350,
+      ctrlTabMenu: false,           // while Ctrl is held, a list of the tabs to pick from (letting go switches)
     },
     // Memory and speed. A profile sets everything in PERF_PRESETS below; "custom" uses performance.custom.
     performance: {
@@ -291,6 +292,15 @@
       folder: '',                    // '' = the system Downloads folder
       askWhereToSave: false,
       showOnStart: true,
+      showOnStartFor: 5,             // seconds the downloads box stays open by itself (61 = until you close it)
+    },
+    // The side panel: bookmarks, history and downloads, websites and extensions next to the page, opened from
+    // the side bar (a column of buttons at the window's edge, or a row in the sidebar with vertical tabs).
+    panels: {
+      strip: true,                   // the side bar's buttons
+      hidden: [],                    // built-in panels ('bookmarks'…) and extension panels ('ext:<id>') kept off it
+      web: [],                       // websites: [{ id, url, title }]
+      extensions: [],                // extensions without a side panel of their own, shown there by their popup page
     },
     keyboard: {
       shortcuts: {},                 // command id -> array of accelerators (overrides)
@@ -518,6 +528,8 @@
     ['panelBookmarks', 'Bookmarks panel', 'Panels', ['Ctrl+Shift+O']],
     ['panelHistory', 'History panel', 'Panels', ['Ctrl+H']],
     ['panelDownloads', 'Downloads panel', 'Panels', ['Ctrl+J']],
+    ['panelToggle', 'Show or hide the side panel', 'Panels', []],
+    ['panelAddPage', 'Add this page to the side panel', 'Panels', []],
     ['openSettings', 'Settings', 'Pages', ['Ctrl+Comma']],
     ['openHistory', 'History page', 'Pages', []],
     ['openBookmarks', 'Bookmark manager', 'Pages', []],

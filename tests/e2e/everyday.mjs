@@ -16,6 +16,7 @@ const site = await startSite(undefined, { routes: {
   // the site through window.opener and closes itself.
   '/signin.html': html('<button id=b style="font-size:30px;padding:30px" onclick="window.open(\'/auth.html\', \'auth\', \'width=480,height=600\')">Sign in</button><script>document.cookie = "site=1; path=/"; addEventListener("message", (e) => { if (e.data && e.data.signedIn) { window.__auth = { ...e.data, siteSees: document.cookie }; document.title = "signed in"; } });</script>', 'Sign in'),
   '/notify.html': html('<button id=ask style="font-size:30px;padding:30px">Turn on notifications</button><script>window.__log = []; const log = (x) => window.__log.push(x); log("initial " + Notification.permission); navigator.permissions.query({ name: "notifications" }).then((r) => { window.__st = r; log("query " + r.state); r.onchange = () => log("changed " + r.state); }); document.getElementById("ask").onclick = async () => { const r = await Notification.requestPermission(); log("requested " + r); }; window.notify = () => { const n = new Notification("Hello", { body: "From the page" }); window.__n = n; n.onclick = () => log("clicked"); return n instanceof Notification; };</script>', 'Notify'),
+  '/panel.html': html('<p style="font-size:22px">In the side panel</p><p><a id=out href="/b.html?frompanel" target="_blank" style="font-size:22px">Open in a tab</a></p><p id=c></p><script>document.getElementById("c").textContent = "cookies: " + document.cookie</script><style>body{background:rgb(255,214,0)}</style>', 'Side'),
   '/auth.html': html('<p>Signing you in…</p><script>document.cookie = "sid=popup123; path=/"; setTimeout(() => { window.opener.postMessage({ signedIn: true, popupSees: document.cookie, ua: navigator.userAgent }, "*"); setTimeout(() => window.close(), 400); }, 300);</script>', 'Provider'),
 } });
 const t = await launch({ profile: 'everyday', args: [site.url + '/a.html'] });
@@ -24,6 +25,8 @@ const set = (p, v) => t.main((_, [p, v]) => global.__bifrost.settings.set(p, v),
 const open = (url, background = false) => t.main((_, [url, background]) => global.__bifrost.registry.lastFocused().send('open-url', { url, background }), [url, background]);
 const tabCount = () => t.ui(() => window.__wbTest.state.tabs.length);
 const tabUrls = () => t.ui(() => window.__wbTest.state.tabs.map((tb) => tb.url));
+// Closes the tabs a step opened (so the ones after see as many as before).
+const closeTabs = async (part) => { await t.main(({ webContents }, part) => { const ctl = global.__bifrost.registry.lastFocused(); for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed() && wc.getType() === 'webview' && !wc.__wbPanel && wc.getURL().includes(part)) ctl.send('extension-tab-action', { wcId: wc.id, action: 'close' }); }, part); await sleep(400); };
 const view = () => t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => e.getBoundingClientRect().width > 50 && getComputedStyle(e).visibility !== 'hidden'); const r = w.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
 // Clicks an element of the page in the current tab with the real pointer.
 async function clickIn(match, sel, button = 1) {
@@ -259,6 +262,229 @@ try {
     await check('reopening the closed tab');
   });
 
+  await R.step('Ctrl+Tab with its list of tabs: a quick press just switches; held, the list shows and Tab moves along it, letting go switches (the keyboard with it); Esc stays', async () => {
+    const keysGoTo = async () => { await t.main(() => { global.__keysTo = []; }); await x.key('F7'); await sleep(300); return (await t.main(() => global.__keysTo)).join(' ') || 'nowhere'; };
+    const onScreen = () => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); return S.tabs.find((x) => x.id === ws.activeTabId).url; });
+    const sw = () => t.ui(() => { const st = window.__wbTest.tabSwitch(); return { list: !!document.querySelector('.tab-switcher'), rows: document.querySelectorAll('.tab-switcher .ts-row').length, sel: st.cycle ? st.cycle.sel : null }; });
+    try {
+      await set('tabs.ctrlTabMenu', true);
+      await set('tabs.ctrlTab', 'order');
+      for (const n of [1, 2, 3]) { await open(site.url + '/a.html?sw' + n); await sleep(900); }
+      await clickIn('?sw3', 'p'); await sleep(200);
+      const order = await t.ui(() => { const S = window.__wbTest.state; return S.tabs.filter((x) => x.workspaceId === S.activeWorkspaceId).map((x) => x.url); });
+      const at = (u) => order.findIndex((x) => x.includes(u));
+      const after = (u, k) => order[(at(u) + k + order.length) % order.length];
+      // A quick press (let go of Ctrl the way a person does): the next tab, no list.
+      await x.keyDown('Control_L'); await sleep(40); await x.key('Tab'); await sleep(70); await x.keyUp('Control_L'); await sleep(600);
+      let s0 = await sw();
+      assert(await onScreen() === after('sw3', 1) && !s0.list, `a quick press: on ${await onScreen()}, list ${s0.list}`);
+      await x.keyDown('Control_L'); await sleep(40); await x.keyDown('Shift_L'); await x.key('Tab'); await sleep(70); await x.keyUp('Shift_L'); await x.keyUp('Control_L'); await sleep(600);
+      assert(await onScreen() === after('sw3', 0), 'Ctrl+Shift+Tab didn’t come back: on ' + await onScreen());
+      // Held: the list, with the next tab picked and this one still on screen; Tab moves; letting go switches.
+      await x.keyDown('Control_L'); await sleep(40); await x.key('Tab');
+      s0 = await until(async () => { const r = await sw(); return r.list && r; }, 2000, 'the list');
+      assert(s0.rows === order.length && s0.sel === (at('sw3') + 1) % order.length, 'the list: ' + JSON.stringify(s0));
+      assert((await onScreen()).includes('sw3'), 'switched before letting go: ' + await onScreen());
+      await sleep(100);
+      await x.key('Tab'); await sleep(200);
+      const s1 = await sw();
+      assert(s1.sel === (at('sw3') + 2) % order.length, 'Tab didn’t move along: ' + JSON.stringify(s1));
+      await t.shot('everyday-ctrl-tab-list');
+      await x.keyUp('Control_L'); await sleep(700);
+      assert(await onScreen() === after('sw3', 2) && !(await sw()).list, 'letting go: on ' + await onScreen());
+      const k = await keysGoTo();
+      assert(k === after('sw3', 2), 'the keyboard went to ' + k);
+      // Esc: the list goes, nothing changes, the keyboard's back on the page.
+      const before = await onScreen();
+      await x.keyDown('Control_L'); await sleep(40); await x.key('Tab');
+      await until(async () => (await sw()).list, 2000, 'the list again');
+      await sleep(100);
+      await x.key('Escape'); await sleep(250);
+      assert(!(await sw()).list, 'Esc didn’t close the list');
+      await x.keyUp('Control_L'); await sleep(500);
+      assert(await onScreen() === before, 'Esc switched anyway: ' + await onScreen());
+      const k2 = await keysGoTo();
+      assert(k2 === before, 'after Esc the keyboard went to ' + k2);
+    } finally {
+      await set('tabs.ctrlTabMenu', false);
+      await set('tabs.ctrlTab', 'recent');
+      try { await x.keyUp('Control_L'); } catch { /* up */ }
+      await closeTabs('?sw');
+    }
+  });
+
+  await R.step('after Ctrl+W, a quick Ctrl+Tab goes back to the tab used before, not on to the next one (Ctrl coming up there isn’t lost)', async () => {
+    const onScreen = () => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); return S.tabs.find((x) => x.id === ws.activeTabId).url; });
+    const tabAt = (q) => t.ui((q) => { const S = window.__wbTest.state; const el = [...document.querySelectorAll('#tablist .tab[data-id]')].find((e) => (S.tabs.find((x) => x.id === e.dataset.id) || {}).url?.endsWith(q)); el.scrollIntoView({ block: 'nearest' }); const r = el.getBoundingClientRect(); return { x: r.x + 60, y: r.y + r.height / 2 }; }, q);
+    try {
+      for (const n of [1, 2, 3]) { await open(site.url + '/a.html?cw' + n); await sleep(800); }
+      // Used in this order: cw1, cw3, cw2 (in front).
+      for (const q of ['?cw1', '?cw3', '?cw2']) { const p = await tabAt(q); await x.click(p.x, p.y); await sleep(450); }
+      await clickIn('?cw2', 'p'); await sleep(200);
+      await x.keyDown('Control_L'); await x.key('w'); await x.keyUp('Control_L'); await sleep(900);
+      assert((await onScreen()).endsWith('?cw3'), 'after Ctrl+W: on ' + await onScreen());
+      await sleep(600);
+      await x.keyDown('Control_L'); await sleep(40); await x.key('Tab'); await sleep(70); await x.keyUp('Control_L'); await sleep(700);
+      assert((await onScreen()).endsWith('?cw1'), 'a quick Ctrl+Tab went to ' + await onScreen() + ', not back to the tab used before (?cw1)');
+    } finally {
+      try { await x.keyUp('Control_L'); } catch { /* up */ }
+      await closeTabs('?cw');
+    }
+  });
+
+  // ------------------------------------------------------------- side panel
+  const ps = () => t.ui(() => window.__wbTest.panels());
+  const centerOf = (sel) => t.ui((sel) => { const e = document.querySelector(sel); if (!e) return null; const r = e.getBoundingClientRect(); return r.width ? { x: r.x + r.width / 2, y: r.y + r.height / 2, left: r.left, top: r.top, right: r.right, bottom: r.bottom } : null; }, sel);
+  const panelGuest = (match, code) => t.main(async ({ webContents }, [match, code]) => {
+    const wc = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.__wbPanel && w.getURL().includes(match));
+    if (!wc) throw new Error('no side panel page with ' + match);
+    return wc.executeJavaScript(code, true);
+  }, [match, code]);
+  // Adds a website with the side bar's + button (the address typed in, Enter).
+  const addWebsite = async (url) => {
+    const add = await until(() => centerOf('.ps-add'), 3000, 'the + button');
+    await x.click(add.x, add.y);
+    await until(() => t.ui(() => document.activeElement && document.activeElement.closest('.panel-add')), 3000, 'the + box, its field focused');
+    await t.ui((u) => { document.activeElement.value = u; }, url);
+    await x.key('Return');
+    return until(async () => { const s = await ps(); const w = s.webs.find((v) => v.url.startsWith(url)); return s.view && s.view.startsWith('web:') && w && !w.loading && w; }, 8000, 'the website in the side panel');
+  };
+
+  await R.step('the side panel: from the top of the window, next to the side bar; a website added with its + button loads there (not as a tab, with your tabs’ cookies), stays loaded and drawn when the panel closes and opens, opens its links as tabs, and comes off when removed', async () => {
+    try {
+      await set('appearance.tabLayout', 'horizontal'); await sleep(900);
+      await open(site.url + '/a.html?panel'); await sleep(900);
+      await t.guest('?panel', 'document.cookie = "shared=yes; path=/"; 1');
+      assert(await t.ui(() => getComputedStyle(document.getElementById('panel-strip')).display === 'flex'), 'no side bar with horizontal tabs');
+      const keys = await t.ui(() => [...document.querySelectorAll('#panel-strip .ps-btn[data-key]')].map((b) => b.dataset.key).join(' '));
+      assert(keys === 'bookmarks history downloads', 'the side bar has: ' + keys);
+      // Bookmarks: from the top of the window, right next to the side bar.
+      const bm = await centerOf('#panel-strip .ps-btn[data-key="bookmarks"]');
+      await x.click(bm.x, bm.y);
+      await until(async () => (await ps()).view === 'bookmarks', 3000, 'the bookmarks panel');
+      await sleep(300);
+      const g = await t.ui(() => { const p = document.getElementById('panel').getBoundingClientRect(); const s = document.getElementById('panel-strip').getBoundingClientRect(); return { top: p.top, left: p.left, stripRight: s.right, gap: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--gap')) }; });
+      assert(Math.abs(g.top - g.gap) <= 1.5, `the panel starts ${g.top}px down (the gap is ${g.gap}px)`);
+      assert(Math.abs(g.left - g.stripRight) <= 1.5, `the panel isn’t next to the side bar: ${g.left} vs ${g.stripRight}`);
+      // A website.
+      await addWebsite(site.url + '/panel.html');
+      await sleep(500);
+      assert(!(await tabUrls()).some((u) => u.includes('/panel.html')), 'the website opened as a tab');
+      const cookies = await panelGuest('/panel.html', 'document.cookie');
+      assert(/shared=yes/.test(cookies), 'the side panel’s website doesn’t have the tabs’ cookies: ' + cookies);
+      assert(await t.ui(() => !!document.querySelector('#panel-strip .ps-btn.on[data-key^="web:"]')), 'its side bar button isn’t lit');
+      // Unread messages ("(3) …" in its title): on its button.
+      await panelGuest('/panel.html', 'document.title = "(3) Side"; 1');
+      await until(() => t.ui(() => (document.querySelector('#panel-strip .ps-btn[data-key^="web:"] .ps-badge') || {}).textContent === '3'), 3000, 'the unread count on its button');
+      await t.shot('everyday-side-panel-website');
+      const wcId = await t.ui(() => document.querySelector('.panel-webhost webview.on').getWebContentsId());
+      // Closed and opened again (with its side bar button): the same page, drawn.
+      const wb = await centerOf('#panel-strip .ps-btn[data-key^="web:"]');
+      await x.click(wb.x, wb.y);
+      await until(async () => (await ps()).view === null, 3000, 'the panel to close');
+      await sleep(400);
+      await x.click(wb.x, wb.y);
+      await until(async () => (await ps()).view?.startsWith('web:'), 3000, 'the panel to open again');
+      await sleep(700);
+      assert(await t.ui(() => document.querySelector('.panel-webhost webview.on').getWebContentsId()) === wcId, 'the page was loaded again');
+      const pixel = await t.main(async ({ BrowserWindow }, r) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().startsWith('bifrost://ui'));
+        const img = await w.webContents.capturePage({ x: Math.round(r.x), y: Math.round(r.bottom - 40), width: 4, height: 4 });
+        const b = img.toBitmap();
+        return [b[2], b[1], b[0]];
+      }, await centerOf('.panel-webhost webview.on'));
+      assert(pixel[0] > 230 && pixel[1] > 190 && pixel[1] < 235 && pixel[2] < 40, 'the page isn’t drawn after opening again: ' + pixel);
+      // Its links open tabs.
+      const link = await panelGuest('/panel.html', '(() => { const r = document.getElementById("out").getBoundingClientRect(); return { x: r.x + 20, y: r.y + r.height / 2 }; })()');
+      const wv = await centerOf('.panel-webhost webview.on');
+      await x.click(wv.left + link.x, wv.top + link.y);
+      await until(async () => (await tabUrls()).some((u) => u.includes('?frompanel')), 5000, 'its link to open a tab');
+      // Removed (its right-click menu): off the side bar, and its page gone.
+      const wb2 = await centerOf('#panel-strip .ps-btn[data-key^="web:"]');
+      await x.click(wb2.x, wb2.y, 3);
+      const removeItem = () => t.ui(() => { const e = [...document.querySelectorAll('.menu [role="menuitem"]')].find((x) => /Remove from the side panel/.test(x.textContent)); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await until(removeItem, 3000, 'its menu');
+      await sleep(300);   // (once it's in place: it slides in)
+      const rm = await removeItem();
+      await x.click(rm.x, rm.y);
+      await until(async () => { const s = await ps(); return !s.webs.length && s.view === null && !(await t.ui(() => document.querySelector('#panel-strip .ps-btn[data-key^="web:"]'))); }, 4000, 'the website to come off');
+      await until(() => t.main(({ webContents }) => !webContents.getAllWebContents().some((w) => !w.isDestroyed() && w.__wbPanel)), 4000, 'its page to close');
+      assert(!(await t.main(() => global.__bifrost.settings.get('panels.web'))).length, 'still in the settings');
+    } finally {
+      await set('panels.web', []);
+      await set('appearance.tabLayout', 'vertical'); await sleep(700);
+      await closeTabs('?panel'); await closeTabs('?frompanel');
+    }
+  });
+
+  await R.step('…with tabs on the side, its buttons are a row in the sidebar; a website there can ask for a permission (the question shows under the panel’s title) and Block answers it', async () => {
+    try {
+      // (the first step here blocked it for this site)
+      await t.main(() => global.__bifrost.db.setSiteSetting('127.0.0.1', 'perm:geolocation', null));
+      await open(site.url + '/a.html?panel2'); await sleep(700);
+      const row = await t.ui(() => [...document.querySelectorAll('#sidebar-panels .ps-btn')].map((b) => b.dataset.key || 'add').join(' '));
+      // (Bookmarks and History have buttons in the sidebar already.)
+      assert(row === 'downloads add', 'the sidebar’s row has: ' + row);
+      await addWebsite(site.url + '/geo.html');
+      await sleep(400);
+      const r = await panelGuest('/geo.html', '(() => { const r = document.getElementById("b").getBoundingClientRect(); return { x: r.x + 30, y: r.y + r.height / 2 }; })()');
+      const wv = await centerOf('.panel-webhost webview.on');
+      await x.click(wv.left + r.x, wv.top + r.y);
+      const perm = await until(() => t.ui(() => { const p = document.querySelector('.perm'); if (!p) return null; const r = p.getBoundingClientRect(); const pr = document.getElementById('panel').getBoundingClientRect(); return { text: p.textContent, left: r.left, top: r.top, panelLeft: pr.left, panelRight: pr.right }; }), 5000, 'the question');
+      assert(/location/i.test(perm.text), 'the question doesn’t say what it’s for: ' + perm.text);
+      assert(perm.left >= perm.panelLeft - 2 && perm.left < perm.panelRight && perm.top < 120, 'the question isn’t under the panel’s title: ' + JSON.stringify(perm));
+      await t.shot('everyday-side-panel-permission');
+      const b = await t.ui(() => { const e = [...document.querySelectorAll('.perm button')].find((x) => /block/i.test(x.textContent)); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await x.click(b.x, b.y);
+      const title = await until(() => panelGuest('/geo.html', 'document.title').then((v) => (v !== 'Geo' ? v : null)), 4000, 'the page’s answer');
+      assert(title === 'geo 1', 'the page got: ' + title);
+    } finally {
+      await set('panels.web', []);
+      await sleep(400);
+      await closeTabs('?panel2');
+    }
+  });
+
+  await R.step('…and its websites get what pages in tabs get: one can ask to show notifications (it isn’t told “blocked”) and Allow answers it; a click on its notification opens it in the side panel; confirm() shows Bifrost’s dialog', async () => {
+    try {
+      await t.ui(() => window.wb.invoke('site:set', '127.0.0.1', 'perm:notifications', null));
+      await addWebsite(site.url + '/notify.html?inpanel');
+      await sleep(600);
+      const logOf = () => panelGuest('?inpanel', 'window.__log');
+      const first = await logOf();
+      assert(first.includes('initial default') && first.includes('query prompt'), 'the page in the side panel is told: ' + JSON.stringify(first));
+      const r = await panelGuest('?inpanel', '(() => { const r = document.getElementById("ask").getBoundingClientRect(); return { x: r.x + 30, y: r.y + r.height / 2 }; })()');
+      const wv = await centerOf('.panel-webhost webview.on');
+      await x.click(wv.left + r.x, wv.top + r.y);
+      const allowAt = () => t.ui(() => { const b = [...document.querySelectorAll('.perm-pop .btn')].find((e) => /Allow/.test(e.textContent)); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await until(allowAt, 4000, 'the question');
+      await sleep(300);
+      const allow = await allowAt();
+      await x.click(allow.x, allow.y);
+      await until(async () => (await logOf()).includes('requested granted'), 3000, 'the page to hear yes');
+      // Its notification, clicked while the panel is closed.
+      assert(await panelGuest('?inpanel', 'window.notify()') === true, 'no notification');
+      await t.ui(() => window.__wbTest.command('panelToggle'));
+      await until(async () => (await ps()).view === null, 2000, 'the panel to close');
+      await panelGuest('?inpanel', 'window.__n.dispatchEvent(new Event("click")), 1');
+      await until(async () => (await ps()).view?.startsWith('web:'), 3000, 'the side panel to open with it');
+      // confirm(): Bifrost's dialog, and the page gets the answer.
+      const answer = panelGuest('?inpanel', 'confirm("Sure about this?")');
+      const okAt = () => t.ui(() => { const d = document.querySelector('.js-dialog-box'); if (!d) return null; const b = [...d.querySelectorAll('.btn')].find((e) => e.textContent.trim() === 'OK'); const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, text: d.textContent }; });
+      await until(okAt, 4000, 'Bifrost’s dialog');
+      await sleep(300);
+      const ok = await okAt();
+      assert(/Sure about this\?/.test(ok.text), 'the dialog says: ' + ok.text);
+      await x.click(ok.x, ok.y);
+      const got = await answer;
+      assert(got === true, 'confirm() got ' + got);
+    } finally {
+      await set('panels.web', []);
+      await t.ui(() => window.wb.invoke('site:set', '127.0.0.1', 'perm:notifications', null));
+      await sleep(400);
+    }
+  });
+
   await R.step('the mouse’s back and forward buttons go back and forward', async () => {
     const onScreen = () => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); return S.tabs.find((x) => x.id === ws.activeTabId).url; });
     await open(site.url + '/a.html?mouse'); await sleep(1200);
@@ -368,6 +594,8 @@ try {
       for (const [name, cfg] of LAYOUTS) {
         await useLayout(cfg);
         const sel = stripSel(name);
+        // (with this many tabs, horizontal ones scroll: the first ones, in view)
+        if (name === 'horizontal tabs') { await t.ui(() => { document.getElementById('htabs-scroll').scrollLeft = 0; }); await sleep(300); }
         const els = await t.ui((sel) => [...document.querySelectorAll(sel)].slice(0, 3).map((e) => { const r = e.getBoundingClientRect(); return { id: e.dataset.id, x: r.x, y: r.y, w: r.width, h: r.height }; }), sel);
         assert(els.length >= 2, name + ': tabs ' + JSON.stringify(els));
         const [a, b] = els;
@@ -464,6 +692,9 @@ try {
           assert(near(at(img, Math.round(geo.armX), Math.round(geo.armY)), green), `${name}: the line doesn't reach the group's dot (${at(img, Math.round(geo.armX), Math.round(geo.armY))})`);
           await t.shot('everyday-group-' + name.replace(/ /g, '-'));
         } else {
+          // (with this many tabs, horizontal ones scroll: the group, in view)
+          await t.ui((gid) => { const sc = document.getElementById('htabs-scroll'); const c = document.querySelector(`.hgroup[data-group="${gid}"]`); sc.scrollLeft += c.getBoundingClientRect().left - sc.getBoundingClientRect().left - 8; }, gid);
+          await sleep(300);
           const geo = await t.ui((gid) => {
             const chip = document.querySelector(`.hgroup[data-group="${gid}"]`).getBoundingClientRect();
             const tabs = [...document.querySelectorAll('#htabs .tab.grouped')].map((e) => e.getBoundingClientRect());

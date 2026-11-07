@@ -1,7 +1,8 @@
 'use strict';
 // chrome.sidePanel: an extension's page shown in Bifrost's side panel, next to the tabs. Panels show up
-// as extra buttons at the top of the side panel; extensions can open them, or have their toolbar button
-// open them (setPanelBehavior).
+// as buttons on the side bar; extensions can open them, or have their toolbar button open them
+// (setPanelBehavior). Firefox-style sidebars (sidebar_action) show there too, and so can any extension's
+// popup page, for extensions with neither: you add those (panels.extensions).
 const ctx = require('../context');
 
 const BEHAVIOR_KEY = 'extensions.sidePanelBehavior';
@@ -12,6 +13,12 @@ function install({ handle, router, extensions }) {
 
   const ext = (id) => extensions.ses.extensions.getExtension(id);
   const manifestPath = (e) => (e && e.manifest && e.manifest.side_panel && e.manifest.side_panel.default_path) || '';
+  const sidebarPath = (e) => (e && e.manifest && e.manifest.sidebar_action && e.manifest.sidebar_action.default_panel) || '';
+  const popupPath = (e) => { const m = (e && e.manifest) || {}; return (m.action || m.browser_action || m.page_action || {}).default_popup || ''; };
+  const hasSidePanel = (e) => ((e.manifest && e.manifest.permissions) || []).includes('sidePanel') && !!(manifestPath(e) || (opts.get(e.id) && opts.get(e.id).global.path));
+  // Its own side panel's page for that tab, if it has one and it's turned on there. (Bitwarden turns its own off
+  // and only uses it now and then, for one tab: then its popup page is what can go in the side panel.)
+  const ownPath = (e, tabId) => { if (!hasSidePanel(e)) return ''; const eff = effective(e.id, tabId); return eff.path && eff.enabled ? eff.path : ''; };
   function state(extId) {
     let s = opts.get(extId);
     if (!s) {
@@ -90,17 +97,34 @@ function install({ handle, router, extensions }) {
     }
   };
 
-  // Side panels available in a window (for its active tab), for the panel's buttons.
+  // Side panels available in a window (for its active tab), for the side bar's buttons. kind: 'side' (its
+  // chrome.sidePanel page), 'sidebar' (its Firefox sidebar page) or 'popup' (its popup page, added by you).
   extensions.sidePanels = (ctl) => {
     const tabId = activeTabId(ctl);
+    const added = ctx.settings.get('panels.extensions') || [];
     const out = [];
     for (const e of extensions.ses.extensions.getAllExtensions()) {
-      if (!manifestPath(e) && !(opts.get(e.id) && opts.get(e.id).global.path)) continue;
-      const perms = (e.manifest && e.manifest.permissions) || [];
-      if (!perms.includes('sidePanel')) continue;
-      const eff = effective(e.id, tabId);
-      if (!eff.path || !eff.enabled) continue;
-      out.push({ id: e.id, name: extensions.localizeString(e, e.name), icon: extensions.iconFor(e), url: urlFor(e.id, eff.path) });
+      const name = extensions.localizeString(e, e.name);
+      const own = ownPath(e, tabId);
+      if (own) {
+        out.push({ id: e.id, name, icon: extensions.iconFor(e), url: urlFor(e.id, own), kind: 'side' });
+      } else if (sidebarPath(e)) {
+        out.push({ id: e.id, name, icon: extensions.iconFor(e), url: urlFor(e.id, sidebarPath(e)), kind: 'sidebar' });
+      } else if (added.includes(e.id) && popupPath(e)) {
+        out.push({ id: e.id, name, icon: extensions.iconFor(e), url: urlFor(e.id, popupPath(e)), kind: 'popup' });
+      }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  };
+  // Every extension that can show in the side panel, and whether it does (for Settings and the side bar's
+  // + button): its own panel, or its popup page.
+  extensions.panelCandidates = () => {
+    const added = ctx.settings.get('panels.extensions') || [];
+    const out = [];
+    for (const e of extensions.ses.extensions.getAllExtensions()) {
+      const own = !!ownPath(e, null) || !!sidebarPath(e);
+      if (!own && !popupPath(e)) continue;
+      out.push({ id: e.id, name: extensions.localizeString(e, e.name), icon: extensions.iconFor(e), kind: own ? 'side' : 'popup', added: own || added.includes(e.id) });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   };

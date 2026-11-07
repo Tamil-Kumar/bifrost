@@ -364,12 +364,24 @@ function register() {
   ipc.handle('extensions:set-shortcut', ['extensions', 'settings'], (event, extId, name, acc) => ctx.extensions.setCommandShortcut(String(extId), String(name), acc === null || acc === undefined ? null : String(acc)));
   // Side panels: which ones a window can show, which one it's about to attach, and what's showing.
   ipc.handle('extensions:side-panels', 'ui', (event) => { const ctl = ctlOf(event); return ctl && !ctl.isPrivate && ctx.extensions.sidePanels ? ctx.extensions.sidePanels(ctl) : []; });
+  // (several can be on their way at once: each is matched to its <webview> by address, windows.js)
+  const expect = (ctl, panel) => {
+    const now = Date.now();
+    ctl.pendingPanels = (ctl.pendingPanels || []).filter((p) => now - p.at < 10000 && p.id !== panel.id).concat(Object.assign(panel, { at: now })).slice(-8);
+    return true;
+  };
   ipc.handle('extensions:side-panel-attach', 'ui', (event, id, url) => {
     const ctl = ctlOf(event);
     if (!ctl || ctl.isPrivate || !/^chrome-extension:\/\/[a-p]{32}\//.test(String(url)) || !String(url).startsWith(`chrome-extension://${id}/`)) return false;
-    ctl.pendingPanel = { id: String(id), url: String(url) };
-    return true;
+    return expect(ctl, { id: String(id), url: String(url) });
   });
+  // A website in the side panel: the UI says which just before its <webview> attaches.
+  ipc.handle('panels:web-attach', 'ui', (event, id, url) => {
+    const ctl = ctlOf(event);
+    if (!ctl || !/^https?:\/\/[^\s]+$/i.test(String(url || '')) || !/^[\w-]{1,40}$/.test(String(id || ''))) return false;
+    return expect(ctl, { id: 'web:' + id, url: String(url), web: true });
+  });
+  ipc.handle('panels:extension-candidates', ['settings'], () => (ctx.extensions && ctx.extensions.panelCandidates ? ctx.extensions.panelCandidates() : []));
   ipc.on('extensions:side-panel-state', 'ui', (event, { id, path: p, shown }) => { const ctl = ctlOf(event); if (ctl && ctx.extensions.sidePanelShown) ctx.extensions.sidePanelShown(ctl, String(id), String(p || ''), !!shown); });
   // Switching tabs, or a click elsewhere in the window, closes an extension's popup (as in Chrome: there,
   // it's a separate window that loses focus).

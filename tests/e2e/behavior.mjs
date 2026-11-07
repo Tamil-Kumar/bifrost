@@ -201,6 +201,27 @@ try {
     }
   });
 
+  await R.step('…and stay shown as long as Settings → Downloads says (1 s, or until closed)', async () => {
+    try {
+      await set('downloads.askWhereToSave', false);
+      await set('downloads.showOnStart', true);
+      for (const [secs, stays] of [[1, false], [61, true]]) {
+        await set('downloads.showOnStartFor', secs);
+        await clickTab('/b.html');
+        await x.move(30, 700);
+        await t.guest('/b.html', `(() => { const a = document.createElement('a'); a.href = '/dl/file.zip?for=${secs}'; a.download = ''; document.body.append(a); a.click(); return 1; })()`);
+        const end = Date.now() + 4000;
+        let shown = false;
+        while (Date.now() < end && !(shown = await t.ui(() => !!document.querySelector('.dl-popover')))) await sleep(100);
+        assert(shown, `the downloads box didn't show (${secs} s)`);
+        await sleep(2600);
+        const still = await t.ui(() => !!document.querySelector('.dl-popover'));
+        assert(still === stays, `set to ${secs > 60 ? 'until closed' : secs + ' s'}, the box ${still ? 'was still open' : 'had closed'} after 2.6 s`);
+        await esc();
+      }
+    } finally { await set('downloads.showOnStartFor', 5); }
+  });
+
   await R.step('Vim keys: off by default; on, j scrolls; on an excluded site (YouTube), keys go to the page', async () => {
     const trace = [];
     const scrollAfterJ = async () => {

@@ -3,7 +3,7 @@
 import {
   boot, wb, h, icon, page, get, set, segmented, switchEl, confirmDialog, promptDialog, dialog, toast, command, debounce, showMenu, openUrl,
 } from '/_/common/page.js';
-import { animate, anim, timeAgo } from '/_/common/util.js';
+import { animate, anim, timeAgo, faviconEl, hostOf } from '/_/common/util.js';
 import { layoutEditor } from './layout-editor.js';
 import { importExtensionsDialog, importExtensionsMenu } from '/_/common/import-extensions.js';
 import { LANGUAGES, languageName, translateCode } from '/_/common/translate.js';
@@ -852,6 +852,58 @@ function downloadFolder() {
   return { el, update };
 }
 
+// ------------------------------------------------------------ side panel
+// What the side bar has a button for: each panel with a switch (websites can be removed), and a field to add a
+// website. Extensions without a side panel of their own can show their popup page there.
+function panelsEditor() {
+  const box = h('div.elist.pe-list');
+  const input = h('input.field.grow', { type: 'text', spellcheck: 'false', placeholder: 'A website’s address, like claude.ai', 'aria-label': 'Website address' });
+  const normUrl = (v) => {
+    v = String(v || '').trim();
+    if (!v) return '';
+    if (!/^https?:\/\//i.test(v)) v = (/^(localhost|127\.|\d+\.\d+\.\d+\.\d+)/i.test(v) ? 'http://' : 'https://') + v.replace(/^\/+/, '');
+    try { const u = new URL(v); return /^https?:$/.test(u.protocol) && (u.hostname.includes('.') || u.hostname === 'localhost') ? u.href : ''; } catch { return ''; }
+  };
+  const key = (url) => { try { const u = new URL(url); return u.host.replace(/^www\./, '') + u.pathname.replace(/\/+$/, '') + u.search; } catch { return url; } };
+  const add = () => {
+    const url = normUrl(input.value);
+    if (!url) { toast({ text: 'That isn’t a web address', iconName: 'warn' }); input.focus(); return; }
+    const list = (get('panels.web') || []).slice();
+    if (!list.some((w) => w && key(w.url) === key(url))) save('panels.web', list.concat({ id: Math.random().toString(36).slice(2, 10), url, title: '' }));
+    input.value = '';
+    input.blur();
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  const addRow = h('div.erow', null, input, h('button.btn.small', { type: 'button', onclick: add }, icon('plus'), 'Add'));
+  let exts = [];
+  const extImg = (c) => {
+    const img = h('img.pe-ico', { src: c.icon || '', alt: '' });
+    img.addEventListener('error', () => img.replaceWith(h('span.pe-ico', null, icon('puzzle'))), { once: true });
+    return c.icon ? img : h('span.pe-ico', null, icon('puzzle'));
+  };
+  const line = (ico, name, sub, ctl) => h('div.pe-row', null, ico, h('div.pe-main', null, h('span', null, name), sub ? h('small', null, sub) : null), ctl);
+  const draw = () => {
+    const hidden = new Set(get('panels.hidden') || []);
+    const shown = (k, on) => save('panels.hidden', on ? [...hidden].filter((x) => x !== k) : [...hidden, k]);
+    const rows = [['bookmarks', 'Bookmarks', 'book'], ['history', 'History', 'clock'], ['downloads', 'Downloads', 'download']]
+      .map(([k, name, ic]) => line(h('span.pe-ico', null, icon(ic)), name, '', switchEl(!hidden.has(k), (v) => shown(k, v), { label: name })));
+    for (const w of (get('panels.web') || []).filter((x) => x && /^https?:/i.test(x.url || ''))) {
+      rows.push(line(faviconEl(w.url, '', icon, 'pe-ico', { hi: true, lookup: true }), w.title || hostOf(w.url).replace(/^www\./, ''), w.url,
+        h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove ' + (w.title || hostOf(w.url)), onclick: () => save('panels.web', (get('panels.web') || []).filter((x) => x !== w && x.id !== w.id)) }, icon('close'))));
+    }
+    for (const c of exts) {
+      if (c.kind === 'side') { rows.push(line(extImg(c), c.name, 'Extension: its side panel', switchEl(!hidden.has('ext:' + c.id), (v) => shown('ext:' + c.id, v), { label: c.name }))); continue; }
+      const list = get('panels.extensions') || [];
+      rows.push(line(extImg(c), c.name, 'Extension: its popup, in the side panel', switchEl(list.includes(c.id), (v) => save('panels.extensions', v ? list.filter((x) => x !== c.id).concat(c.id) : list.filter((x) => x !== c.id)), { label: c.name })));
+    }
+    box.replaceChildren(...rows, addRow);
+  };
+  const load = async () => { exts = await wb.invoke('panels:extension-candidates').catch(() => []); if (!typingIn(box)) draw(); };
+  draw();
+  load();
+  return { el: box, update: () => { if (!typingIn(box)) { draw(); load(); } } };
+}
+
 // ------------------------------------------------------------ keyboard
 function shortcutsEditor() {
   const box = h('div');
@@ -1509,6 +1561,7 @@ function sections() {
           ['mru', 'Tabs in the order you used them'],
         ], { keywords: 'alt tab ctrl tab switch cycle recent previous last mru order' }),
         I.range('tabs.ctrlTabHoldMs', 'How long counts as holding Ctrl', 'Press Tab sooner than this after Ctrl to jump to your last tab; later to go through tabs in order.', { min: 150, max: 1000, step: 25, fmt: (v) => v + ' ms', when: (st) => st.tabs.ctrlTab === 'recent' }),
+        I.toggle('tabs.ctrlTabMenu', 'Show a list of your tabs while Ctrl is held', 'Hold Ctrl and press Tab: your tabs show in a list, Tab goes down it and Shift+Tab up, and letting go of Ctrl switches to the one picked (or click one). Esc stays where you are. A quick Ctrl+Tab still just switches.', { keywords: 'tab switcher menu list overlay picker ctrl tab hold cycle preview alt tab' }),
       ] },
       { title: 'Startup', items: [
         I.seg('tabs.restoreOnStartup', 'When Bifrost starts', '', [['last', 'Continue where I left off'], ['newtab', 'Open a new tab'], ['urls', 'Open specific pages']]),
@@ -1516,6 +1569,12 @@ function sections() {
       ] },
       { title: 'Sleeping tabs', items: [
         I.button('Sleeping tabs', 'When unused tabs go to sleep (to free memory) is part of the performance profile.', 'Performance…', () => go('performance'), { iconName: 'cpu', keywords: 'sleep memory discard suspend ram' }),
+      ] },
+    ] },
+    { id: 'panels', title: 'Side panel', icon: 'sidebar', desc: 'Bookmarks, history, downloads, websites and extensions next to the page.', groups: () => [
+      { title: 'Side bar', items: [
+        I.toggle('panels.strip', 'Show the side bar', 'Buttons that open each side panel: a column at the edge of the window with tabs on top, a row at the bottom of the sidebar with tabs on the side. Without it, the panels are tabs at the top of the side panel.', { keywords: 'sidebar panel strip buttons firefox launcher web panels' }),
+        I.custom('On the side bar', 'Websites stay signed in like your tabs, and keep running while the window is open (right-click one to put it to sleep). To add the page you’re on, right-click its tab.', panelsEditor, { keywords: 'web panel website claude chatgpt gemini whatsapp telegram extension popup bitwarden ticktick add remove hide' }),
       ] },
     ] },
     { id: 'spaces', title: 'Spaces & split view', icon: 'layers', desc: 'Separate sets of tabs, and pages side by side.', groups: () => [
@@ -1679,6 +1738,7 @@ function sections() {
         I.custom('Save files to', '', downloadFolder, { stack: false }),
         I.toggle('downloads.askWhereToSave', 'Ask where to save each file', ''),
         I.toggle('downloads.showOnStart', 'Show downloads when they start', ''),
+        I.range('downloads.showOnStartFor', 'Keep them shown for', 'Then the box closes by itself; with the pointer over it, it stays.', { min: 1, max: 61, step: 1, fmt: (v) => (v > 60 ? 'Until you close it' : v + ' s'), when: (st) => st.downloads.showOnStart, keywords: 'downloads box popup popover how long seconds timeout close automatically' }),
       ] },
     ] },
     { id: 'keyboard', title: 'Keyboard & touchpad', icon: 'keyboard', desc: 'Shortcuts, Vim keys and touchpad swipes.', groups: () => [

@@ -26,6 +26,18 @@ function forwardModifier(ctl, input) {
   ctl.send('modifier-key', { key: input.key, down: input.type === 'keyDown' });
 }
 const keyInfo = (input) => ({ key: input.key, mods: { control: !!input.control, alt: !!input.alt, meta: !!input.meta, shift: !!input.shift } });
+// Ctrl+Tab with its list of tabs (tabs.ctrlTabMenu) stays on this page until Ctrl comes up, which it has to hear:
+// Chromium ignores a page's key-ups until its next key-down once a shortcut was taken from it, so a repeat
+// key-down of the keys still held (what holding a key sends anyway) goes in right after (the UI does the same,
+// a moment later, for a tab Ctrl+Tab moved to: 'tab:held-keys').
+function stillHeld(guest, input) {
+  const mods = ['control', 'alt', 'meta'].filter((m) => input[m]);
+  if (!mods.length) return;
+  setImmediate(() => {
+    if (guest.isDestroyed()) return;
+    for (const m of mods) guest.sendInputEvent({ type: 'keyDown', keyCode: { control: 'Control', alt: 'Alt', meta: 'Meta' }[m], modifiers: [...mods, 'isAutoRepeat'] });
+  });
+}
 
 let compiledAll = [], compiledReserved = [];
 function compile() {
@@ -234,7 +246,11 @@ function setup(guest, ctl) {
     if (input.type !== 'keyDown' || capturing.has(guest.id)) return;
     if (ctx.extensions && ctx.extensions.commands && ctx.extensions.commands.handleKey(input, ctl)) { e.preventDefault(); return; }
     const id = findCommand(compiledReserved, input);
-    if (id) { e.preventDefault(); ctl.send('command', id, { wcId: guest.id, ...keyInfo(input) }); }
+    if (id) {
+      e.preventDefault();
+      ctl.send('command', id, { wcId: guest.id, ...keyInfo(input) });
+      if ((id === 'nextTab' || id === 'prevTab') && ctx.settings.get('tabs.ctrlTabMenu')) stillHeld(guest, input);
+    }
   });
 
   guest.on('context-menu', (e, params) => onContextMenu(guest, ctl, params));
@@ -328,21 +344,33 @@ function onWindowOpen(guest, { url, disposition, features, frameName }) {
   return { action: 'deny' };
 }
 
-// An extension's side panel: its links open as tabs, browser and extension shortcuts keep working,
-// and it gets the page context menu (Inspect included, for extension developers).
+// An extension's side panel, or a website in it: its links open as tabs, browser and extension shortcuts keep
+// working, and it gets the page context menu (Inspect included, for extension developers). A website's
+// sign-in windows stay windows (as they do from a tab), and it gets a tab's user agent.
 function setupPanel(guest, ctl, panel) {
   guest.__wbPanel = panel.id;
-  guest.setWindowOpenHandler(({ url, disposition }) => {
-    if (/^(https?|ftp|chrome-extension):/i.test(url)) ctl.send('open-url', { url, background: disposition === 'background-tab', newWindow: disposition === 'new-window' });
-    return { action: 'deny' };
-  });
+  if (panel.web) {
+    guest.setWindowOpenHandler((details) => onWindowOpen(guest, details));
+    guest.on('did-start-navigation', (e) => { if (e.isMainFrame && !e.isSameDocument) ua.applyForUrl(guest, e.url); });
+    guest.on('will-frame-navigate', (e) => { if (!e.isMainFrame && protocol.isInternal(e.url)) e.preventDefault(); });
+    ua.applyForUrl(guest, panel.url);
+  } else {
+    guest.setWindowOpenHandler(({ url, disposition }) => {
+      if (/^(https?|ftp|chrome-extension):/i.test(url)) ctl.send('open-url', { url, background: disposition === 'background-tab', newWindow: disposition === 'new-window' });
+      return { action: 'deny' };
+    });
+  }
   guest.on('will-navigate', (e) => { if (protocol.isInternal(e.url)) e.preventDefault(); });
   guest.on('before-input-event', (e, input) => {
     forwardModifier(ctl, input);
     if (input.type !== 'keyDown') return;
     if (ctx.extensions && ctx.extensions.commands && ctx.extensions.commands.handleKey(input, ctl)) { e.preventDefault(); return; }
     const id = findCommand(compiledReserved, input);
-    if (id) { e.preventDefault(); ctl.send('command', id, keyInfo(input)); }
+    if (id) {
+      e.preventDefault();
+      ctl.send('command', id, keyInfo(input));
+      if ((id === 'nextTab' || id === 'prevTab') && ctx.settings.get('tabs.ctrlTabMenu')) stillHeld(guest, input);
+    }
   });
   guest.on('context-menu', (e, params) => onContextMenu(guest, ctl, params));
 }

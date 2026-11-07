@@ -249,6 +249,29 @@ try {
     assert(!(await isOpen()), 'clicking its button to close it opened it again');
   });
 
+  await R.step('an extension with only a popup can go in the side panel (from the side bar’s + button): its popup page shows there, as a panel; and it comes off again', async () => {
+    const ps = () => t.ui(() => window.__wbTest.panels());
+    try {
+      const add = await t.until(() => { const e = document.querySelector('.ps-add'); if (!e) return null; const r = e.getBoundingClientRect(); return r.width ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; }, null, 4000, 'the + button');
+      await x.click(add.x, add.y);
+      const rowOf = () => { const r = [...document.querySelectorAll('.pa-row')].find((e) => /API check/.test(e.textContent)); if (!r) return null; const b = r.querySelector('button'); const br = b.getBoundingClientRect(); return { x: br.x + br.width / 2, y: br.y + br.height / 2, label: b.textContent }; };
+      await t.until(rowOf, null, 5000, 'the extension in the + box');
+      await sleep(300);   // (once the box is in place: it slides in)
+      const row = await t.ui(rowOf);
+      assert(row.label === 'Add', 'its button says ' + row.label);
+      await x.click(row.x, row.y);
+      await until(async () => { const s = await ps(); return s.extShown && s.extShown.kind === 'popup' && s.extShown.id === apiId && s.view === 'ext:' + apiId; }, 6000, 'its popup page in the side panel');
+      await until(() => t.main(({ webContents }, id) => webContents.getAllWebContents().some((w) => !w.isDestroyed() && w.__wbPanel === id && w.getURL().includes('/popup.html') && w.getTitle() === 'API check popup'), apiId), 8000, 'the popup page to load there');
+      assert(await t.ui((id) => !!document.querySelector(`.ps-btn.on[data-key="ext:${id}"]`), apiId), 'its side bar button isn’t lit');
+      await t.shot('extensions-popup-in-side-panel');
+      await t.main(() => global.__bifrost.settings.set('panels.extensions', []));
+      await until(async () => { const s = await ps(); return !s.extShown && s.view === null && !s.ext.some((p) => p.id === apiId); }, 4000, 'it to come off');
+      await until(() => t.main(({ webContents }) => !webContents.getAllWebContents().some((w) => !w.isDestroyed() && w.__wbPanel)), 4000, 'its page to close');
+    } finally {
+      await t.main(() => global.__bifrost.settings.set('panels.extensions', []));
+    }
+  });
+
   if (DARKREADER) {
     await R.step('Dark Reader darkens a light page', async () => {
       const drId = await t.main(async (_, dir) => (await global.__bifrost.extensions.loadUnpacked(dir)).id, DARKREADER);

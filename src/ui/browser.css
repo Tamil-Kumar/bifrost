@@ -344,12 +344,14 @@ body {
 :root.sidebar-collapsed #sidebar-resizer, :root.sidebar-autohide #sidebar-resizer { display: none; }
 
 /* ============================================================ side panel */
+/* From the top of the window to the bottom, next to the tabs (on a Mac, below the window buttons when they'd
+   be over it). */
 #panel {
   display: none; flex: none;
   width: var(--panel-w, 320px);
   position: relative;
   flex-direction: column;
-  margin: var(--caption-h) 0 var(--gap) 0;
+  margin: var(--gap) 0 var(--gap) 0;
   background: var(--base);
   border: 1px solid var(--s0);
   border-radius: var(--r-page);
@@ -358,20 +360,104 @@ body {
 :root.panel-open #panel { display: flex; }
 :root[data-layout="vertical"]:not([data-side="right"]) #panel { margin-right: var(--gap); }
 :root[data-layout="vertical"][data-side="right"] #panel { margin-left: var(--gap); }
-:root[data-layout="horizontal"] #panel { margin: calc(var(--caption-h) * 2 + 2px) 0 var(--gap) var(--gap); }
-.panel-head { display: flex; align-items: center; gap: 6px; padding: 8px 8px 4px; }
+:root[data-layout="horizontal"] #panel { margin-left: var(--gap); }
+:root[data-layout="horizontal"].panel-strip #panel { margin-left: 0; }
+:root[data-platform="darwin"][data-layout="horizontal"]:not(.fullscreen) #panel,
+:root[data-platform="darwin"][data-layout="vertical"].sidebar-collapsed:not([data-side="right"]):not(.fullscreen) #panel { margin-top: var(--caption-h); }
+.panel-head { display: flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 6px 4px 8px; }
+.panel-head > .tb-spacer { flex: 1; }
+.panel-ico { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--accent); }
+.panel-ico svg.i { width: 16px; height: 16px; }
+img.panel-ico { object-fit: contain; border-radius: 3px; }
+.panel-ico.letter { font-size: 10px; font-weight: 750; color: var(--text); background: var(--s1); border-radius: 4px; }
+.panel-title { flex: 1; min-width: 0; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 2px; }
+.panel-head .icon-btn:disabled { opacity: .35; pointer-events: none; }
 .panel-search-row { padding: 4px 8px 6px; }
 .panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 6px 10px; }
 .panel-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; }
-.panel-seg .seg-btn span { display: none; }
-.panel-seg .seg-btn.on span { display: inline; }
+.panel-seg .seg-label { display: none; }
+.panel-seg .seg-btn.on .seg-label { display: inline; }
 .panel-seg { min-width: 0; overflow-x: auto; scrollbar-width: none; }
-.panel-seg .seg-btn.panel-ext span { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.panel-ext-ico { width: 16px; height: 16px; flex: none; border-radius: 4px; object-fit: contain; }
+.panel-seg .seg-btn.panel-ext .seg-label { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.panel-seg .seg-btn { flex: none; }
+.panel-ext-ico { width: 16px; height: 16px; flex: none; border-radius: 4px; object-fit: contain; display: inline-grid; place-items: center; }
+.panel-ext-ico svg.i { width: 15px; height: 15px; }
 .panel-ext-ico.letter { display: grid; place-items: center; font-size: 10px; font-weight: 750; color: var(--text); background: var(--s1); }
-#panel.ext-view .panel-search-row { display: none; }
-#panel.ext-view .panel-body { display: flex; padding: 0 6px 6px; overflow: hidden; }
+#panel[data-kind="ext"] .panel-search-row, #panel[data-kind="web"] .panel-search-row, #panel[data-kind="web"] .panel-body { display: none; }
+#panel[data-kind="ext"] .panel-body { display: flex; padding: 0 6px 6px; overflow: hidden; }
 .panel-webview { flex: 1; min-width: 0; width: 100%; height: 100%; border-radius: 10px; overflow: hidden; background: var(--base); }
+/* Websites: each kept in its own page while the window is open, the one showing on top. They're out of
+   sight rather than display: none when not showing (like tabs), and so is the closed panel while it has any:
+   their pages keep their size, and nothing has to be drawn from scratch when they come back. */
+.panel-main { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.panel-webhost { position: absolute; inset: 0 6px 6px; visibility: hidden; pointer-events: none; }
+#panel[data-kind="web"] .panel-webhost { visibility: visible; pointer-events: auto; }
+.panel-webhost > .panel-webview { position: absolute; inset: 0; visibility: hidden; background: #fff; }
+#panel[data-kind="web"] .panel-webhost > .panel-webview.on { visibility: visible; }
+:root:not(.panel-open) #panel.keep, :root.html-fs #panel.keep { display: flex !important; position: fixed; top: var(--gap); bottom: var(--gap); left: 0; margin: 0 !important; visibility: hidden; pointer-events: none; z-index: -1; }
+:root:not(.panel-open) #panel.keep .panel-webview, :root.html-fs #panel.keep .panel-webview { visibility: hidden !important; }
+.pw-fail { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; border-radius: 10px; background: var(--base); text-align: center; }
+#panel[data-kind="web"] .pw-fail.on { display: flex; }
+.pw-fail-ico { color: var(--peach); }
+.pw-fail-ico svg.i { width: 28px; height: 28px; }
+.pw-fail small { color: var(--overlay); }
+
+/* The side bar: a button for each panel. With horizontal tabs, a column at the window's edge; with vertical
+   tabs, a row at the bottom of the sidebar (a column when it's collapsed). */
+#panel-strip { display: none; flex: none; flex-direction: column; align-items: center; justify-content: space-between; gap: 8px; width: calc(var(--btn-size) + 12px); padding: var(--gap) 0; min-height: 0; }
+:root[data-layout="horizontal"].panel-strip #panel-strip { display: flex; }
+:root[data-platform="darwin"]:not(.fullscreen) #panel-strip { padding-top: var(--caption-h); }
+.ps-list, .ps-foot { display: flex; flex-direction: column; align-items: center; gap: var(--btn-gap); min-height: 0; }
+.ps-list { overflow-y: auto; overflow-x: hidden; scrollbar-width: none; padding: 1px 0; }
+.ps-list::-webkit-scrollbar { display: none; }
+.ps-btn {
+  position: relative; flex: none;
+  width: var(--btn-size); height: var(--btn-size);
+  display: grid; place-items: center;
+  border: 0; border-radius: var(--r-btn);
+  background: none; color: var(--subtext);
+  transition: background var(--t-fast), color var(--t-fast), transform var(--t-fast);
+}
+.ps-btn:hover { background: var(--hover); color: var(--text); }
+.ps-btn:active { background: var(--active); transform: scale(.94); }
+.ps-btn.on { background: var(--accent-soft); color: var(--accent); }
+.ps-btn.on::before { content: ""; position: absolute; left: -6px; top: 25%; bottom: 25%; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+#sidebar-panels .ps-btn.on::before { display: none; }
+.ps-btn svg.i { width: var(--icon-size); height: var(--icon-size); }
+.ps-ico { width: 18px; height: 18px; flex: none; display: grid; place-items: center; }
+img.ps-ico { object-fit: contain; border-radius: 4px; }
+.ps-ico.letter { width: 18px; height: 18px; font-size: 11px; font-weight: 750; border-radius: 5px; color: var(--text); background: var(--s1); }
+.fbox.ps-ico .letter { width: 18px; height: 18px; font-size: 11px; }
+.ps-btn.ps-add { color: var(--overlay); }
+.ps-badge { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--red); color: var(--crust); font-size: 9.5px; font-weight: 800; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+#sidebar-panels { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--btn-gap); padding: 4px var(--sb-pad); }
+#sidebar-panels.empty { display: none; }
+:root.sidebar-collapsed #sidebar-panels { flex-direction: column; flex-wrap: nowrap; }
+:root.html-fs #panel-strip { display: none !important; }
+
+/* The + button's box: a website, a suggestion, an extension. */
+.panel-add-pop { width: 340px; padding: 12px; }
+.panel-add { display: flex; flex-direction: column; gap: 8px; }
+.pa-title { font-weight: 700; font-size: .92rem; }
+.pa-field { display: flex; gap: 6px; }
+.pa-field .field { flex: 1; min-width: 0; }
+.pa-field .field.invalid { border-color: var(--red); }
+.pa-note { margin: -2px 0 0; color: var(--overlay); font-size: .82rem; }
+.pa-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pa-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px 0 7px; border: 1px solid var(--s0); border-radius: 999px; background: var(--mantle); color: var(--text); font-size: .88rem; }
+.pa-chip:hover { background: var(--hover); border-color: var(--s1); }
+.pa-fav { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: var(--accent); }
+img.pa-fav { object-fit: contain; border-radius: 3px; }
+.pa-fav.letter { font-size: 10px; font-weight: 750; color: var(--text); background: var(--s1); border-radius: 4px; }
+.pa-fav svg.i { width: 16px; height: 16px; }
+.pa-section { display: flex; flex-direction: column; gap: 4px; }
+.pa-section:empty { display: none; }
+.pa-section .pa-title { margin-top: 4px; }
+.pa-row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+.pa-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-edit { display: flex; flex-direction: column; gap: 10px; }
+.panel-edit label { display: flex; flex-direction: column; gap: 4px; }
+.panel-edit label > span { font-size: .85rem; font-weight: 650; color: var(--subtext); }
 .p-row { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 8px; border-radius: var(--r-sm); color: var(--text); }
 .p-row:hover { background: var(--hover); }
 .p-fav { width: 16px; height: 16px; flex: none; }
@@ -1072,7 +1158,7 @@ webview.js-dialog-hide { visibility: hidden !important; }
 
 /* Private windows. */
 :root.private #stage { box-shadow: var(--shadow-1), 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
-:root.blurred #sidebar, :root.blurred #toolbar, :root.blurred #hbar, :root.blurred #bookmarks-bar { opacity: .82; transition: opacity var(--t-med); }
+:root.blurred #sidebar, :root.blurred #toolbar, :root.blurred #hbar, :root.blurred #bookmarks-bar, :root.blurred #panel-strip { opacity: .82; transition: opacity var(--t-med); }
 
 /* Extension popups: the popup is a native view drawn on top of the window; this is its shadow. */
 #ext-popup-shadow {
@@ -1185,7 +1271,7 @@ body { background: var(--chrome-bg); }
 :root.blend body { background: var(--page-tint); }
 /* (only from one color of the page to another: theme.js) */
 :root.blend.blend-fade body { transition: background-color var(--t-med, 220ms) ease; }
-:root.blend #sidebar, :root.blend #topbar { color: var(--text); }
+:root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { color: var(--text); }
 /* (behind the page too: its rounded corners then leave no lighter edge) */
 :root.blend webview.view { background: var(--page-tint); }
 :root.blend body::before { display: none; }
@@ -1249,3 +1335,26 @@ body { background: var(--chrome-bg); }
   backdrop-filter: blur(var(--blend-blur, 40px)) saturate(1.3);
 }
 :root.low-visuals #backdrop { display: none; }
+
+/* ============================================================ Ctrl+Tab's list of tabs (tabs.ctrlTabMenu) */
+.tab-switcher { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; outline: none; }
+.ts-card {
+  width: min(560px, calc(100vw - 48px)); max-height: min(70vh, 560px);
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--base); color: var(--text); border: 1px solid var(--s0);
+  border-radius: calc(var(--r-menu, 12px) + 4px);
+  box-shadow: 0 28px 70px -18px rgba(0, 0, 0, .6), 0 2px 8px rgba(0, 0, 0, .25);
+}
+.ts-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; scrollbar-width: thin; }
+.ts-row { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 10px; border-radius: var(--r-sm, 8px); cursor: default; }
+.ts-row.sel { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+.ts-fav { width: 16px; height: 16px; flex: none; }
+.ts-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ts-row.current .ts-title { color: var(--subtext, var(--text)); }
+.ts-host, .ts-note { flex: none; max-width: 40%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--overlay); font-size: .82rem; }
+.ts-note { font-style: italic; }
+.ts-pin { flex: none; color: var(--overlay); display: grid; place-items: center; }
+.ts-pin svg { width: 13px; height: 13px; }
+.ts-group { flex: none; width: 4px; height: 18px; border-radius: 2px; margin-left: -4px; }
+.ts-foot { flex: none; padding: 8px 14px; border-top: 1px solid var(--s0); color: var(--overlay); font-size: .8rem; }
+.ts-foot kbd { font: inherit; font-size: .76rem; padding: 1px 5px; border-radius: 4px; background: var(--s0); color: var(--subtext, var(--text)); }

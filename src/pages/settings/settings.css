@@ -164,3 +164,13 @@
 @media (max-width: 980px) { .anim-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* A note row that's hidden takes no room. */
 .srow:has(> .srow-ctl > .perf-note[hidden]) { display: none; }
+
+/* Settings → Side panel: what the side bar has */
+.pe-list { gap: 2px; }
+.pe-row { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 2px 0; }
+.pe-ico { width: 18px; height: 18px; flex: none; display: grid; place-items: center; color: var(--accent); object-fit: contain; border-radius: 4px; }
+.pe-ico svg.i { width: 17px; height: 17px; }
+.pe-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pe-main > span, .pe-main > small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pe-main > small { color: var(--overlay); font-size: .82rem; }
+.pe-list > .erow { margin-top: 6px; }
