@@ -11,6 +11,7 @@ import * as V from './views.js';
 import { howFromEvent } from './results.js';
 
 const wb = window.wb;
+const D = window.WBDefaults;
 const root = document.documentElement;
 const panelEl = document.getElementById('panel');
 const stripEl = document.getElementById('panel-strip');     // horizontal tabs: the column at the window's edge
@@ -42,16 +43,26 @@ const hiddenSet = () => new Set(setting('panels.hidden') || []);
 const siteName = (url) => hostOf(url).replace(/^www\./, '') || url;
 const urlKey = (url) => { try { const u = new URL(url); return u.host.replace(/^www\./, '') + u.pathname.replace(/\/+$/, '') + u.search; } catch { return url; } };
 
-// Everything the side panel can show, in the side bar's order (all: the hidden ones too).
+// Everything the side panel can show, in the usual order (all: the ones kept off the side bar too).
 function entries({ all = false } = {}) {
   const hidden = all ? new Set() : hiddenSet();
   const out = [];
   for (const [key, [label, ic, cmd]] of Object.entries(BUILTIN)) if (!hidden.has(key)) out.push({ key, kind: 'builtin', label, ic, cmd });
-  for (const w of webList()) out.push({ key: 'web:' + w.id, kind: 'web', label: w.title || siteName(w.url), w });
+  for (const w of webList()) if (!hidden.has('web:' + w.id)) out.push({ key: 'web:' + w.id, kind: 'web', label: w.title || siteName(w.url), w });
   for (const p of extPanels) if (!hidden.has('ext:' + p.id)) out.push({ key: 'ext:' + p.id, kind: 'ext', label: p.name, p });
   return out;
 }
 const entryFor = (key) => entries({ all: true }).find((e) => e.key === key) || null;
+// What the side bar shows, in its order (Settings → Toolbar & sidebar): panels' keys, and 'add' (its + button),
+// 'settings' (its settings button), 'spacer'.
+function barKeys() {
+  return D.sideBarKeys({ order: setting('panels.order'), hidden: setting('panels.hidden'), panels: entries({ all: true }).map((e) => e.key), horizontal: root.dataset.layout === 'horizontal' });
+}
+// The panels on the side bar, in its order.
+function ordered() {
+  const byKey = new Map(entries().map((e) => [e.key, e]));
+  return barKeys().map((k) => byKey.get(k)).filter(Boolean);
+}
 
 function extIcon(p, cls) {
   const img = h('img.' + cls, { src: p.icon || '', alt: '', draggable: 'false' });
@@ -77,20 +88,43 @@ function renderStrip() {
   if (!host) return;
   // In the sidebar, panels it has a button for already (Settings → Appearance → Toolbar and sidebar) aren't repeated.
   const inSidebar = horizontal ? new Set() : new Set([...(setting('appearance.sidebarTop') || []), ...(setting('appearance.sidebarBottom') || [])]);
-  const btns = entries().filter((e) => !(e.kind === 'builtin' && inSidebar.has(e.key))).map(stripButton);
-  const add = h('button.ps-btn.ps-add.no-drag', { type: 'button', title: 'Add to the side panel', 'aria-label': 'Add to the side panel', onclick: (ev) => addPopover(ev.currentTarget) }, icon('plus'));
-  if (horizontal) {
-    const gear = h('button.ps-btn.no-drag', { type: 'button', title: 'Side panel settings', 'aria-label': 'Side panel settings', onclick: () => emit('command', 'openSettings', { section: 'panels' }) }, icon('sliders'));
-    host.replaceChildren(h('div.ps-list', null, ...btns, add), h('div.ps-foot', null, gear));
-  } else {
-    host.replaceChildren(...btns, add);
+  const byKey = new Map(entries().map((e) => [e.key, e]));
+  const nodes = [];
+  for (const k of barKeys()) {
+    if (k === 'spacer') nodes.push(h('div.ps-spacer', { dataset: { bar: 'spacer' } }));
+    else if (k === 'add') nodes.push(ownButton('add', 'plus', 'Add to the side panel', (ev) => addPopover(ev.currentTarget)));
+    else if (k === 'settings') nodes.push(ownButton('settings', 'sliders', 'Side panel settings', () => emit('command', 'openSettings', { section: 'panels' })));
+    else { const e = byKey.get(k); if (e && !(e.kind === 'builtin' && inSidebar.has(e.key))) nodes.push(stripButton(e)); }
   }
+  if (horizontal) host.replaceChildren(h('div.ps-list', null, ...nodes));
+  else host.replaceChildren(...nodes);
+  rowEl.classList.toggle('empty', host !== rowEl || !nodes.some((n) => !n.classList.contains('ps-spacer')));
   host.oncontextmenu = (ev) => {
     if (ev.target.closest('.ps-btn[data-key]')) return;
     ev.preventDefault();
     stripMenu({ x: ev.clientX, y: ev.clientY });
   };
 }
+
+// The side bar's own buttons: + (add a website or an extension) and its settings. Both can come off it.
+function ownButton(key, ic, label, onclick) {
+  const b = h('button.ps-btn.no-drag.ps-' + (key === 'add' ? 'add' : 'gear'), { type: 'button', title: label, 'aria-label': label, dataset: { bar: key }, onclick }, icon(ic));
+  b.addEventListener('mousedown', (ev) => { if (ev.button === 0) ev.preventDefault(); });
+  b.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const pos = { x: ev.clientX, y: ev.clientY };
+    showMenu([
+      key === 'add'
+        ? { label: 'Add to the side panel…', icon: 'plus', action: () => addPopover(b) }
+        : { label: 'Side panel settings', icon: 'sliders', action: () => emit('command', 'openSettings', { section: 'panels' }) },
+      customizeItem(),
+      '-',
+      { label: 'Remove from the side bar', icon: 'eyeOff', action: () => hide(key) },
+    ], pos);
+  });
+  return b;
+}
+const customizeItem = () => ({ label: 'Customize the side bar…', icon: 'layout', action: () => emit('command', 'customizeLayout') });
 
 function stripButton(e) {
   const rec = e.kind === 'web' ? webs.get(e.w.id) : null;
@@ -113,8 +147,9 @@ function markActive() {
 
 function stripMenu(pos) {
   showMenu([
-    { label: 'Add to the side panel…', icon: 'plus', action: () => addPopover(document.querySelector('.ps-add')) },
+    { label: 'Add to the side panel…', icon: 'plus', action: () => addPopover(document.querySelector('.ps-add'), pos) },
     { label: 'Side panel settings', icon: 'sliders', action: () => emit('command', 'openSettings', { section: 'panels' }) },
+    customizeItem(),
     '-',
     { label: 'Hide the side bar', icon: 'eyeOff', action: () => {
       saveSetting('panels.strip', false);
@@ -141,6 +176,7 @@ function entryMenu(e, pos) {
       { label: 'Move down', icon: 'arrowDown', disabled: i < 0 || i >= list.length - 1, action: () => moveWeb(e.w.id, 1) },
       { label: 'Put to sleep', icon: 'moon', disabled: !rec, action: () => unloadWeb(e.w.id) },
       '-',
+      { label: 'Hide from the side bar', icon: 'eyeOff', action: () => hide(e.key) },
       { label: 'Remove from the side panel', icon: 'trash', danger: true, action: () => removeWeb(e.w.id) });
   } else if (e.kind === 'ext') {
     items.push(
@@ -153,13 +189,16 @@ function entryMenu(e, pos) {
   } else {
     items.push({ label: 'Hide from the side bar', icon: 'eyeOff', action: () => hide(e.key) });
   }
+  items.push(customizeItem());
   showMenu(items, pos);
 }
 
 function hide(key) {
   const hidden = setting('panels.hidden') || [];
   if (!hidden.includes(key)) saveSetting('panels.hidden', hidden.concat(key));
-  toast({ text: 'Hidden from the side bar. Its + button brings it back.', iconName: 'eyeOff', timeout: 4000 });
+  // (the + button lists what's hidden, while it's there itself)
+  const viaPlus = key !== 'add' && key !== 'settings' && !hidden.includes('add');
+  toast({ text: viaPlus ? 'Hidden from the side bar. Its + button brings it back.' : 'Taken off the side bar. Settings → Toolbar & sidebar brings it back.', iconName: 'eyeOff', timeout: 5000 });
 }
 function unhide(key) {
   wantOpen = key;
@@ -169,7 +208,7 @@ function unhide(key) {
 // ------------------------------------------------------------ adding things
 // The side bar's + button: a website (the page you're on, or any address), a suggestion, an extension, or
 // something hidden.
-async function addPopover(anchor) {
+async function addPopover(anchor, at = null) {
   const cur = activeTab();
   const curUrl = cur && /^https?:\/\//i.test(cur.url || '') ? cur.url : '';
   const input = h('input.field', { type: 'text', spellcheck: 'false', placeholder: 'Website address', autofocus: true, 'data-select': '', 'aria-label': 'Website address' });
@@ -186,6 +225,7 @@ async function addPopover(anchor) {
   const sugg = SUGGESTED.filter(([, url]) => !have.has(urlKey(url)));
   const extBox = h('div.pa-section');
   const hiddenBuiltins = Object.entries(BUILTIN).filter(([k]) => hiddenSet().has(k));
+  const hiddenWebs = webList().filter((w) => hiddenSet().has('web:' + w.id));
   const row = (iconEl, label, btnLabel, fn) => h('div.pa-row', null, iconEl, h('span.pa-name', null, label), h('button.btn.small', { type: 'button', onclick: () => { pop.close('done'); fn(); } }, btnLabel));
   const body = h('div.panel-add', null,
     h('div.pa-title', null, 'Add a website'),
@@ -193,10 +233,12 @@ async function addPopover(anchor) {
     curUrl ? h('p.pa-note', null, 'This page is filled in. It stays signed in like your tabs.') : h('p.pa-note', null, 'It stays signed in like your tabs.'),
     sugg.length ? h('div.pa-chips', null, sugg.map(([name, url]) => h('button.pa-chip', { type: 'button', title: url, onclick: () => { pop.close('done'); addWeb(url, name); } }, faviconEl(url, '', icon, 'pa-fav', { hi: true, lookup: true }), h('span', null, name)))) : null,
     extBox,
-    hiddenBuiltins.length ? h('div.pa-section', null, h('div.pa-title', null, 'Hidden'), hiddenBuiltins.map(([k, [label, ic]]) => row(h('span.pa-fav.builtin', null, icon(ic)), label, 'Show', () => unhide(k)))) : null);
+    hiddenBuiltins.length || hiddenWebs.length ? h('div.pa-section', null, h('div.pa-title', null, 'Hidden'),
+      hiddenBuiltins.map(([k, [label, ic]]) => row(h('span.pa-fav.builtin', null, icon(ic)), label, 'Show', () => unhide(k))),
+      hiddenWebs.map((w) => row(faviconEl(w.url, '', icon, 'pa-fav', { hi: true, lookup: true }), w.title || siteName(w.url), 'Show', () => unhide('web:' + w.id)))) : null);
   const horizontal = root.dataset.layout === 'horizontal';
   const side = horizontal || root.dataset.side !== 'right' ? 'right' : 'left';
-  const pop = popover(body, anchor ? { anchor, side, align: horizontal ? 'start' : 'end' } : { x: 80, y: 80 }, { className: 'panel-add-pop' });
+  const pop = popover(body, anchor ? { anchor, side, align: horizontal ? 'start' : 'end' } : (at || { x: 80, y: 80 }), { className: 'panel-add-pop' });
   if (S.isPrivate) return;
   // Extensions: ones without a panel of their own can show their popup page there; hidden ones can come back.
   const cands = await wb.invoke('panels:extension-candidates').catch(() => []);
@@ -322,7 +364,7 @@ export function toggle(which, opts) {
 export function toggleLast() {
   if (view) { close(); return; }
   const there = last && (BUILTIN[last] || entryFor(last));
-  open(there ? last : (entries()[0] || { key: 'bookmarks' }).key, { focus: true });
+  open(there ? last : (ordered()[0] || entries()[0] || { key: 'bookmarks' }).key, { focus: true });
 }
 
 export function open(which, { url, focus = false } = {}) {
@@ -387,7 +429,7 @@ function renderHead() {
     actions.push(btn('reload', 'Reload', () => extShown.el.reload()));
   }
   if (!stripOn()) {
-    const tabs = h('div.seg.panel-seg', null, entries().map((x) => {
+    const tabs = h('div.seg.panel-seg', null, ordered().map((x) => {
       const b = h('button.seg-btn' + (x.key === view ? '.on' : '') + (x.kind === 'builtin' ? '' : '.panel-ext'), { type: 'button', title: x.label, onclick: () => open(x.key, { focus: x.kind !== 'builtin' }) }, entryIcon(x, 'panel-ext-ico'), h('span.seg-label', null, x.label));
       b.addEventListener('contextmenu', (ev) => { ev.preventDefault(); entryMenu(x, { x: ev.clientX, y: ev.clientY }); });
       return b;
@@ -559,9 +601,11 @@ export function unloadWeb(id) {
 // Websites that were removed (or moved to another address) in Settings or another window.
 function syncWebs() {
   const list = webList();
+  const hidden = hiddenSet();
   for (const [id, rec] of [...webs]) {
     const w = list.find((x) => x.id === id);
-    if (!w) { if (view === 'web:' + id) close(); unloadWeb(id); }
+    // (removed, or taken off the side bar: it stops running)
+    if (!w || hidden.has('web:' + id)) { if (view === 'web:' + id) close(); unloadWeb(id); }
     else if (urlKey(w.url) !== urlKey(rec.home)) {
       const showing = view === 'web:' + id;
       unloadWeb(id);
@@ -765,7 +809,9 @@ async function renderDownloads() {
 
 // ------------------------------------------------------------------- tests
 export function _state() {
-  return { view, last, strip: stripOn(), webs: [...webs.values()].map((r) => ({ id: r.id, url: r.url, title: r.title, loading: r.loading, shown: r.el.classList.contains('on'), badge: r.badge })), ext: extPanels.map((p) => ({ id: p.id, kind: p.kind })), extShown: extShown ? { id: extShown.id, kind: extShown.kind, url: extShown.url } : null };
+  const host = stripOn() ? (root.dataset.layout === 'horizontal' ? stripEl : rowEl) : null;
+  const bar = host ? [...host.querySelectorAll('[data-key], [data-bar]')].map((el) => el.dataset.key || el.dataset.bar) : [];
+  return { view, last, strip: stripOn(), bar, webs: [...webs.values()].map((r) => ({ id: r.id, url: r.url, title: r.title, loading: r.loading, shown: r.el.classList.contains('on'), badge: r.badge })), ext: extPanels.map((p) => ({ id: p.id, kind: p.kind })), extShown: extShown ? { id: extShown.id, kind: extShown.kind, url: extShown.url } : null };
 }
 
 export function init() {

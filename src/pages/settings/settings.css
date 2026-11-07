@@ -85,6 +85,11 @@
 .lz-x:hover { background: var(--active); color: var(--text); }
 .lz-x svg.i { width: 12px; height: 12px; color: inherit; }
 .lz-marker { flex: none; width: 3px; height: 28px; border-radius: 2px; background: var(--accent); }
+/* The side bar's items: websites' and extensions' own icons; a panel it doesn't show (in a sidebar row as well) dim. */
+.lz-fav { flex: none; width: 16px; height: 16px; display: grid; place-items: center; object-fit: contain; border-radius: 4px; }
+.lz-fav svg.i { width: 15px; height: 15px; }
+.lz-item.dim { opacity: .5; }
+.lz-sep { height: 1px; margin: 8px 0 2px; background: var(--s0); }
 .range output.auto { color: var(--overlay); }
 .shape-preset { gap: 8px; }
 .shape-preset.on { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
@@ -173,4 +178,5 @@
 .pe-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .pe-main > span, .pe-main > small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pe-main > small { color: var(--overlay); font-size: .82rem; }
+.pe-ctl { flex: none; display: flex; align-items: center; gap: 6px; }
 .pe-list > .erow { margin-top: 6px; }

@@ -407,8 +407,10 @@ img.panel-ico { object-fit: contain; border-radius: 3px; }
 #panel-strip { display: none; flex: none; flex-direction: column; align-items: center; justify-content: space-between; gap: 8px; width: calc(var(--btn-size) + 12px); padding: var(--gap) 0; min-height: 0; }
 :root[data-layout="horizontal"].panel-strip #panel-strip { display: flex; }
 :root[data-platform="darwin"]:not(.fullscreen) #panel-strip { padding-top: var(--caption-h); }
-.ps-list, .ps-foot { display: flex; flex-direction: column; align-items: center; gap: var(--btn-gap); min-height: 0; }
-.ps-list { overflow-y: auto; overflow-x: hidden; scrollbar-width: none; padding: 1px 0; }
+/* (one list, in the order you gave it: a flexible space pushes what's after it to the far end) */
+.ps-list { flex: 1 1 auto; align-self: stretch; display: flex; flex-direction: column; align-items: center; gap: var(--btn-gap); min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; padding: 1px 0; }
+.ps-spacer { flex: 1 1 0; min-width: 0; min-height: 0; }
+:root.sidebar-collapsed #sidebar-panels .ps-spacer { display: none; }
 .ps-list::-webkit-scrollbar { display: none; }
 .ps-btn {
   position: relative; flex: none;

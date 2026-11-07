@@ -888,8 +888,11 @@ function panelsEditor() {
     const rows = [['bookmarks', 'Bookmarks', 'book'], ['history', 'History', 'clock'], ['downloads', 'Downloads', 'download']]
       .map(([k, name, ic]) => line(h('span.pe-ico', null, icon(ic)), name, '', switchEl(!hidden.has(k), (v) => shown(k, v), { label: name })));
     for (const w of (get('panels.web') || []).filter((x) => x && /^https?:/i.test(x.url || ''))) {
-      rows.push(line(faviconEl(w.url, '', icon, 'pe-ico', { hi: true, lookup: true }), w.title || hostOf(w.url).replace(/^www\./, ''), w.url,
-        h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove ' + (w.title || hostOf(w.url)), onclick: () => save('panels.web', (get('panels.web') || []).filter((x) => x !== w && x.id !== w.id)) }, icon('close'))));
+      const name = w.title || hostOf(w.url).replace(/^www\./, '');
+      rows.push(line(faviconEl(w.url, '', icon, 'pe-ico', { hi: true, lookup: true }), name, w.url,
+        h('div.pe-ctl', null,
+          switchEl(!hidden.has('web:' + w.id), (v) => shown('web:' + w.id, v), { label: name }),
+          h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove ' + name, onclick: () => save('panels.web', (get('panels.web') || []).filter((x) => x !== w && x.id !== w.id)) }, icon('close')))));
     }
     for (const c of exts) {
       if (c.kind === 'side') { rows.push(line(extImg(c), c.name, 'Extension: its side panel', switchEl(!hidden.has('ext:' + c.id), (v) => shown('ext:' + c.id, v), { label: c.name }))); continue; }
@@ -1398,7 +1401,7 @@ function sections() {
         I.toggle('appearance.showWorkspaceStrip', 'Spaces at the bottom of the sidebar', ''),
         I.toggle('appearance.showTabPreviews', 'Tab previews on hover', 'Shows the page title and a thumbnail.'),
         I.toggle('appearance.showStatusBubble', 'Link addresses on hover', 'The little bubble in the corner of the page.'),
-        I.button('Toolbar and sidebar buttons', 'Choose what’s on them and in what order.', 'Customize…', () => go('customize'), { iconName: 'layout', keywords: 'customize toolbar sidebar buttons' }),
+        I.button('Toolbar and sidebar buttons', 'Choose what’s on them and in what order, the side bar’s too.', 'Customize…', () => go('customize'), { iconName: 'layout', keywords: 'customize toolbar sidebar side bar panel buttons' }),
         I.button('Look & feel', 'Window background, shadows, glass menus, the current tab’s look, the address bar, sizes and corner rounding.', 'Adjust…', () => go('look'), { iconName: 'ruler', keywords: 'radius padding size shadows glass' }),
       ] },
       { title: 'Auto-hiding bars', id: 'flyout', items: [
@@ -1417,9 +1420,9 @@ function sections() {
         I.textarea('appearance.customCss', 'Custom CSS for the browser window', 'For tweaks beyond these settings. Applies instantly.', { placeholder: '.tab { font-weight: 600; }', keywords: 'userchrome style' }),
       ] },
     ] },
-    { id: 'toolbar-sidebar', title: 'Toolbar & sidebar', icon: 'layout', desc: 'What’s on the toolbar and in the sidebar, and the bookmarks bar. You can also right-click any button on them.', groups: () => [
+    { id: 'toolbar-sidebar', title: 'Toolbar & sidebar', icon: 'layout', desc: 'What’s on the toolbar, in the sidebar and on the side bar, and the bookmarks bar. You can also right-click any button on them.', groups: () => [
       { title: 'Toolbar & sidebar', id: 'customize', items: [
-        I.custom('Toolbar and sidebar', 'Drag items between the rows, or from “More items”. Drag one back to “More items” (or click it) to remove it. Right-click the toolbar or sidebar to get here.', layoutEditor, { keywords: 'customize buttons toolbar sidebar home reader screenshot split settings spaces spacer divider order rearrange' }),
+        I.custom('Toolbar and sidebar', 'Drag items between the rows, or from the trays under them. Drag one back to a tray (or click it) to take it off. The side bar holds the side panel’s buttons: its panels, its + button and its settings button. Right-click the toolbar, the sidebar or the side bar to get here.', layoutEditor, { keywords: 'customize buttons toolbar sidebar side bar panel plus add website extension home reader screenshot split settings spaces spacer divider order rearrange remove hide' }),
       ] },
       { title: 'Bookmarks bar', id: 'bookmarks-bar', items: [
         I.toggle('appearance.showBookmarksBar', 'Bookmarks bar', 'Ctrl+Shift+B toggles it.'),
@@ -1576,6 +1579,7 @@ function sections() {
       { title: 'Side bar', items: [
         I.toggle('panels.strip', 'Show the side bar', 'Buttons that open each side panel: a column at the edge of the window with tabs on top, a row at the bottom of the sidebar with tabs on the side. Without it, the panels are tabs at the top of the side panel.', { keywords: 'sidebar panel strip buttons firefox launcher web panels' }),
         I.custom('On the side bar', 'Websites stay signed in like your tabs, and keep running while the window is open (right-click one to put it to sleep). To add the page you’re on, right-click its tab.', panelsEditor, { keywords: 'web panel website claude chatgpt gemini whatsapp telegram extension popup bitwarden ticktick add remove hide' }),
+        I.button('Arrange the side bar', 'The order of its buttons, and whether its + button and its settings button are on it.', 'Customize…', () => go('customize'), { iconName: 'layout', keywords: 'order rearrange plus add button gear settings remove move' }),
       ] },
     ] },
     { id: 'spaces', title: 'Spaces & split view', icon: 'layers', desc: 'Separate sets of tabs, and pages side by side.', groups: () => [

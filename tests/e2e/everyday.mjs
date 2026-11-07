@@ -526,6 +526,84 @@ try {
     }
   });
 
+  await R.step('arranging the side bar: its + comes off with its right-click menu; Settings → Toolbar & sidebar has a row for it (its panels, a website, + and its settings button) where they move, come off and go back, with tabs on the side and on top', async () => {
+    const row = () => t.ui(() => window.__wbTest.panels().bar.join(' '));
+    const inSettings = (code) => t.guest('bifrost://settings', code);
+    const chips = (sel) => inSettings(`[...document.querySelectorAll(${JSON.stringify(sel + ' .lz-item')})].map((e) => e.dataset.id + (e.classList.contains('dim') ? '(dim)' : '')).join(' ')`);
+    // (a chip's menu, once the one before has gone)
+    const clickChip = async (sel, part = '') => {
+      await until(() => inSettings('!document.querySelector(".menu, .dialog")'), 3000, 'the menu before to close');
+      return inSettings(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; (${JSON.stringify(part)} ? e.querySelector(${JSON.stringify(part || 'x')}) : e).click(); return true; })()`);
+    };
+    const pick = (label) => inSettings(`(async () => { for (let i = 0; i < 40; i++) { const e = [...document.querySelectorAll('.menu [role="menuitem"], .dialog .btn')].filter((x) => x.textContent.trim().startsWith(${JSON.stringify(label)})).pop(); if (e) { e.click(); return true; } await new Promise((r) => setTimeout(r, 50)); } return false; })()`);
+    try {
+      await set('panels.web', [{ id: 'arr9', url: site.url + '/b.html?arranged', title: 'Arranged' }]);
+      await until(async () => (await row()) === 'downloads web:arr9 add', 3000, 'the website on the side bar (tabs on the side)');
+      // + off, with its right-click menu.
+      const add = await centerOf('#sidebar-panels .ps-add');
+      await x.click(add.x, add.y, 3);
+      const itemAt = (re) => t.ui((re) => { const e = [...document.querySelectorAll('.menu [role="menuitem"]')].find((x) => new RegExp(re).test(x.textContent)); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, re);
+      await until(() => itemAt('Remove from the side bar'), 3000, 'its menu');
+      await sleep(300);
+      const rm = await itemAt('Remove from the side bar');
+      await x.click(rm.x, rm.y);
+      await until(async () => (await row()) === 'downloads web:arr9', 3000, 'the + to come off');
+      assert((await t.main(() => global.__bifrost.settings.get('panels.hidden'))).includes('add'), 'not kept off in the settings');
+      // Settings → Toolbar & sidebar: the side bar's row (Bookmarks and History are in the sidebar's bottom row, so not on it).
+      await t.ui(() => window.__wbTest.command('customizeLayout'));
+      await until(() => chips('[data-zone="bar"]').catch(() => ''), 8000, 'the side bar’s row in Settings');
+      assert(await chips('[data-zone="bar"]') === 'bar:bookmarks(dim) bar:history(dim) bar:downloads bar:web:arr9', 'the side bar’s row: ' + await chips('[data-zone="bar"]'));
+      assert(await chips('[data-tray="bar"]') === 'bar:add bar:settings spacer', 'not on it: ' + await chips('[data-tray="bar"]'));
+      // + back (from its tray), Downloads off (its ×) and back (before +), the website moved after it.
+      await clickChip('[data-tray="bar"] [data-id="bar:add"]');
+      assert(await pick('Add to the side bar'), 'no “Add to the side bar” for +');
+      await until(async () => (await row()) === 'downloads web:arr9 add', 3000, 'the + back');
+      await until(async () => (await chips('[data-zone="bar"]')).endsWith('bar:add'), 3000, 'Settings to follow');
+      await clickChip('[data-zone="bar"] [data-id="bar:downloads"]', '.lz-x');
+      await until(async () => (await row()) === 'web:arr9 add', 3000, 'Downloads off');
+      await until(async () => (await chips('[data-tray="bar"]')).includes('bar:downloads'), 3000, 'Downloads in the tray');
+      await clickChip('[data-tray="bar"] [data-id="bar:downloads"]');
+      assert(await pick('Add to the side bar'), 'no “Add to the side bar” for Downloads');
+      await until(async () => (await row()) === 'web:arr9 downloads add', 3000, 'Downloads back, before +');
+      await until(async () => (await chips('[data-zone="bar"]')).includes('bar:web:arr9 bar:downloads'), 3000, 'Settings to follow');
+      await clickChip('[data-zone="bar"] [data-id="bar:web:arr9"]');
+      assert(await pick('Move right'), 'no “Move right”');
+      await until(async () => (await row()) === 'downloads web:arr9 add', 3000, 'the website after Downloads');
+      // Tabs on top: the column at the window's edge, in the same order; its settings button, then a flexible
+      // space moved before it, put that at the bottom.
+      await set('appearance.tabLayout', 'horizontal'); await sleep(900);
+      assert(await row() === 'bookmarks history downloads web:arr9 add', 'tabs on top: ' + await row());
+      await until(async () => (await chips('[data-tray="bar"]')) === 'bar:settings spacer', 3000, 'Settings with tabs on top');
+      await clickChip('[data-tray="bar"] [data-id="bar:settings"]');
+      assert(await pick('Add to the side bar'), 'no “Add to the side bar” for its settings button');
+      await until(async () => (await row()).endsWith('add settings'), 3000, 'its settings button');
+      await until(async () => (await chips('[data-tray="bar"]')) === 'spacer', 3000, 'Settings to follow');
+      await clickChip('[data-tray="bar"] [data-id="spacer"]');
+      assert(await pick('Add to the side bar'), 'no “Add to the side bar” for a flexible space');
+      await until(async () => (await row()).endsWith('settings spacer'), 3000, 'the space');
+      await until(async () => (await chips('[data-zone="bar"]')).endsWith('spacer'), 3000, 'Settings to follow');
+      const n = await inSettings(`document.querySelectorAll('[data-zone="bar"] .lz-item').length`);
+      await clickChip(`[data-zone="bar"] .lz-item[data-index="${n - 1}"]`);
+      assert(await pick('Move up'), 'no “Move up” (the side bar is a column with tabs on top)');
+      await until(async () => (await row()).endsWith('add spacer settings'), 3000, 'the space before its settings button');
+      await sleep(300);
+      const g = await t.ui(() => { const b = document.querySelector('#panel-strip .ps-gear').getBoundingClientRect(); const s = document.getElementById('panel-strip').getBoundingClientRect(); const a = document.querySelector('#panel-strip .ps-add').getBoundingClientRect(); return { gear: b.bottom, strip: s.bottom, add: a.bottom }; });
+      assert(g.strip - g.gear < 30 && g.gear - g.add > 200, 'its settings button isn’t at the bottom: ' + JSON.stringify(g));
+      await t.shot('everyday-side-bar-arranged');
+      // Reset: the usual side bar again.
+      await until(() => inSettings('!document.querySelector(".menu, .dialog")'), 3000, 'the menu before to close');
+      await inSettings(`[...document.querySelectorAll('.lz-editor .btn')].find((b) => /Reset to default/.test(b.textContent)).click(), 1`);
+      assert(await pick('Reset'), 'no Reset in the question');
+      // (the row looks the same as before: what changes is that it's the usual order again, not one of yours)
+      await until(() => t.main(() => { const p = global.__bifrost.settings.get('panels'); return p.order === null && !p.hidden.length; }), 3000, 'the settings to be the usual ones');
+      assert(await row() === 'bookmarks history downloads web:arr9 add spacer settings', 'after Reset: ' + await row());
+    } finally {
+      await set('panels.web', []); await set('panels.hidden', []); await set('panels.order', null);
+      await set('appearance.tabLayout', 'vertical'); await sleep(700);
+      await closeTabs('bifrost://settings');
+    }
+  });
+
   await R.step('the mouse’s back and forward buttons go back and forward', async () => {
     const onScreen = () => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); return S.tabs.find((x) => x.id === ws.activeTabId).url; });
     await open(site.url + '/a.html?mouse'); await sleep(1200);

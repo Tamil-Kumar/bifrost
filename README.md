@@ -49,7 +49,7 @@ task manager), `behavior` (settings that change behavior, the Launcher section's
 you see and building the rest after), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
-questions, notifications, dialogs), find, zoom,
+questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures`, `hidpi` (a 150% display:
@@ -70,7 +70,7 @@ getNotifications(), blocked sites). The Windows setup, end to end with PowerShel
 what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you
 use and open comes first), `launcher-settings` that every setting
 of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and
-what Enter and the launcher's other keys do).
+what Enter and the launcher's other keys do; `side-bar` the side bar's order, yours or the usual one).
 
 ## Releases
 

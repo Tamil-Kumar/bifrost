@@ -299,7 +299,8 @@
     // the side bar (a column of buttons at the window's edge, or a row in the sidebar with vertical tabs).
     panels: {
       strip: true,                   // the side bar's buttons
-      hidden: [],                    // built-in panels ('bookmarks'…) and extension panels ('ext:<id>') kept off it
+      hidden: [],                    // what's kept off it: panels ('bookmarks', 'web:<id>', 'ext:<id>'), 'add' (+), 'settings'
+      order: null,                   // its order, as you arranged it (Settings → Toolbar & sidebar); null: the usual one
       web: [],                       // websites: [{ id, url, title }]
       extensions: [],                // extensions without a side panel of their own, shown there by their popup page
     },
@@ -451,6 +452,39 @@
     { id: 'divider', label: 'Divider', icon: 'divider', multi: true },
   ];
   function layoutItem(id) { return LAYOUT_ITEMS.find((x) => x.id === id) || null; }
+
+  // The side bar (the side panel's buttons): its own buttons besides the panels', and the order it shows them
+  // in. `panels` are the panels' keys in their usual order (bookmarks, history, downloads, websites,
+  // extensions). Without an order of your own: the panels, then +, and with tabs on top the settings button
+  // at the far end. With one: yours, and panels that came since (a website you added, an extension's panel)
+  // just before + (or at the end). Keys it has no panel for stay in the order (an extension that's off, say)
+  // but aren't shown; hidden ones aren't either. 'spacer' may repeat.
+  const SIDE_BAR_ITEMS = {
+    add: { label: 'Add to the side panel', icon: 'plus' },
+    settings: { label: 'Side panel settings', icon: 'sliders' },
+    spacer: { label: 'Flexible space', icon: 'spacer' },
+  };
+  function sideBarOrder({ order = null, panels = [], horizontal = false } = {}) {
+    const base = Array.isArray(order) ? order.filter((k) => typeof k === 'string' && k) : [...panels, 'add', ...(horizontal ? ['spacer', 'settings'] : [])];
+    const out = [];
+    const seen = new Set();
+    for (const k of base) {
+      if (k !== 'spacer') { if (seen.has(k)) continue; seen.add(k); }
+      out.push(k);
+    }
+    for (const k of panels) {
+      if (seen.has(k)) continue;
+      seen.add(k);
+      const i = out.indexOf('add');
+      out.splice(i < 0 ? out.length : i, 0, k);
+    }
+    return out;
+  }
+  function sideBarKeys({ order = null, hidden = [], panels = [], horizontal = false } = {}) {
+    const hid = new Set(hidden || []);
+    const known = new Set(panels);
+    return sideBarOrder({ order, panels, horizontal }).filter((k) => (k === 'spacer' || k in SIDE_BAR_ITEMS || known.has(k)) && !hid.has(k));
+  }
 
   const COMMANDS = [
     ['newTab', 'New tab', 'Tabs', ['Ctrl+T']],
@@ -675,7 +709,7 @@
   }
 
   return {
-    DEFAULTS, COMMANDS, VIM_KEYS, VIM_EXCLUDED, DEFAULT_ENGINES, LAYOUT_ITEMS, layoutItem, PERF_PRESETS, perf, ANIM_STYLES, animStyle, NTP_MODULES, NTP_PLACES,
+    DEFAULTS, COMMANDS, VIM_KEYS, VIM_EXCLUDED, DEFAULT_ENGINES, LAYOUT_ITEMS, layoutItem, SIDE_BAR_ITEMS, sideBarOrder, sideBarKeys, PERF_PRESETS, perf, ANIM_STYLES, animStyle, NTP_MODULES, NTP_PLACES,
     clone, deepMerge, getPath, setPath,
     parseAccelerator, eventToChord, chordMatches, chordToString, chordFromEventString, shortcutMap, compileShortcuts, findCommand, keyToCode,
   };
