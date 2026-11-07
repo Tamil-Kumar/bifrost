@@ -103,8 +103,8 @@ async function siteInfo(anchor) {
   const pop = popover(body, { anchor, side: 'bottom', align: 'start' }, { className: 'si-pop' });
 }
 
-// The address bar's permissions button: every permission for this site, Ask / Allow / Block, changed right
-// here. What the page asked for comes first, saying what it got. Notifications apply at once (the page is
+// The permissions shield (address bar, title pill): every permission for this site, Ask / Allow / Block,
+// changed right here. What the page asked for comes first, saying what it got. Notifications apply at once (the page is
 // told: preload/tab.js); the others from the next time the page loads, so it offers a reload.
 const LIVE = new Set(['notifications']);
 const ASKED_LABEL = { notifications: 'show notifications', camera: 'use your camera', microphone: 'use your microphone', geolocation: 'know your location', 'clipboard-read': 'see what you copy', 'display-capture': 'share your screen', midi: 'use MIDI devices', midiSysex: 'control MIDI devices', openExternal: 'open an app' };
@@ -117,7 +117,7 @@ async function sitePermissions(anchor) {
   if (!info) return;
   const name = host.replace(/^www\./, '');
   const asks = t.permAsks && t.permAsks.host === host ? t.permAsks.list : [];
-  const body = h('div.si.perms', { dataset: { host } }, h('div.si-head', null, h('span.si-fav', null, icon('sliders')),
+  const body = h('div.si.perms', { dataset: { host } }, h('div.si-head', null, h('span.si-fav', null, icon('shield')),
     h('div', null, h('div.si-host', null, name), h('div.si-sec', null, 'What this site may do'))));
   const notice = h('p.si-note', { hidden: true }, 'Reload the page to apply this. ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); V.reload(t); pop.close(); } }, 'Reload'));
   const set = async (key, value) => {
@@ -153,7 +153,7 @@ async function sitePermissions(anchor) {
       toast({ text: `${name} will ask again`, iconName: 'rotate', actions: [{ label: 'Reload', action: () => V.reload(t) }] });
     } }, icon('rotate'), 'Reset permissions'),
     h('button.link-btn', { type: 'button', onclick: () => { pop.close(); emit('command', 'openSettings', { section: 'sites', host }); } }, icon('sliders'), 'All site settings')));
-  const pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'si-pop perms-pop' });
+  const pop = popover(body, { anchor, side: 'bottom', align: 'start' }, { className: 'si-pop perms-pop' });
 }
 
 async function editSiteCss(host, css, tab) {

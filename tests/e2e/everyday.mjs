@@ -203,16 +203,21 @@ try {
     await open(site.url + '/notify.html'); await sleep(1500);
     const first = await logOf();
     assert(first.includes('initial default') && first.includes('query prompt'), 'the page is told: ' + JSON.stringify(first));
-    const btnState = () => t.ui(() => { const b = document.querySelector('.addr-btn.permsb'); return b && { hidden: b.hidden, icon: b.dataset.icon, blocked: b.classList.contains('blocked'), title: b.title }; });
+    const btnState = () => t.ui(() => {
+      const b = document.querySelector('.addr-btn.permsb');
+      if (!b) return null;
+      const r = b.getBoundingClientRect(), lock = document.getElementById('site-btn').getBoundingClientRect();
+      return { hidden: b.hidden, shield: b.innerHTML.includes('M12 3l7.5 3v5.5') && !b.innerHTML.includes('M8.8'), first: r.width > 0 && r.right <= lock.left + 1 && b === b.parentElement.firstElementChild, key: b.dataset.blocked, blocked: b.classList.contains('blocked'), title: b.title };
+    });
     let bs = await btnState();
-    assert(bs && !bs.hidden && !bs.blocked, 'the permissions button: ' + JSON.stringify(bs));
+    assert(bs && !bs.hidden && !bs.blocked && bs.shield && bs.first, 'the permissions shield (at the start of the address bar): ' + JSON.stringify(bs));
     // The site asks (from a click), and is told no.
     await clickIn('/notify.html', '#ask');
     const block = await until(() => t.ui(() => { const b = [...document.querySelectorAll('.perm-pop .btn')].find((e) => /Block/.test(e.textContent)); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }), 4000, 'the prompt');
     await x.click(block.x, block.y);
     await until(async () => (await logOf()).includes('requested denied'), 3000, 'the page to hear no');
     bs = await until(async () => { const v = await btnState(); return v && v.blocked ? v : null; }, 3000, 'the button to show it was blocked');
-    assert(bs.icon === 'bellOff' && /Notifications blocked/.test(bs.title), 'the button: ' + JSON.stringify(bs));
+    assert(bs.key === 'notifications' && bs.shield && /Notifications blocked/.test(bs.title), 'the button: ' + JSON.stringify(bs));
     // The button: what it asked for, and Allow, which the page hears straight away (no reload).
     const pb = await t.ui(() => { const r = document.querySelector('.addr-btn.permsb').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     await x.click(pb.x, pb.y);
@@ -234,6 +239,42 @@ try {
     await t.ui(() => window.wb.invoke('site:set', '127.0.0.1', 'perm:notifications', null));
     await until(async () => (await t.guest('/notify.html', 'Notification.permission')) === 'default', 3000, 'the page to be told “ask”');
     await esc();
+  });
+
+  await R.step('with the compact toolbar, the permissions shield is in the title pill: it opens the site’s permissions, is marked when the page was refused something, and isn’t there on Bifrost’s own pages', async () => {
+    const pillShield = () => t.ui(() => {
+      const b = document.querySelector('.title-pill .pill-perms');
+      if (!b) return null;
+      const r = b.getBoundingClientRect(), pill = document.querySelector('.title-pill').getBoundingClientRect();
+      return { shown: !b.hidden && r.width > 0, inPill: r.left >= pill.left && r.right <= pill.right && r.top >= pill.top - 1 && r.bottom <= pill.bottom + 1, first: r.left - pill.left < 12, blocked: b.classList.contains('blocked'), key: b.dataset.blocked, x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    });
+    try {
+      await set('appearance.compactToolbar', true);
+      await open(site.url + '/notify.html?pill'); await sleep(1300);
+      let ps = await until(async () => { const v = await pillShield(); return v && v.shown ? v : null; }, 3000, 'the shield in the pill');
+      assert(ps.inPill && ps.first && !ps.blocked, 'the shield: ' + JSON.stringify(ps));
+      await t.shot('everyday-pill-shield');
+      await x.click(ps.x, ps.y);
+      await until(() => t.ui(() => !!document.querySelector('.perms-pop [data-perm="notifications"]')), 3000, 'the site’s permissions');
+      await esc();
+      // Refused (blocked for the site): marked, and says so.
+      await t.ui(() => window.wb.invoke('site:set', '127.0.0.1', 'perm:notifications', 'block'));
+      await t.guest('?pill', 'Notification.requestPermission().then((r) => { document.title = "asked " + r; }), 1');
+      ps = await until(async () => { const v = await pillShield(); return v && v.blocked ? v : null; }, 3000, 'the shield to be marked');
+      assert(ps.key === 'notifications', 'marked for ' + ps.key);
+      // Bifrost's own page: no shield.
+      await t.ui(() => window.__wbTest.command('newTabPage'));
+      await sleep(600);
+      ps = await pillShield();
+      assert(ps && !ps.shown, 'a shield on the new tab page: ' + JSON.stringify(ps));
+      await t.ui(() => window.__wbTest.command('closeTab'));
+      await sleep(400);
+    } finally {
+      await t.ui(() => window.wb.invoke('site:set', '127.0.0.1', 'perm:notifications', null));
+      await set('appearance.compactToolbar', false);
+      await sleep(300);
+      await closeTabs('?pill');
+    }
   });
 
   await R.step('the keyboard follows the tab on screen (Ctrl+Tab, a new tab, a link opening a tab, reopening a closed tab)', async () => {

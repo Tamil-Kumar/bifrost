@@ -615,17 +615,30 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 .address.is-empty .addr-btn { display: none; }
 .addr-chip { height: 22px; padding: 0 7px; border: 0; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: .8rem; font-weight: 700; }
 
-/* Compact toolbar: a title pill instead of the address bar. */
+/* The site's permissions: a shield at the start of the address bar and of the title pill, marked (and
+   peach) when the page was just refused something. */
+.addr-btn.permsb { color: var(--subtext); }
+.permsb { position: relative; }
+.permsb.blocked { color: var(--peach); }
+.permsb.blocked::after { content: ""; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 1.5px var(--mantle); }
+.pill-perms.blocked::after { top: 1px; right: 1px; width: 6px; height: 6px; }
+
+/* Compact toolbar: a title pill instead of the address bar (the shield, then the page). */
 .title-pill { display: none; }
 :root.compact .address { display: none; }
 :root.compact .title-pill {
   position: relative;   /* moved to the toolbar's middle (toolbar.js, centerAddress) */
-  display: flex; align-items: center; gap: 8px; max-width: 640px; min-width: 0;
-  height: calc(var(--addr-h) - 4px); padding: 0 12px;
-  border: 0; border-radius: 999px; background: color-mix(in srgb, var(--text) 6%, transparent);
+  display: flex; align-items: center; gap: 2px; max-width: 640px; min-width: 0;
+  height: calc(var(--addr-h) - 4px); padding: 0 12px 0 4px;
+  border-radius: 999px; background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text);
 }
 :root.compact .title-pill:hover { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.pill-main { flex: 1 1 auto; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; padding: 0 0 0 4px; border: 0; border-radius: 999px; background: none; color: inherit; }
+.pill-perms[hidden] + .pill-main { padding-left: 8px; }
+.pill-perms { flex: none; width: calc(var(--addr-h) - 10px); height: calc(var(--addr-h) - 10px); display: grid; place-items: center; border: 0; border-radius: 50%; background: none; color: var(--subtext); transition: color var(--t-fast), background var(--t-fast); }
+.pill-perms:hover { background: var(--hover); color: var(--text); }
+.pill-perms svg.i { width: 15px; height: 15px; }
 .pill-fav { width: 16px; height: 16px; flex: none; }
 .pill-host { font-weight: 600; white-space: nowrap; }
 .pill-title { color: var(--overlay); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

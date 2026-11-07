@@ -15,7 +15,7 @@ const toolbarEl = document.getElementById('toolbar');
 const hbarEl = document.getElementById('hbar');
 let caption = null;
 const btn = {};          // toolbar buttons by id
-let titlePill = null;
+let titlePill = null, pillMain = null;
 
 function tbButton(id, iconName, title, onClick, extra = {}) {
   const b = h('button.tb-btn.no-drag', { type: 'button', title, 'aria-label': title, dataset: extra.panel ? { tb: id, panel: extra.panel } : { tb: id } }, icon(iconName));
@@ -69,14 +69,21 @@ const ITEMS = {
     // Shown on pages in another language than yours (and on translated ones, to go back); right-click
     // for another language or to stop offering for this one.
     const translateB = h('button.addr-btn.translateb', { type: 'button', hidden: true, onclick: () => emit('command', 'translatePage'), oncontextmenu: (e) => { e.preventDefault(); translateMenu(e.currentTarget); } }, icon('translate'));
-    // The site's permissions (notifications, camera, location…): what it may do, changed right here. It
-    // shows what the page just asked for, and stands out when that was blocked.
-    const permsB = h('button.addr-btn.permsb', { type: 'button', title: 'Site permissions', hidden: true, onclick: (e) => emit('site-permissions', e.currentTarget) }, icon('sliders'));
+    // The site's permissions (notifications, camera, location…): what it may do, changed right here. A
+    // shield at the start of the address bar (as in Firefox), and of the title pill with the compact
+    // toolbar; it stands out when the page was just refused something.
+    const shield = (cls) => h('button.' + cls + '.permsb', { type: 'button', title: 'Site permissions', 'aria-label': 'Site permissions', hidden: true, onclick: (e) => emit('site-permissions', e.currentTarget) }, icon('shield'));
+    const permsB = shield('addr-btn');
     for (const b of [zoom, star, splitB, readerB, translateB, permsB]) b.addEventListener('mousedown', (e) => e.preventDefault());
-    actions.append(translateB, readerB, permsB, zoom, splitB, star);
+    actions.append(translateB, readerB, zoom, splitB, star);
+    root.prepend(permsB);
     btn.zoom = zoom; btn.star = star; btn.readerB = readerB; btn.translateB = translateB; btn.permsB = permsB;
-    titlePill = h('button.title-pill.no-drag', { type: 'button', title: tip('Edit the address', 'focusAddress'), onclick: () => emit('command', 'focusAddress') });
-    titlePill.addEventListener('mousedown', (e) => e.preventDefault());
+    // The compact toolbar's title pill: the shield, and the page (click to edit the address).
+    const pillPerms = shield('pill-perms');
+    pillMain = h('button.pill-main', { type: 'button', title: tip('Edit the address', 'focusAddress'), onclick: () => emit('command', 'focusAddress') });
+    for (const b of [pillPerms, pillMain]) b.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.pillPerms = pillPerms;
+    titlePill = h('div.title-pill.no-drag', null, pillPerms, pillMain);
     return h('div.tb-address', null, root, titlePill);
   },
 };
@@ -322,7 +329,7 @@ export function update() {
     btn.zoom.textContent = Math.round(Math.pow(1.2, z) * 100) + '%';
   }
   if (btn.readerB) btn.readerB.hidden = !t || !/^https?:/i.test(url);
-  if (btn.permsB) updatePermsButton(t, url);
+  updatePermsButton(t, url);
   if (btn.translateB) {
     const translated = !!t && Tr.isTranslated(url);
     btn.translateB.hidden = !translated && !offerTranslation(t);
@@ -331,7 +338,7 @@ export function update() {
   }
   if (titlePill) {
     if (document.documentElement.classList.contains('compact')) scheduleCenter();
-    titlePill.replaceChildren(
+    pillMain.replaceChildren(
       t ? faviconEl(url, t.favicon, icon, 'pill-fav') : '',
       h('span.pill-host', null, !t ? 'Search or enter an address' : isNewTab(url) ? 'New tab' : isInternal(url) ? (t.title || 'Bifrost') : hostOf(url).replace(/^www\./, '')),
       t && !isNewTab(url) && !isInternal(url) && t.title ? h('span.pill-title', null, t.title) : '');
@@ -339,22 +346,24 @@ export function update() {
   Omni.refresh();
 }
 
-// The address bar's permissions button: on web pages. What the page asked for shows on it: in the
-// permission's icon, and marked when it was blocked (click to change it).
-const PERM_ICONS = { notifications: 'bell', camera: 'video', microphone: 'mic', geolocation: 'location', 'clipboard-read': 'copy', 'display-capture': 'monitor', midi: 'keyboard', midiSysex: 'keyboard', openExternal: 'external' };
+// The permissions shield (address bar and title pill): on web pages. When the page was just refused
+// something, it's marked, and says what (click to allow it).
 const PERM_NAMES = { notifications: 'Notifications', camera: 'Camera', microphone: 'Microphone', geolocation: 'Location', 'clipboard-read': 'Clipboard', 'display-capture': 'Screen sharing', midi: 'MIDI devices', midiSysex: 'MIDI devices', openExternal: 'Opening apps', hid: 'HID devices', serial: 'Serial ports', usb: 'USB devices' };
 function updatePermsButton(t, url) {
-  const b = btn.permsB;
-  const web = !!t && /^https?:/i.test(url);
-  b.hidden = !web;
-  if (!web) return;
-  const asks = t.permAsks && t.permAsks.host === hostOf(url) ? t.permAsks.list : [];
-  const blocked = asks.filter((a) => !a.allowed);
-  const shown = blocked[0] || null;
-  const name = shown ? (shown.key === 'notifications' ? 'bellOff' : PERM_ICONS[shown.key] || 'sliders') : 'sliders';
-  if (b.dataset.icon !== name) { b.dataset.icon = name; b.replaceChildren(icon(name)); }
-  b.classList.toggle('blocked', !!shown);
-  b.title = shown ? `${PERM_NAMES[shown.key] || shown.key} blocked on ${hostOf(url).replace(/^www\./, '')}: click to allow` : 'Site permissions';
+  const web = !!t && /^https?:/i.test(url || '');
+  const host = web ? hostOf(url) : '';
+  const asks = web && t.permAsks && t.permAsks.host === host ? t.permAsks.list : [];
+  const shown = asks.find((a) => !a.allowed) || null;
+  const name = host.replace(/^www\./, '');
+  for (const b of [btn.permsB, btn.pillPerms]) {
+    if (!b) continue;
+    b.hidden = !web;
+    if (!web) continue;
+    b.classList.toggle('blocked', !!shown);
+    b.dataset.blocked = shown ? shown.key : '';
+    b.title = shown ? `${PERM_NAMES[shown.key] || shown.key} blocked on ${name}: click to allow` : `Site permissions for ${name}`;
+    b.setAttribute('aria-label', b.title);
+  }
 }
 
 // ------------------------------------------------------------- translation
