@@ -65,7 +65,12 @@ function start() {
 
   app.whenReady().then(async () => {
     Menu.setApplicationMenu(null);
-    if (process.platform === 'win32') app.setAppUserModelId('Bifrost.Browser');
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('Bifrost.Browser');
+      // (and Windows told who that is, or notifications don't show without a Start menu shortcut, as in
+      // BifrostPortable: default-browser.js)
+      setTimeout(() => require('./default-browser').registerAppId().catch((e) => console.warn('[notifications] not registered with Windows:', e.message)), 3000);
+    }
     // Widevine (protected content): starts installing or checking now; windows open once it's there, or
     // after a few seconds at most.
     const drm = require('./drm');

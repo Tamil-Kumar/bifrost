@@ -45,6 +45,8 @@ function setup(ses, { isPrivate = false } = {}) {
   // After the ad blocker, so blocked requests are never learned; private windows learn nothing.
   if (!isPrivate) require('./predictor').attach(ses, hub);
   permissions.attach(ses, { isPrivate });
+  // (notifications from websites' service workers: Electron would drop them)
+  require('./notifications').attach(ses);
   downloads.attach(ses, { isPrivate });
   applySpellcheck(ses);
   applyProxy(ses);

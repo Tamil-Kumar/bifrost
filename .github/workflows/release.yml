@@ -92,6 +92,11 @@ jobs:
         continue-on-error: ${{ env.EVS_ACCOUNT_NAME == '' || env.EVS_PASSWD == '' }}
         run: node tools/drm-check.mjs dist/release --timeout=240
 
+      # (Doesn't hold up a release: what it finds is in the log.)
+      - name: Notifications reach Windows
+        continue-on-error: true
+        run: node tools/notify-check.mjs dist/release --timeout=120
+
       - name: Publish
         shell: bash
         env:

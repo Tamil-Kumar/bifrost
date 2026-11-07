@@ -81,6 +81,7 @@ function resolveWc(tab, el, tries = 0) {
     return;
   }
   setTab(tab, { wcId: id });
+  reportShown();
   for (const r of wcWaiters.get(tab.id) || []) r(id);
   wcWaiters.delete(tab.id);
   if (tab.restoring) {
@@ -286,6 +287,34 @@ function sleepCheck(force = false) {
 }
 export function sleepBackgroundTabs() { return sleepCheck(true); }
 
+// ---------------------------------------------------------------- on screen
+// Which pages are on screen, for main to tell them (main/guests.js, preload/tab.js): Electron tells every
+// page in a <webview> it's visible (and focused) as long as the window is, the tab in front or not, so a
+// page behind another couldn't know you'd gone, and sites that notify you only then (chat sites such as
+// claude.ai) didn't. The tabs showing, and the side panel's website when it's open; a tab under one of
+// Bifrost's dialogs still counts. Coalesced: sent once, after whatever changed it.
+let shownKey = '', shownQueued = false;
+export function reportShown() {
+  if (shownQueued) return;
+  shownQueued = true;
+  setTimeout(() => {
+    shownQueued = false;
+    const known = [], shown = [];
+    for (const el of document.querySelectorAll('webview')) {
+      let id = null;
+      try { id = el.getWebContentsId(); } catch { id = null; }
+      if (id == null) { const t = el.dataset.tab && S.tabs.find((x) => String(x.id) === el.dataset.tab); id = t && t.wv === el ? t.wcId : null; }
+      if (id == null) continue;
+      known.push(id);
+      if (el.classList.contains('js-dialog-hide') || typeof el.checkVisibility !== 'function' || el.checkVisibility({ visibilityProperty: true })) shown.push(id);
+    }
+    const key = known.sort((a, b) => a - b).join(',') + '|' + shown.sort((a, b) => a - b).join(',');
+    if (key === shownKey) return;
+    shownKey = key;
+    wb.send('tabs:shown', { known, shown });
+  }, 0);
+}
+
 // ---------------------------------------------------------------- layout
 // Positions the visible tab (or split panes) and hides everything else.
 export function layout() {
@@ -337,6 +366,7 @@ export function layout() {
   }
   renderResizers(sp);
   emit('layout');
+  reportShown();
 }
 
 // ------------------------------------------------------------------ panes

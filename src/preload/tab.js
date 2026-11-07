@@ -144,10 +144,110 @@ if (/^https?:$/.test(location.protocol) && typeof Notification === 'function') {
           },
         });
         try { Object.defineProperty(window, 'Notification', { value: Wrapped, writable: true, configurable: true, enumerable: false }); } catch { /* sealed */ }
+
+        // The ones the page shows through its service worker (registration.showNotification): Electron drops
+        // those without a word, so Bifrost shows them (main/notifications.js), and a click on one reaches the
+        // worker. (The ones the worker shows itself go the same way: preload/sw.js.)
+        const SWR = window.ServiceWorkerRegistration;
+        if (!SWR || !SWR.prototype || typeof SWR.prototype.showNotification !== 'function') return;
+        const define = (obj, key, value) => { try { Object.defineProperty(obj, key, { value, writable: true, configurable: true }); } catch { /* sealed */ } };
+        const fail = (method, message) => new TypeError(`Failed to execute '${method}' on 'ServiceWorkerRegistration': ${message}`);
+        const prep = (options) => {
+          const o = options === undefined || options === null ? {} : options;
+          if (typeof o !== 'object' && typeof o !== 'function') throw fail('showNotification', "The provided value is not of type 'NotificationOptions'.");
+          const url = (v) => { if (v === undefined || v === null || v === '') return ''; try { return new URL(String(v), document.baseURI).href; } catch { return ''; } };
+          const out = {
+            body: o.body === undefined ? '' : String(o.body), tag: o.tag === undefined ? '' : String(o.tag),
+            icon: url(o.icon), badge: url(o.badge), image: url(o.image), dir: o.dir === 'ltr' || o.dir === 'rtl' ? o.dir : 'auto',
+            lang: o.lang === undefined ? '' : String(o.lang), requireInteraction: !!o.requireInteraction, renotify: !!o.renotify,
+            silent: o.silent === undefined || o.silent === null ? null : !!o.silent,
+            timestamp: o.timestamp === undefined ? Date.now() : Number(o.timestamp),
+            actions: Array.from(o.actions || [], (a) => ({ action: String(a && a.action), title: String(a && a.title), icon: url(a && a.icon) })),
+            data: o.data === undefined ? null : structuredClone(o.data),
+          };
+          if (out.renotify && !out.tag) throw fail('showNotification', 'Notifications which set the renotify flag must specify a non-empty tag.');
+          if (out.silent && o.vibrate !== undefined && [].concat(o.vibrate).length) throw fail('showNotification', 'Silent notifications must not specify vibration patterns.');
+          return out;
+        };
+        const make = (d, scope) => {
+          const n = new EventTarget();
+          try { Object.setPrototypeOf(n, N.prototype); } catch { /* a plain one, then */ }
+          const o = (d && d.options) || {};
+          const props = {
+            title: String(d.title || ''), body: o.body || '', tag: o.tag || '', icon: o.icon || '', badge: o.badge || '', image: o.image || '',
+            dir: o.dir || 'auto', lang: o.lang || '', requireInteraction: !!o.requireInteraction, renotify: !!o.renotify,
+            silent: o.silent === undefined ? null : o.silent, timestamp: Number(o.timestamp) || 0,
+            actions: Object.freeze((o.actions || []).map((a) => Object.freeze({ ...a }))), vibrate: Object.freeze([]), data: o.data === undefined ? null : o.data,
+          };
+          for (const [k, v] of Object.entries(props)) { try { Object.defineProperty(n, k, { value: v, enumerable: true }); } catch { /* sealed */ } }
+          for (const k of ['onclick', 'onshow', 'onerror', 'onclose']) define(n, k, null);
+          define(n, 'close', function close() { hooks.swClose({ scope, id: d.id }); });
+          return n;
+        };
+        define(SWR.prototype, 'showNotification', function showNotification(title, options) {
+          if (!arguments.length) return Promise.reject(fail('showNotification', '1 argument required, but only 0 present.'));
+          if (!this.active) return Promise.reject(fail('showNotification', 'No active registration available on the ServiceWorkerRegistration.'));
+          if (state !== 'granted') return Promise.reject(fail('showNotification', 'No notification permission has been granted for this origin.'));
+          let o;
+          try { o = prep(options); } catch (e) { return Promise.reject(e); }
+          return Promise.resolve(hooks.swShow({ scope: this.scope, title: String(title), options: o })).then((r) => {
+            if (r && r.error === 'permission') throw fail('showNotification', 'No notification permission has been granted for this origin.');
+            return undefined;
+          });
+        });
+        define(SWR.prototype, 'getNotifications', function getNotifications(filter) {
+          const scope = this.scope;
+          const tag = filter && filter.tag !== undefined ? String(filter.tag) : '';
+          return Promise.resolve(hooks.swList({ scope, tag })).then((items) => Array.from(items || [], (d) => make(d, scope)));
+        });
       },
-      args: [read(), { read, clicked: () => { try { ipcRenderer.send('tab:notification-click'); } catch { /* gone */ } }, listen: (fn) => { push = fn; } }],
+      args: [read(), {
+        read,
+        clicked: () => { try { ipcRenderer.send('tab:notification-click'); } catch { /* gone */ } },
+        listen: (fn) => { push = fn; },
+        swShow: (d) => ipcRenderer.invoke('tab:sw-notify-show', d).catch(() => ({})),
+        swList: (d) => ipcRenderer.invoke('tab:sw-notify-list', d).catch(() => []),
+        swClose: (d) => { try { ipcRenderer.send('tab:sw-notify-close', d); } catch { /* gone */ } },
+      }],
     });
   } catch { /* the page sees Electron's own answer */ }
+}
+
+// Whether the page has the focus, as in Chrome: a tab behind another doesn't (document.hasFocus(), a blur on
+// its window), and gets it back when it comes to the front. Chromium tells every page in a focused window
+// it has the focus, the tab in front or not, so a page couldn't tell you'd gone to another tab, and sites
+// that notify you only then (chat sites such as claude.ai) never did. (Whether it's hidden, Electron tells
+// it itself: main/guests.js.) The window says which pages are showing (ui/js/views.js → main/guests.js).
+if (/^(https?|file):$/.test(location.protocol)) {
+  let shown = true;
+  try { shown = ipcRenderer.sendSync('tab:shown') !== false; } catch { shown = true; }
+  let tell = null;
+  ipcRenderer.on('tab-shown', (_e, v) => { if (tell) { try { tell(v !== false); } catch { /* page gone */ } } });
+  try {
+    contextBridge.executeInMainWorld({
+      func: (initial, hooks) => {
+        const D = Document.prototype;
+        const nativeFocus = D.hasFocus;
+        if (typeof nativeFocus !== 'function') return;
+        let shown = initial;
+        const focused = () => shown && Reflect.apply(nativeFocus, document, []);
+        try { Object.defineProperty(D, 'hasFocus', { value: function hasFocus() { return shown && Reflect.apply(nativeFocus, this, []); }, writable: true, configurable: true }); } catch { return; }
+        // (while it's behind another tab, the window's own focus changes change nothing for it)
+        const mute = (e) => { if (!shown && e.isTrusted && e.target === window) e.stopImmediatePropagation(); };
+        window.addEventListener('focus', mute, true);
+        window.addEventListener('blur', mute, true);
+        hooks.listen((v) => {
+          if (v === shown) return;
+          const was = focused();
+          shown = v;
+          const now = focused();
+          if (was && !now) window.dispatchEvent(new FocusEvent('blur'));
+          if (!was && now) window.dispatchEvent(new FocusEvent('focus'));
+        });
+      },
+      args: [shown, { listen: (fn) => { tell = fn; } }],
+    });
+  } catch { /* the page sees Chromium's answer */ }
 }
 
 // Your own style for this site (its info popover → Add a style). Applied the way a userstyle is: after the

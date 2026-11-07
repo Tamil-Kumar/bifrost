@@ -49,8 +49,76 @@ const capturing = new Set();   // guests recording a shortcut (settings page): n
 const menuActions = new Map(); // context-menu id -> { items, guest }
 let menuSeq = 0;
 
+// Electron gives a <webview>'s page its window's visibility (document.hidden and visibilityState, which it
+// pins on the page's document), whatever the <webview> itself is: every tab said "visible", the one in front
+// or not. It does that with this message, on each page load and whenever the window is shown or hidden;
+// here, each page gets its own: hidden when the window is, or when the page isn't on screen in it.
+const VISIBILITY = 'GUEST_INSTANCE_VISIBILITY_CHANGE';
+function watchVisibility(wc) {
+  if (!wc || wc.__bfVis || typeof wc._sendInternal !== 'function') return;
+  const send = wc._sendInternal;
+  const v = { send, windowState: 'visible', told: 'visible' };
+  wc.__bfVis = v;
+  wc._sendInternal = function sendInternal(channel, ...args) {
+    if (channel === VISIBILITY) {
+      v.windowState = args[0] === 'hidden' ? 'hidden' : 'visible';
+      v.told = visibilityOf(wc);
+      args = [v.told];
+    }
+    return Reflect.apply(send, this, [channel, ...args]);
+  };
+  // (each new page starts out "visible", and Electron only says otherwise once the window has been hidden)
+  wc.on('did-navigate', () => { v.told = 'visible'; retellVisibility(wc); });
+}
+function visibilityOf(wc) { return wc.__bfVis.windowState === 'hidden' || !pageShown(wc) ? 'hidden' : 'visible'; }
+function retellVisibility(wc) {
+  const v = wc.__bfVis;
+  if (!v) return;
+  const now = visibilityOf(wc);
+  if (now === v.told) return;
+  v.told = now;
+  try { Reflect.apply(v.send, wc, [VISIBILITY, now]); } catch { /* gone */ }
+}
+
+// Whether a page is on screen, as its window last said (ui/js/views.js): one the window doesn't know of yet
+// (it has just started loading) counts as shown until it says.
+function pageShown(wc) {
+  try {
+    const win = wc.hostWebContents && BrowserWindow.fromWebContents(wc.hostWebContents);
+    const ctl = win && ctx.registry.get(win.id);
+    if (!ctl || !ctl.pagesKnown || !ctl.pagesKnown.has(wc.id)) return true;
+    return ctl.pagesShown.has(wc.id);
+  } catch { return true; }
+}
+
 function init() {
   compile();
+  // Which of a window's pages are on screen, and each page told when that changes, so it sees what it
+  // would in Chrome: hidden (watchVisibility above) and without the focus (preload/tab.js) behind another.
+  require('./ipc').on('tabs:shown', 'ui', (event, d) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const ctl = win && ctx.registry.get(win.id);
+    if (!ctl || !d) return;
+    const ids = (a) => new Set((Array.isArray(a) ? a : []).filter(Number.isInteger));
+    const known = ids(d.known), shown = ids(d.shown);
+    const prevKnown = ctl.pagesKnown || new Set(), prevShown = ctl.pagesShown || new Set();
+    // (what a page was told last: shown, unless the window had said otherwise)
+    const told = (id) => !prevKnown.has(id) || prevShown.has(id);
+    ctl.pagesKnown = known;
+    ctl.pagesShown = shown;
+    for (const id of known) {
+      if (told(id) === shown.has(id)) continue;
+      const wc = webContents.fromId(id);
+      if (!wc || wc.isDestroyed()) continue;
+      retellVisibility(wc);
+      // (and the preload, for document.hasFocus() and the window's blur and focus)
+      let frames = [];
+      try { frames = wc.mainFrame.framesInSubtree; } catch { continue; }
+      for (const f of frames) { try { f.send('tab-shown', shown.has(id)); } catch { /* frame gone */ } }
+    }
+  });
+  ipcMain.on('tab:shown', (event) => { event.returnValue = pageShown(event.sender); });
+
   ctx.settings.on('changed', ({ path }) => {
     if (!path || path.startsWith('keyboard')) {
       compile();
@@ -675,4 +743,4 @@ function browserShortcut(input) {
   return id ? { id, args: keyInfo(input) } : null;
 }
 
-module.exports = { init, setup, setupPanel, setupPopup, showSiteInTitle, guestAction, runExtensionMenuItem, ownerOf, applyZoom, setZoom, RESERVED, tabConfig, screenshotDir, readerData, pushSiteCss, browserShortcut };
+module.exports = { init, setup, setupPanel, setupPopup, watchVisibility, showSiteInTitle, guestAction, runExtensionMenuItem, ownerOf, applyZoom, setZoom, RESERVED, tabConfig, screenshotDir, readerData, pushSiteCss, browserShortcut };

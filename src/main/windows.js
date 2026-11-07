@@ -176,6 +176,7 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
     let i = list.findIndex((a) => a.instanceId != null && a.instanceId === guest.viewInstanceId);
     if (i < 0) { let url = ''; try { url = guest.getURL(); } catch { /* gone */ } i = list.findIndex((a) => a.url === url); }
     const panel = i >= 0 ? list.splice(i, 1)[0].panel : null;
+    guests.watchVisibility(guest);
     if (panel) guests.setupPanel(guest, ctl, panel);
     else guests.setup(guest, ctl);
   });

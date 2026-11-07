@@ -34,8 +34,10 @@ function broadcastAll(channel, payload) {
 }
 
 function register() {
-  // Pages' own view of their notifications permission, and their notifications' clicks (permissions.js).
+  // Pages' own view of their notifications permission, and their notifications' clicks (permissions.js);
+  // the ones they show through their service worker (notifications.js).
   permissions.initIpc();
+  require('./notifications').initIpc();
   // --------------------------------------------------------------- window/UI
   ipc.handle('ui:init', 'ui', (event) => {
     const ctl = ctlOf(event);

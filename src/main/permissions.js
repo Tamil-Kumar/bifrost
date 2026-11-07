@@ -77,16 +77,7 @@ function initIpc() {
     event.returnValue = v;
   });
   // A site's notification was clicked: its tab comes to the front, in its window.
-  ipcMain.on('tab:notification-click', (event) => {
-    try {
-      const wc = event.sender;
-      const ctl = ownerController(wc);
-      if (!ctl) return;
-      if (ctl.win.isMinimized()) ctl.win.restore();
-      ctl.win.show(); ctl.win.focus();
-      ctl.send('focus-wc', wc.id);
-    } catch { /* gone */ }
-  });
+  ipcMain.on('tab:notification-click', (event) => { require('./notifications').bringToFront(event.sender); });
 }
 
 function permKeys(permission, details) {

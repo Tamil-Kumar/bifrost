@@ -149,4 +149,25 @@ async function installShortcuts({ desktop = true, startMenu = true } = {}) {
   return made;
 }
 
-module.exports = { isDefault, makeDefault, installShortcuts };
+// Windows shows an app's notifications only when it knows the app's AppUserModelID: from a Start menu
+// shortcut (the installer makes one) or from this registration. Without it they go nowhere, without an
+// error (BifrostPortable has no shortcut). Per user, no admin; asked first, so nothing's written when it's
+// there already. The uninstaller removes it (tools/win/installer.c).
+async function registerAppId() {
+  if (process.platform !== 'win32') return false;
+  const key = `HKCU\\Software\\Classes\\AppUserModelId\\${AUMID}`;
+  // (the app's files are a real folder, not an archive, so Windows can read the picture from there)
+  const want = { DisplayName: NAME, IconUri: path.join(app.getAppPath(), 'assets', 'icons', 'icon-256.png') };
+  let have = '';
+  try { have = await reg(['query', key]); } catch { have = ''; }
+  let wrote = false;
+  for (const [name, value] of Object.entries(want)) {
+    const m = have.match(new RegExp(`^\\s+${name}\\s+REG_\\w+\\s+(.*)$`, 'mi'));
+    if (m && m[1].trim() === value) continue;
+    await regAdd(key, name, value);
+    wrote = true;
+  }
+  return wrote;
+}
+
+module.exports = { isDefault, makeDefault, installShortcuts, registerAppId };

@@ -224,6 +224,9 @@ static void unregister_browser(const wchar_t *dir) {
   }
   if (reg_get(L"Software\\Classes\\" PROGID L"\\shell\\open\\command", NULL, v, PATHMAX) && StrStrIW_compat(v, dir))
     RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\" PROGID);
+  // (what Bifrost registers so that its notifications show: src/main/default-browser.js)
+  if (reg_get(L"Software\\Classes\\AppUserModelId\\" AUMID, L"IconUri", v, PATHMAX) && StrStrIW_compat(v, dir))
+    RegDeleteTreeW(HKEY_CURRENT_USER, L"Software\\Classes\\AppUserModelId\\" AUMID);
 }
 
 // ---------------------------------------------------------------- shortcuts

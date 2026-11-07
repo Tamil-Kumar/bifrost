@@ -350,6 +350,7 @@ export function open(which, { url, focus = false } = {}) {
   markActive();
   refreshPrompts();
   emit('layout-changed');
+  V.reportShown();
 }
 
 export function close() {
@@ -364,6 +365,7 @@ export function close() {
   refreshPrompts();
   if (hadFocus && activeTab()) T.focusTab(activeTab());
   emit('layout-changed');
+  V.reportShown();
 }
 
 // The panel's title row: with the side bar, what's showing (and, for a website, back, reload, open in a tab);
@@ -443,6 +445,9 @@ function loadWeb(w) {
 function wireWeb(rec) {
   const { el } = rec;
   const shown = () => view === 'web:' + rec.id;
+  // (its page is told whether it's on screen: views.js)
+  el.addEventListener('did-attach', () => V.reportShown());
+  el.addEventListener('dom-ready', () => V.reportShown());
   const nav = () => {
     try { rec.back = el.canGoBack(); rec.url = el.getURL() || rec.url; } catch { /* not attached yet */ }
     if (shown()) renderHead();

@@ -13,7 +13,8 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 ad blocker, dangerous-site warnings (safety.js), extensions (extensions/), imports from
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
-                ui.js (the browser window), adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
+                sw.js (websites' service workers: their notifications), ui.js (the browser window),
+                adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
 src/ui          the browser window (bifrost://ui): browser.html, browser.css, js/
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
@@ -57,7 +58,13 @@ menus open at the pointer, things are where they're drawn), `web` (translation, 
 `youtube` (YouTube's ads against a local stand-in for youtube.com: video ads covered and skipped, whatever
 kind; the ads in its pages hidden; ads taken out of Shorts; embedded players; the settings that turn it off),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
-downloads, checksums, restarting into the update). The Windows setup, end to end with PowerShell and Wine:
+downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
+and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
+side panel's website; a page's own notifications, and the ones a site shows through its service worker, from
+the page or the worker, really shown: Bifrost runs on a stand-in for libnotify, tests/fixtures/fake-libnotify.c,
+built with gcc, that writes them down and clicks or closes them; clicks bringing the site's tab to the front
+and reaching its worker, also after the worker has stopped or the tab has gone to sleep; tags,
+getNotifications(), blocked sites). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders, `file-guard`
 what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you
@@ -71,7 +78,9 @@ A new version in package.json reaching main (or a version tag, `v1.2.3`, matchin
 `.github/workflows/release.yml` on a Windows runner: `tools/release.mjs` builds both installers, the
 portable zip and the update files on castlabs' Electron (with Widevine), signs them for Widevine with the
 castlabs EVS account in the repository's secrets (`EVS_ACCOUNT_NAME`, `EVS_PASSWD`), `tools/drm-check.mjs`
-checks that protected video plays, and the release is published with RELEASE_NOTES.md. Bifrost's updater
+checks that protected video plays, `tools/notify-check.mjs` that the portable build's notifications reach
+Windows (it says what it found in the log; it doesn't hold up a release), and the release is published with
+RELEASE_NOTES.md. Bifrost's updater
 (src/main/updater.js) reads the newest release's latest.json: when only Bifrost's own files changed it
 downloads just those, otherwise the installer or the portable builds, and the helpers in tools/win swap
 them in when Bifrost restarts.
