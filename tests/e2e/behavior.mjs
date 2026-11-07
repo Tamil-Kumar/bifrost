@@ -261,7 +261,7 @@ try {
     }
   });
 
-  await R.step('…and stay shown as long as Settings → Downloads says (1 s, or until closed)', async () => {
+  await R.step('…and stay shown as long as Settings → Downloads says (1 s, or until closed), each download that starts while it’s open starting that over', async () => {
     try {
       await set('downloads.askWhereToSave', false);
       await set('downloads.showOnStart', true);
@@ -276,10 +276,17 @@ try {
         assert(shown, `the downloads box didn't show (${secs} s)`);
         await sleep(2600);
         const still = await t.ui(() => !!document.querySelector('.dl-popover'));
-        assert(still === stays, `set to ${secs > 60 ? 'until closed' : secs + ' s'}, the box ${still ? 'was still open' : 'had closed'} after 2.6 s`);
-        await esc();
+        const why = still === stays ? '' : JSON.stringify(await t.ui(() => { const p = document.querySelector('.dl-popover'); const r = p && p.getBoundingClientRect(); return { box: r && [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)], hover: !!(p && p.matches(':hover')), focus: document.activeElement && document.activeElement.className, layout: document.documentElement.dataset.layout, popovers: document.querySelectorAll('.popover, .menu').length }; }));
+        if (why) await t.shot('behavior-dlbox-' + secs);
+        assert(still === stays, `set to ${secs > 60 ? 'until closed' : secs + ' s'}, the box ${still ? 'was still open' : 'had closed'} after 2.6 s ${why}`);
+        if (!stays) await esc();
       }
-    } finally { await set('downloads.showOnStartFor', 5); }
+      // Open until closed (above), and another download starts with it set to 1 s: it goes 1 s after that one.
+      await set('downloads.showOnStartFor', 1);
+      await t.guest('/b.html', `(() => { const a = document.createElement('a'); a.href = '/dl/file.zip?again'; a.download = ''; document.body.append(a); a.click(); return 1; })()`);
+      await sleep(2600);
+      assert(!(await t.ui(() => !!document.querySelector('.dl-popover'))), 'a download that started while it was open didn’t start its time over');
+    } finally { await set('downloads.showOnStartFor', 5); await esc(); }
   });
 
   await R.step('Vim keys: off by default; on, j scrolls; on an excluded site (YouTube), keys go to the page', async () => {

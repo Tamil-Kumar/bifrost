@@ -334,7 +334,9 @@ if (isTop && /^https?:$/.test(location.protocol)) {
 // scroll any further that way, and that the page didn't take for itself. A mouse wheel's steps (whole
 // notches), Shift+wheel and pinch-zooming (Ctrl+wheel) never count. Every frame watches its own part.
 // Once a swipe has started, every sideways step is reported (either way: going back cancels) until the
-// browser says the fingers have lifted ('tab-swipe-done'); the page itself can't tell.
+// browser says the gesture is over ('tab-swipe-done'), the touchpad's coasting included; the page itself can't
+// tell when the fingers lift. A swipe the browser has no use for (swiping off, or what's left of the coasting
+// after one: main/guests.js) is over at once, and the rest of its gesture isn't one either.
 {
   const IDLE = 150;    // ms without movement between gestures (to tell what a new one is)
   const HOLD = 4000;   // a swipe the browser never ended: give up on it
@@ -351,7 +353,11 @@ if (isTop && /^https?:$/.test(location.protocol)) {
     if (mode === 'swipe') { clearTimeout(flushT); flush(); send({ phase: 'end' }); }
     reset();
   };
-  ipcRenderer.on('tab-swipe-done', () => { if (mode === 'swipe') reset(); });
+  ipcRenderer.on('tab-swipe-done', (_e, d) => {
+    if (mode !== 'swipe') return;
+    reset();
+    if (d && d.ignore) { mode = 'other'; endT = setTimeout(finish, IDLE); }
+  });
   // Can anything on the way from the pointer to the page scroll further sideways in direction d (-1 left,
   // 1 right)? A scroller that stops scrolls from going on to the page (overscroll-behavior) counts as yes.
   const atEdge = (n, d, cs) => {

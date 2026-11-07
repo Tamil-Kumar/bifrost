@@ -8,6 +8,7 @@ import * as TB from './toolbar.js';
 const wb = window.wb;
 const recs = new Map();
 let pop = null, listEl = null, autoTimer = null;
+let autoAgain = null;   // the box opened by itself: starts its time over
 const NS = 'http://www.w3.org/2000/svg';
 
 function fileIcon(name, mime) {
@@ -62,7 +63,12 @@ function renderList() {
 }
 
 function openPopover(anchor, { auto = false } = {}) {
-  if (pop) { if (!auto) pop.close(); return; }
+  if (pop) {
+    if (!auto) pop.close();
+    // (another download starting while it's open by itself: it stays as long again)
+    else if (autoAgain) autoAgain();
+    return;
+  }
   if (!anchor || !anchor.offsetParent) return;
   listEl = h('div.dl-list');
   renderList();
@@ -71,14 +77,18 @@ function openPopover(anchor, { auto = false } = {}) {
       h('button.icon-btn', { type: 'button', title: 'Open the downloads folder', onclick: () => act(0, 'show') }, icon('folderOpen'))),
     listEl,
     h('button.dl-all', { type: 'button', onclick: () => { pop.close(); emit('command', 'openDownloads'); } }, 'Show all downloads', icon('chevronRight')));
-  pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'dl-popover', modal: !auto, focus: !auto, exclusive: !auto, onClose: () => { pop = null; listEl = null; clearTimeout(autoTimer); } });
+  pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'dl-popover', modal: !auto, focus: !auto, exclusive: !auto, onClose: () => { pop = null; listEl = null; autoAgain = null; clearTimeout(autoTimer); } });
   if (auto) {
     // As long as Settings → Downloads says (the pointer over it holds it open), or until you close it.
-    const secs = Number(setting('downloads.showOnStartFor'));
-    const forever = !(secs > 0 && secs <= 60);
-    const start = () => { clearTimeout(autoTimer); if (!forever) autoTimer = setTimeout(() => pop && pop.close(), secs * 1000); };
-    pop.el.addEventListener('mouseenter', () => clearTimeout(autoTimer));
-    pop.el.addEventListener('mouseleave', start);
+    const start = () => {
+      clearTimeout(autoTimer);
+      const secs = Number(setting('downloads.showOnStartFor'));
+      if (secs > 0 && secs <= 60) autoTimer = setTimeout(() => pop && pop.close(), secs * 1000);
+    };
+    const el = pop.el;
+    el.addEventListener('mouseenter', () => clearTimeout(autoTimer));
+    el.addEventListener('mouseleave', start);
+    autoAgain = () => { if (!el.matches(':hover')) start(); };
     start();
   }
 }

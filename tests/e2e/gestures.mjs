@@ -2,8 +2,9 @@
 // that don't count (things that scroll sideways, pages that take the wheel, a mouse, Shift), plus settings.
 //
 // Electron can't send a real touchpad gesture, so the tests play the fingers: wheel steps for moving them,
-// and global.__swipeRelease (main/guests.js) for lifting them, which on a real touchpad comes from Chromium's
-// own end of the scroll gesture. The last steps check that wiring with the browser's own end events.
+// global.__swipeLift (main/guests.js) for lifting them, which on a real touchpad comes from Chromium as a wheel
+// step that doesn't move, and global.__swipeRelease for the end of the whole gesture (the coasting after a quick
+// swipe included). The last steps check that wiring with the browser's own events.
 import { launch, startSite, reporter, assert, sleep } from './lib.mjs';
 
 const site = await startSite();
@@ -194,6 +195,93 @@ try {
     const last = await t.ui(() => window.__wbTest.swipeLast());
     assert(last && last.go === 'back', JSON.stringify(last));
     await t.main(() => { global.__swipeManualRelease = true; });
+    await sleep(700);
+  });
+
+  const pages = async (...urls) => {
+    for (const u of urls) {
+      await page(`location.href = '${u}'; true`);
+      await waitFor(async () => (await tab()).url.endsWith(u), 8000, u);
+      await sleep(400);
+    }
+  };
+  const liftOnly = async () => { const { wcId } = await tab(); return t.main((_, id) => global.__swipeLift(id), wcId); };
+
+  await R.step('a quick swipe goes as the fingers lift, not once the touchpad has stopped coasting; what’s left of the coasting doesn’t swipe on the page it went to', async () => {
+    await pages('/wide.html?f1', '/wide.html?f2');
+    const p = await at('#plain');
+    let r = await fingers({ ...p, steps: even(260) });
+    assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
+    const t0 = Date.now();
+    await liftOnly();
+    await waitFor(async () => (await tab()).url.endsWith('?f1'), 3000, 'went back as the fingers lifted');
+    const took = Date.now() - t0;
+    assert(took < 800, 'took ' + took + ' ms');
+    // The touchpad coasting on for over a second (past the moment after going when the window ignores new
+    // swipes anyway), onto the page it went back to: no swipe of its own.
+    const { wcId } = await tab();
+    const seen = await t.main(async ({ webContents }, o) => {
+      const wc = webContents.fromId(o.wcId);
+      const arrows = [];
+      let coasting = true;
+      for (let i = 0; i < 80; i++) {
+        wc.sendInputEvent({ type: 'mouseWheel', x: o.x, y: o.y, deltaX: 14, deltaY: 0, wheelTicksX: 0.1, wheelTicksY: 0, hasPreciseScrollingDeltas: true, canScroll: true });
+        await new Promise((res) => setTimeout(res, 16));
+        if (i % 10 === 9) {
+          arrows.push(await wc.hostWebContents.executeJavaScript(`!!document.querySelector('.swipe-arrow:not(.leaving)') || !!window.__wbTest.swipe()`));
+          coasting = coasting && global.__swipeCoasting(o.wcId);
+        }
+      }
+      return { arrows, coasting };
+    }, { wcId, ...p });
+    assert(!seen.arrows.some(Boolean) && seen.coasting, 'the coasting: ' + JSON.stringify(seen));
+    await sleep(400);
+    assert(!(await t.main((_, id) => global.__swipeCoasting(id), wcId)), 'still coasting once it stopped');
+    assert((await tab()).url.endsWith('?f1'), 'went back once: ' + (await tab()).url);
+    // A swipe of its own after that goes, forward this time.
+    r = await fingers({ ...p, steps: even(260, 14, 1) });
+    assert(r.arrow && r.arrow.armed && r.arrow.go === 'forward', 'a new swipe: ' + JSON.stringify(r));
+    await liftOnly();
+    await waitFor(async () => (await tab()).url.endsWith('?f2'), 3000, 'went forward');
+    await lift();
+    await sleep(700);
+  });
+
+  await R.step('a quick flick: coasting just after the fingers lift can still light the arrow; otherwise lifting goes nowhere', async () => {
+    const p = await at('#plain');
+    // Too short, and nothing after it: the arrow goes, the page stays.
+    let r = await fingers({ ...p, steps: even(60, 5) });
+    assert(r.arrow && !r.arrow.armed, 'short: ' + JSON.stringify(r));
+    await liftOnly();
+    await sleep(500);
+    assert((await tab()).url.endsWith('?f2') && !(await ui()).arrow, 'stayed, arrow gone: ' + JSON.stringify(await ui()));
+    await lift();
+    await sleep(300);
+    // Short, then coasting on right after the fingers lift: it lights, and goes.
+    r = await fingers({ ...p, steps: even(80, 4) });
+    assert(r.arrow && !r.arrow.armed, 'not lit before lifting: ' + JSON.stringify(r));
+    await liftOnly();
+    await fingers({ ...p, steps: even(90, 4) });
+    await waitFor(async () => (await tab()).url.endsWith('?f1'), 3000, 'went back with the coasting');
+    await lift();
+    await sleep(700);
+  });
+
+  await R.step('the browser’s own still wheel step is the fingers lifting: the swipe goes then, before the gesture ends', async () => {
+    await pages('/wide.html?g1', '/wide.html?g2');
+    const p = await at('#plain');
+    // From here the browser's still steps count (each of Electron's wheel steps ends with one), its gesture
+    // ends still don't: only the fingers lifting can make it go.
+    await t.main(() => { global.__swipeManualRelease = 'gse'; });
+    try {
+      await fingers({ ...p, steps: [-15, -150] });
+      await waitFor(async () => (await tab()).url.endsWith('?g1'), 3000, 'went back');
+      const last = await t.ui(() => window.__wbTest.swipeLast());
+      assert(last && last.go === 'back', JSON.stringify(last));
+    } finally {
+      await t.main(() => { global.__swipeManualRelease = true; });
+    }
+    await lift();
     await sleep(700);
   });
 

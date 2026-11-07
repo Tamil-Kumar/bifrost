@@ -132,9 +132,10 @@ function init() {
   ipcMain.on('tab:swipe', (event, msg) => {
     const wc = event.sender;
     if (!msg || typeof msg !== 'object') return;
-    // Swiping turned off: the page stops following this swipe straight away.
-    if (ctx.settings.get('gestures.swipe') === false) {
-      if (msg.phase === 'start') { try { event.senderFrame.send('tab-swipe-done'); } catch { /* gone */ } }
+    // Swiping turned off, or what's left of the touchpad coasting after a swipe (on the page it went to, say):
+    // the page stops following this one, and the rest of its gesture, straight away.
+    if (ctx.settings.get('gestures.swipe') === false || (msg.phase === 'start' && coasting.has(wc.id))) {
+      if (msg.phase === 'start') { try { event.senderFrame.send('tab-swipe-done', { ignore: true }); } catch { /* gone */ } }
       return;
     }
     let host = null;
@@ -142,10 +143,13 @@ function init() {
     if (!host || host.isDestroyed()) return;
     const phase = ['start', 'move', 'end'].includes(msg.phase) ? msg.phase : null;
     if (!phase) return;
-    if (phase === 'start') swipes.set(wc.id, event.senderFrame);
+    if (phase === 'start') swipes.set(wc.id, { frame: event.senderFrame, lifted: false });
     else if (phase === 'end') swipes.delete(wc.id);
     const steps = Array.isArray(msg.steps) ? msg.steps.slice(0, 64).map(Number).filter(Number.isFinite) : [];
     host.send('swipe', { wcId: wc.id, phase, dir: Math.sign(Number(msg.dir) || 0), steps });
+    // (the page took a moment to tell, and the fingers have lifted already)
+    const g = phase === 'start' && gestures.get(wc.id);
+    if (g && g.lifted && Date.now() - g.lifted < LATE && !testing('lift')) liftSwipe(wc);
   });
   // A link was pressed (or hovered) in a tab, or a launcher result highlighted: connect ahead.
   ipcMain.on('tab:preconnect', (event, url) => {
@@ -241,28 +245,84 @@ function ownerOf(guest) {
   return win ? ctx.registry.get(win.id) : null;
 }
 
-// Swipes in progress: guest webContents id -> the frame the swipe is in. A page can't tell when the fingers
-// leave the touchpad (it only sees the wheel), but Chromium can: a touchpad scroll is one gesture from the
-// moment the fingers start moving until they lift (and any coasting after that is over), and its end comes
-// through here as gestureScrollEnd. That, and only that, lets a swipe go back or forward.
+// Swipes in progress: guest webContents id -> { frame (the one the swipe is in), lifted }. A page can't tell
+// when the fingers leave the touchpad (it only sees the wheel), but Chromium can, and says so in the wheel
+// events it sends the page: moving fingers send steps, and lifting them sends one that doesn't move at all,
+// the end of the scroll after a slow swipe, or the start of the touchpad's coasting after a quick one. That's
+// when a swipe goes ('lift': ui/js/swipe.js). The end of the scroll gesture as a whole (gestureScrollEnd) is
+// the last word, for touchpads that never say: after a quick swipe it only comes once the coasting is over
+// too, a second or two later on Windows (DirectManipulation goes from the fingers moving straight to
+// coasting, and Chromium ends the gesture when that ends).
 const swipes = new Map();
+// The scroll gesture going on in each guest (from gestureScrollBegin to its end): when the fingers lifted, if
+// they have (for a page that only says it's a swipe after that, a busy one say: a moment's grace, no more).
+const gestures = new Map();
+const LATE = 500;
+// After a swipe let go: guest id -> its coasting ({ since, t }), steps still coming (onto the page it went to,
+// say) until one that doesn't move (the coasting's end), a moment without any, or the gesture's end. A swipe
+// that starts in it is what's left of that one.
+const coasting = new Map();
+const COAST_QUIET = 150;   // ms without a step: the coasting is over
+const COAST_MAX = 4000;    // and over after this long in any case
+// Tests move the fingers with Electron's own wheel events, each a little scroll gesture of its own, so they lift
+// them themselves (global.__swipeManualRelease true: lifting, and the gesture's end; 'gse': only its end).
+const testing = (what) => process.env.BIFROST_TEST === '1' && (global.__swipeManualRelease === true || global.__swipeManualRelease === what);
 function swipeInput(guest, input) {
-  if (input.type !== 'gestureScrollEnd' || !swipes.has(guest.id)) return;
-  if (process.env.BIFROST_TEST === '1' && global.__swipeManualRelease) return;   // tests lift the fingers themselves
-  releaseSwipe(guest);
+  const id = guest.id, type = input.type;
+  if (type === 'gestureScrollBegin') { gestures.set(id, { lifted: 0 }); return; }
+  if (type === 'mouseWheel') {
+    const still = !input.deltaX && !input.deltaY;
+    const g = gestures.get(id);
+    if (still && g && !g.lifted) g.lifted = Date.now();
+    const s = swipes.get(id);
+    if (s && !s.lifted) { if (still && !testing('lift')) liftSwipe(guest); return; }
+    const c = coasting.get(id);
+    if (c) { if (still && !testing('lift') && Date.now() - c.since > 40) endCoast(id); else coast(id); }
+    return;
+  }
+  if (type === 'gestureFlingStart') { const s = swipes.get(id); if (s && !s.lifted && !testing('lift')) liftSwipe(guest); return; }
+  if (type !== 'gestureScrollEnd' || testing('gse')) return;
+  gestures.delete(id);
+  endCoast(id);
+  if (swipes.has(id)) releaseSwipe(guest);
+}
+function liftSwipe(guest) {
+  const s = swipes.get(guest.id);
+  if (!s || s.lifted) return;
+  s.lifted = true;
+  coast(guest.id, true);
+  try { const host = guest.hostWebContents; if (host && !host.isDestroyed()) host.send('swipe', { wcId: guest.id, phase: 'lift' }); } catch { /* gone */ }
+}
+function coast(id, fresh = false) {
+  let c = coasting.get(id);
+  if (c && fresh) { clearTimeout(c.t); c = null; }
+  if (!c) { c = { since: Date.now(), t: null }; coasting.set(id, c); }
+  clearTimeout(c.t);
+  if (Date.now() - c.since > COAST_MAX) { coasting.delete(id); return; }
+  c.t = setTimeout(() => { if (coasting.get(id) === c) coasting.delete(id); }, COAST_QUIET);
+}
+function endCoast(id) {
+  const c = coasting.get(id);
+  if (c) clearTimeout(c.t);
+  coasting.delete(id);
 }
 function releaseSwipe(guest) {
-  const frame = swipes.get(guest.id);
+  const s = swipes.get(guest.id);
   swipes.delete(guest.id);
-  try { if (frame && !frame.isDestroyed()) frame.send('tab-swipe-done'); } catch { /* frame gone */ }
+  try { if (s && s.frame && !s.frame.isDestroyed()) s.frame.send('tab-swipe-done'); } catch { /* frame gone */ }
   try { const host = guest.hostWebContents; if (host && !host.isDestroyed()) host.send('swipe', { wcId: guest.id, phase: 'release' }); } catch { /* gone */ }
 }
-if (process.env.BIFROST_TEST === '1') global.__swipeRelease = (id) => { const wc = webContents.fromId(id); if (wc && swipes.has(id)) releaseSwipe(wc); return !!wc; };
+if (process.env.BIFROST_TEST === '1') {
+  // The fingers lifting (what the still wheel step says), and the gesture's end (gestureScrollEnd).
+  global.__swipeLift = (id) => { const wc = webContents.fromId(id); if (wc && swipes.has(id)) liftSwipe(wc); return !!wc; };
+  global.__swipeRelease = (id) => { const wc = webContents.fromId(id); endCoast(id); if (wc && swipes.has(id)) releaseSwipe(wc); return !!wc; };
+  global.__swipeCoasting = (id) => coasting.has(id);
+}
 
 function setup(guest, ctl) {
   const isPrivate = ctl.isPrivate;
   guest.on('input-event', (e, input) => swipeInput(guest, input));
-  guest.once('destroyed', () => swipes.delete(guest.id));
+  guest.once('destroyed', () => { swipes.delete(guest.id); gestures.delete(guest.id); endCoast(guest.id); });
   guest.__wbWindow = ctl.id;
   let lastUrl = '';
   let typedUrl = null;
