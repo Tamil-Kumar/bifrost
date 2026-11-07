@@ -3,8 +3,20 @@
 <head>
   <meta charset="utf-8">
   <title>Settings</title>
+  <!-- Everything the page needs, fetched at once rather than each after the file that asks for it: the styles
+       page.css imports, and every module the page imports. -->
+  <link rel="preload" as="style" href="/_/common/base.css">
   <link rel="stylesheet" href="/_/common/page.css">
   <link rel="stylesheet" href="settings.css">
+  <link rel="modulepreload" href="settings.js">
+  <link rel="modulepreload" href="/_/common/page.js">
+  <link rel="modulepreload" href="/_/common/util.js">
+  <link rel="modulepreload" href="/_/common/icons.js">
+  <link rel="modulepreload" href="/_/common/menus.js">
+  <link rel="modulepreload" href="/_/common/dialogs.js">
+  <link rel="modulepreload" href="/_/common/import-extensions.js">
+  <link rel="modulepreload" href="/_/common/translate.js">
+  <link rel="modulepreload" href="layout-editor.js">
   <script src="/_/shared/themes.js"></script>
   <script src="/_/shared/defaults.js"></script>
   <script src="/_/shared/launcher-settings.js"></script>

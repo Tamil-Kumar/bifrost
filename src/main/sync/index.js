@@ -416,25 +416,22 @@ class Sync extends EventEmitter {
     return this.info();
   }
 
-  // Cloud folders on this computer, to offer as the sync folder.
-  suggestFolders() {
+  // Cloud folders on this computer, to offer as the sync folder. Looked for all at once and without waiting
+  // on any (one on a network drive, or a drive letter that isn't there, can take a while to answer).
+  async suggestFolders() {
     const home = os.homedir();
-    const out = [];
-    const add = (name, p) => { try { if (p && fs.statSync(p).isDirectory() && !out.some((x) => x.path === p)) out.push({ name, path: p }); } catch { /* not there */ } };
     const env = process.env;
+    const tries = [];
+    const add = (name, p) => { if (p) tries.push({ name, path: p }); };
+    const readJson = (file) => fsp.readFile(file, 'utf8').then((t) => JSON.parse(t), () => null);
     add('OneDrive', env.OneDriveConsumer);
     add('OneDrive', env.OneDrive);
     add('OneDrive (work or school)', env.OneDriveCommercial);
     for (const base of [env.APPDATA, env.LOCALAPPDATA, path.join(home, '.dropbox')]) {
-      try {
-        const info = JSON.parse(fs.readFileSync(path.join(base || '', 'Dropbox', 'info.json'), 'utf8'));
-        if (info.personal) add('Dropbox', info.personal.path);
-        if (info.business) add('Dropbox (work)', info.business.path);
-      } catch { /* no Dropbox */ }
-      try {
-        const info = JSON.parse(fs.readFileSync(path.join(base || '', 'info.json'), 'utf8'));
-        if (info.personal) add('Dropbox', info.personal.path);
-      } catch { /* no Dropbox */ }
+      const [a, b] = await Promise.all([readJson(path.join(base || '', 'Dropbox', 'info.json')), readJson(path.join(base || '', 'info.json'))]);
+      if (a && a.personal) add('Dropbox', a.personal.path);
+      if (a && a.business) add('Dropbox (work)', a.business.path);
+      if (b && b.personal) add('Dropbox', b.personal.path);
     }
     add('Dropbox', path.join(home, 'Dropbox'));
     if (process.platform === 'win32') { add('Google Drive', 'G:\\My Drive'); add('iCloud Drive', path.join(home, 'iCloudDrive')); }
@@ -443,6 +440,9 @@ class Sync extends EventEmitter {
     if (process.platform === 'darwin') add('iCloud Drive', path.join(home, 'Library', 'Mobile Documents', 'com~apple~CloudDocs'));
     add('OneDrive', path.join(home, 'OneDrive'));
     add('Syncthing', path.join(home, 'Sync'));
+    const there = await Promise.all(tries.map((x) => fsp.stat(x.path).then((st) => st.isDirectory(), () => false)));
+    const out = [];
+    tries.forEach((x, i) => { if (there[i] && !out.some((o) => o.path === x.path)) out.push(x); });
     return out;
   }
 }

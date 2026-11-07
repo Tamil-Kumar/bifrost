@@ -1,5 +1,11 @@
 /* Bifrost — settings page. */
-.section { scroll-margin-top: 90px; margin-bottom: 34px; }
+/* A section off screen isn't styled, laid out or drawn until you scroll near it: the page has 300-odd rows,
+   and laying them all out held up its opening. That cuts off whatever reaches outside a section, so its
+   cards' shadows get room inside it (the padding, taken back by the margin; the gaps stay as they were,
+   34px from a section's last card to the next title; and as its title's margin is inside it now, it's
+   scrolled to 6px higher, so the title lands where it did). */
+.section { scroll-margin-top: 84px; margin: 0 -14px 2px; padding: 0 14px 8px; content-visibility: auto; contain-intrinsic-size: auto 900px; }
+.section:last-of-type { margin-bottom: 8px; }
 .group { scroll-margin-top: 90px; }
 .section[hidden] { display: none; }
 .no-results { padding: 60px 0; text-align: center; color: var(--overlay); }

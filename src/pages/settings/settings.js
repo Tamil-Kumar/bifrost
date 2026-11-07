@@ -30,7 +30,8 @@ function row(label, desc, ctl, opts = {}) {
 }
 
 function register(el, update, text, when) {
-  const it = { el, update: (s) => { if (when) el.classList.toggle('disabled', !when(s)); update && update(s); }, text: (text || '').toLowerCase() };
+  const apply = when ? (s) => el.classList.toggle('disabled', !when(s)) : null;
+  const it = { el, apply, update: (s) => { if (apply) apply(s); update && update(s); }, text: (text || '').toLowerCase() };
   items.push(it);
   return el;
 }
@@ -288,10 +289,22 @@ function ntpModulesEditor() {
   return { el: box, update: draw };
 }
 
+// Your bookmarks, for the folder pickers: one fetch shared by all of them while the page opens (it has all your
+// bookmarks in it, and there are three pickers).
+let treeAsk = null;
+function bookmarkTree() {
+  if (!treeAsk) {
+    treeAsk = wb.invoke('bookmarks:tree');
+    const clear = () => setTimeout(() => { treeAsk = null; }, 1000);
+    treeAsk.then(clear, clear);
+  }
+  return treeAsk;
+}
+
 function folderPicker(path, none) {
   const sel = h('select.field');
   const fill = async () => {
-    const tree = await wb.invoke('bookmarks:tree');
+    const tree = await bookmarkTree();
     const opts = [h('option', { value: '' }, none)];
     const walk = (n, depth) => {
       if (n.type !== 'folder') return;
@@ -410,7 +423,7 @@ function perfKnobs() {
 function speedDialFolder() {
   const sel = h('select.field');
   const fill = async () => {
-    const tree = await wb.invoke('bookmarks:tree');
+    const tree = await bookmarkTree();
     const opts = [h('option', { value: '' }, 'A folder named “Speed Dial”, else the bookmarks bar')];
     const walk = (n, depth) => {
       if (n.type !== 'folder') return;
@@ -541,7 +554,7 @@ function bookmarkFoldersEditor() {
     const seg = segmented([['all', 'All folders'], ['selected', 'Only the folders I pick']], mode, (v) => save('launcher.bookmarkFolders.mode', v));
     const list = h('div.elist', { style: { marginTop: '10px' } });
     if (mode === 'selected') {
-      const tree = await wb.invoke('bookmarks:tree');
+      const tree = await bookmarkTree();
       const walk = (n, depth) => {
         if (n.type !== 'folder') return;
         if (n.parentId != null) {
@@ -1306,7 +1319,7 @@ function sections() {
   const vertical = (st) => st.appearance.tabLayout !== 'horizontal';
   const win = s && window.wb.platform === 'win32';
   return [
-    { id: 'appearance', title: 'Appearance', icon: 'palette', desc: 'Theme, colors and layout.', groups: [
+    { id: 'appearance', title: 'Appearance', icon: 'palette', desc: 'Theme, colors and layout.', groups: () => [
       { title: 'Theme', items: [
         I.custom('Theme', '', themePicker, { keywords: 'dark light catppuccin mocha latte nord dracula gruvbox tokyo rose pine oled colors' }),
         I.select('appearance.darkTheme', 'Dark theme', 'Used when your system is in dark mode.', Object.entries(THEMES).filter(([, t]) => t.dark).map(([k, t]) => [k, t.name]), { when: (st) => st.appearance.theme === 'auto' }),
@@ -1352,7 +1365,7 @@ function sections() {
         I.textarea('appearance.customCss', 'Custom CSS for the browser window', 'For tweaks beyond these settings. Applies instantly.', { placeholder: '.tab { font-weight: 600; }', keywords: 'userchrome style' }),
       ] },
     ] },
-    { id: 'toolbar-sidebar', title: 'Toolbar & sidebar', icon: 'layout', desc: 'What’s on the toolbar and in the sidebar, and the bookmarks bar. You can also right-click any button on them.', groups: [
+    { id: 'toolbar-sidebar', title: 'Toolbar & sidebar', icon: 'layout', desc: 'What’s on the toolbar and in the sidebar, and the bookmarks bar. You can also right-click any button on them.', groups: () => [
       { title: 'Toolbar & sidebar', id: 'customize', items: [
         I.custom('Toolbar and sidebar', 'Drag items between the rows, or from “More items”. Drag one back to “More items” (or click it) to remove it. Right-click the toolbar or sidebar to get here.', layoutEditor, { keywords: 'customize buttons toolbar sidebar home reader screenshot split settings spaces spacer divider order rearrange' }),
       ] },
@@ -1363,7 +1376,7 @@ function sections() {
         I.button('Remove “Other bookmarks”', 'Moves what’s in it to the bar (or deletes it) and hides the folder.', 'Remove…', removeOtherBookmarks, { iconName: 'trash', keywords: 'other bookmarks delete hide' }),
       ] },
     ] },
-    { id: 'look', title: 'Look & feel', icon: 'ruler', desc: 'The window background, shadows, menus, how the current tab and loading look, the address bar, corner rounding, sizes and spacing.', groups: [
+    { id: 'look', title: 'Look & feel', icon: 'ruler', desc: 'The window background, shadows, menus, how the current tab and loading look, the address bar, corner rounding, sizes and spacing.', groups: () => [
       { title: 'Style', id: 'style', items: [
         I.seg('appearance.chrome', 'Window background', 'Aurora lights the window around the page with the theme’s colors.', [['aurora', 'Aurora'], ['gradient', 'Gradient'], ['flat', 'Flat']], { keywords: 'background glow aurora gradient color depth window chrome sidebar' }),
         I.seg('appearance.blend', 'Sidebar and toolbar', 'Match the page: they take the color of the page you’re on (Bifrost’s own pages too), with no edge between them and it, so the page and the window blend into one. Blur the page: they show a blurred picture of it, like frosted glass.', [['window', 'Window background'], ['page', 'Match the page'], ['blur', 'Blur the page']], { keywords: 'blend match page color tint seamless sidebar toolbar website theme-color arc zen safari blur frosted glass acrylic transparent see-through' }),
@@ -1412,7 +1425,7 @@ function sections() {
         I.button('', '', 'Reset sizes and spacing', resetGroup(SIZE_KEYS, 'appearance.sizes.', 'size'), { iconName: 'rotate', keywords: 'reset' }),
       ] },
     ] },
-    { id: 'newtab', title: 'Start page', icon: 'compass', desc: 'What new tabs show, and Speed Dial.', groups: [
+    { id: 'newtab', title: 'Start page', icon: 'compass', desc: 'What new tabs show, and Speed Dial.', groups: () => [
       { title: 'New tabs', items: [
         I.toggle('tabs.newTabOpensLauncher', 'Ctrl+T opens the launcher', 'Search first, then the result opens in a new tab. Press Enter with nothing typed (or Ctrl+T twice) for a plain new tab.'),
         I.seg('tabs.newTabPage', 'New tabs show', '', [['speeddial', 'Speed Dial'], ['blank', 'A blank page'], ['url', 'A page I choose']]),
@@ -1468,7 +1481,7 @@ function sections() {
         I.range('appearance.newTab.imageBlur', 'Blur the image', '', { min: 0, max: 30, step: 1, fmt: (v) => v + ' px', when: (st) => st.appearance.newTab.background === 'image' }),
       ] },
     ] },
-    { id: 'animations', title: 'Animations', icon: 'sparkle', desc: 'Every animation can be turned off on its own.', groups: [
+    { id: 'animations', title: 'Animations', icon: 'sparkle', desc: 'Every animation can be turned off on its own.', groups: () => [
       { title: 'Everywhere', items: [
         I.custom('', '', reducedMotionNote, { stack: true }),
         I.toggle('animations.enabled', 'Animations', 'Turns all of them on or off.', { keywords: 'motion' }),
@@ -1479,7 +1492,7 @@ function sections() {
       ] },
       { title: 'Each animation', items: ANIMS.map(([k, label]) => I.toggle('animations.' + k, label, '', { when: (st) => st.animations.enabled, keywords: 'motion animation' })) },
     ] },
-    { id: 'tabs', title: 'Tabs', icon: 'window', desc: 'Opening, closing, startup and sleeping tabs.', groups: [
+    { id: 'tabs', title: 'Tabs', icon: 'window', desc: 'Opening, closing, startup and sleeping tabs.', groups: () => [
       { title: 'Opening and closing', items: [
         I.seg('tabs.newTabPosition', 'New tabs open', 'Links always open next to the page they came from.', [['afterActive', 'Next to the current tab'], ['end', 'At the end']]),
         I.select('tabs.activateOnClose', 'After closing a tab, show', '', [['previous', 'The tab you used before'], ['right', 'The tab after it'], ['left', 'The tab before it']]),
@@ -1505,7 +1518,7 @@ function sections() {
         I.button('Sleeping tabs', 'When unused tabs go to sleep (to free memory) is part of the performance profile.', 'Performance…', () => go('performance'), { iconName: 'cpu', keywords: 'sleep memory discard suspend ram' }),
       ] },
     ] },
-    { id: 'spaces', title: 'Spaces & split view', icon: 'layers', desc: 'Separate sets of tabs, and pages side by side.', groups: [
+    { id: 'spaces', title: 'Spaces & split view', icon: 'layers', desc: 'Separate sets of tabs, and pages side by side.', groups: () => [
       { title: 'Spaces', items: [
         I.toggle('workspaces.showSwitcher', 'Show the space switcher', ''),
         I.toggle('workspaces.switchOnDrop', 'Follow a tab you drop on another space', ''),
@@ -1515,7 +1528,7 @@ function sections() {
         I.range('split.gap', 'Gap between pages', '', { min: 0, max: 16, step: 1, fmt: (v) => v + ' px' }),
       ] },
     ] },
-    { id: 'search', title: 'Search', icon: 'search', desc: 'Search engines and suggestions.', groups: [
+    { id: 'search', title: 'Search', icon: 'search', desc: 'Search engines and suggestions.', groups: () => [
       { title: 'Search engines', items: [
         I.custom('Search engines', 'Type a keyword then a space in the launcher or address bar to use an engine (for example “yt cats”).', enginesEditor, { keywords: 'google duckduckgo bing keyword' }),
       ] },
@@ -1525,7 +1538,7 @@ function sections() {
         I.toggle('search.openInNewTab', 'Address bar searches open in a new tab', ''),
       ] },
     ] },
-    { id: 'languages', title: 'Languages', icon: 'translate', desc: 'Translating pages, and spell check.', groups: [
+    { id: 'languages', title: 'Languages', icon: 'translate', desc: 'Translating pages, and spell check.', groups: () => [
       { title: 'Translation', items: [
         I.toggle('translate.offer', 'Offer to translate pages in other languages', 'A Translate button shows in the address bar. Pages are translated by Google Translate’s website translator, which fetches the page itself: a page you’re signed in to comes out as it looks signed out, and only public websites can be translated.', { keywords: 'translate translation google language' }),
         I.select('translate.target', 'Translate into', '', translateTargets(), { keywords: 'translate translation language' }),
@@ -1538,7 +1551,7 @@ function sections() {
     ] },
     // Every setting of the Waypoint launcher extension, in its order: Ranking, Sources, Boosts, Search
     // engines, Keys & behavior, Appearance, Backup.
-    { id: 'launcher', title: 'Launcher', icon: 'bolt', desc: 'What the launcher searches and how it ranks it, how it opens results, and how it looks.', groups: [
+    { id: 'launcher', title: 'Launcher', icon: 'bolt', desc: 'What the launcher searches and how it ranks it, how it opens results, and how it looks.', groups: () => [
       { title: 'Ranking', id: 'launcher-ranking', items: [
         I.note('A result’s score is how well it matches what you typed, scaled up by how often and how recently you’ve visited it. The three weights are relative to each other, so doubling all of them changes nothing.'),
         I.range('launcher.wMatch', 'Text match', 'The share of the score that comes from matching alone. Lower it to let visits and recency matter more. Early, whole-word matches in the title count most.', { min: 0, max: 3, step: 0.05, fmt: X2, keywords: 'weight ranking' }),
@@ -1626,7 +1639,7 @@ function sections() {
         I.custom('Launcher settings', 'Save them to a file, or bring them in from one: exported from Bifrost, or from the Waypoint extension (Export settings).', launcherBackup, { stack: false, keywords: 'export import reset waypoint backup' }),
       ] },
     ] },
-    { id: 'privacy', title: 'Privacy & security', icon: 'shield', desc: 'Ad blocking, tracking protection and your data.', groups: [
+    { id: 'privacy', title: 'Privacy & security', icon: 'shield', desc: 'Ad blocking, tracking protection and your data.', groups: () => [
       { title: 'Dangerous sites', items: [
         I.toggle('privacy.dangerousSites', 'Warn me about dangerous sites', 'Pages known for phishing, malware or scams are stopped before they load, with a warning (and a way through if you’re sure); downloads from them are blocked. Uses the Phishing URL and Malicious URL blocklists and uBlock Origin’s “Badware risks”, updated twice a day. Works even with ad blocking off.', { keywords: 'safe browsing phishing malware scam security deceptive' }),
       ] },
@@ -1661,14 +1674,14 @@ function sections() {
         I.custom('Sites', 'Permissions, zoom levels and custom styles you’ve set for sites.', sitesWidget, { keywords: 'permissions camera microphone location notifications zoom css' }),
       ] },
     ] },
-    { id: 'downloads', title: 'Downloads', icon: 'download', desc: '', groups: [
+    { id: 'downloads', title: 'Downloads', icon: 'download', desc: '', groups: () => [
       { title: 'Downloads', items: [
         I.custom('Save files to', '', downloadFolder, { stack: false }),
         I.toggle('downloads.askWhereToSave', 'Ask where to save each file', ''),
         I.toggle('downloads.showOnStart', 'Show downloads when they start', ''),
       ] },
     ] },
-    { id: 'keyboard', title: 'Keyboard & touchpad', icon: 'keyboard', desc: 'Shortcuts, Vim keys and touchpad swipes.', groups: [
+    { id: 'keyboard', title: 'Keyboard & touchpad', icon: 'keyboard', desc: 'Shortcuts, Vim keys and touchpad swipes.', groups: () => [
       { title: 'Touchpad', id: 'touchpad', items: [
         I.toggle('gestures.swipe', 'Swipe with two fingers to go back and forward', 'Left to right goes back, right to left goes forward (like Chrome). An arrow comes in from the side; let go once it lights up. It only happens when the page can’t scroll any further that way itself.', { keywords: 'gesture gestures trackpad touchpad swipe back forward history navigate two fingers' }),
         I.range('gestures.swipeDistance', 'How far to swipe', 'Before letting go goes back or forward.', { min: 40, max: 400, step: 10, fmt: (v) => v + ' px', when: (st) => st.gestures.swipe !== false, keywords: 'swipe sensitivity distance threshold' }),
@@ -1689,14 +1702,14 @@ function sections() {
         I.custom('Extension shortcuts', 'Keys for things your extensions can do, like opening their popup.', extShortcutsEditor, { keywords: 'extensions commands hotkeys bitwarden dark reader' }),
       ] },
     ] },
-    { id: 'extensions', title: 'Extensions', icon: 'puzzle', desc: '', groups: [
+    { id: 'extensions', title: 'Extensions', icon: 'puzzle', desc: '', groups: () => [
       { title: 'Extensions', items: [
         I.button('Manage extensions', 'Add, remove, pin and configure extensions.', 'Open extensions', () => command('openExtensions'), { iconName: 'puzzle' }),
         I.toggle('extensions.allowWebStore', 'Install from the Chrome Web Store', 'Visit the Web Store and click “Add to Chrome”.'),
         I.toggle('extensions.popupsInWindow', 'Open extension popups under their button', 'Inside the browser window, like Chrome. Turn off to open them as small separate windows.', { keywords: 'popup window extension bubble' }),
       ] },
     ] },
-    { id: 'performance', title: 'Performance', icon: 'cpu', desc: 'How much memory Bifrost uses, and how hard it works.', groups: [
+    { id: 'performance', title: 'Performance', icon: 'cpu', desc: 'How much memory Bifrost uses, and how hard it works.', groups: () => [
       { title: 'Profile', id: 'perf-profile', items: [
         I.custom('', '', perfProfiles, { keywords: 'performance memory ram profile maximum balanced saver custom speed' }),
         I.custom('Memory use right now', '', perfUsage, { stack: true, keywords: 'ram memory usage processes' }),
@@ -1705,7 +1718,7 @@ function sections() {
         I.custom('', '', perfKnobs, { keywords: 'sleep tabs sleeping animations effects blur previews throttling processes history memory' }),
       ] },
     ] },
-    { id: 'advanced', title: 'Advanced', icon: 'wrench', desc: 'Things most people never need to change.', groups: [
+    { id: 'advanced', title: 'Advanced', icon: 'wrench', desc: 'Things most people never need to change.', groups: () => [
       { title: 'Browsing', items: [
         I.seg('advanced.userAgentMode', 'Identify as', 'What sites are told this browser is.', [['chrome', 'Chrome'], ['electron', 'Bifrost'], ['custom', 'Custom']], { keywords: 'user agent ua' }),
         I.text('advanced.customUserAgent', 'Custom user agent', '', { wide: true, mono: true, when: (st) => st.advanced.userAgentMode === 'custom' }),
@@ -1723,7 +1736,7 @@ function sections() {
         ...(window.wb.platform === 'linux' ? [I.toggle('advanced.waylandNative', 'Run natively on Wayland', 'Takes effect after a restart.', { restart: true })] : []),
       ] },
     ] },
-    { id: 'sync', title: 'Sync', icon: 'sync', desc: 'Your bookmarks, history, open tabs and settings on all your computers.', groups: [
+    { id: 'sync', title: 'Sync', icon: 'sync', desc: 'Your bookmarks, history, open tabs and settings on all your computers.', groups: () => [
       { title: 'Sync', items: [
         I.custom('Sync this computer', 'Through a folder that OneDrive, Google Drive, Dropbox, iCloud or Syncthing keeps the same on each computer: choose the same one on each. Bifrost keeps its files in a “Bifrost Sync” folder in it.', syncSwitch, { stack: false, keywords: 'sync onedrive google drive dropbox icloud syncthing other computers devices laptop desktop' }),
         I.custom('Sync folder', '', syncFolderWidget, { keywords: 'sync folder onedrive dropbox google drive icloud cloud' }),
@@ -1740,7 +1753,7 @@ function sections() {
         I.custom('Your other computers', '', syncDevicesWidget, { when: (st) => st.sync.enabled, keywords: 'sync devices remove' }),
       ] },
     ] },
-    { id: 'import', title: 'Import & backup', icon: 'import', desc: 'Bring bookmarks and history from other browsers; back up your settings.', groups: [
+    { id: 'import', title: 'Import & backup', icon: 'import', desc: 'Bring bookmarks and history from other browsers; back up your settings.', groups: () => [
       { title: 'From another browser', items: [
         I.custom('Browsers on this computer', 'Firefox, Chrome, Vivaldi, Edge and Brave are supported.', importWidget, { keywords: 'firefox chrome vivaldi edge brave bookmarks history extensions' }),
         I.custom('Extensions', 'Bring extensions over from another browser, or from a browser profile folder (portable browsers keep theirs next to the app).', () => {
@@ -1751,7 +1764,7 @@ function sections() {
       ] },
       { title: 'Files', items: [I.custom('Files', '', backupWidget, { keywords: 'export html json backup reset' })] },
     ] },
-    { id: 'about', title: 'Default browser & about', icon: 'info', desc: '', groups: [
+    { id: 'about', title: 'Default browser & about', icon: 'info', desc: '', groups: () => [
       { title: 'Bifrost', items: [I.custom('', '', aboutWidget, { keywords: 'default version profile portable' })] },
       { title: 'Updates', id: 'updates', items: [
         I.custom('Updates', 'New versions come from Bifrost’s releases on GitHub.', updatesWidget, { keywords: 'update upgrade version new release download restart' }),
@@ -1764,25 +1777,46 @@ function sections() {
 // ----------------------------------------------------------------- page
 let SECTIONS = [];
 let navItems = [];
+let pending = [];          // sections not built yet, in order: { sec, el }
+let cardsBuilt = null;     // (reveal) told of each section's cards as it's built
 
+// The page has 300-odd rows; building them all before showing anything made it slow to open. The page opens
+// with the section you'll see (the first, or the one its address points to and those before it) and builds
+// the rest right after it shows, a section at a time. Searching, or going to a section further down, builds
+// what's left at once.
 function build() {
   items.length = 0;
   SECTIONS = sections();
-  const holder = $('sections');
-  holder.replaceChildren(...SECTIONS.map((sec) => {
-    const el = h('section.section', { id: sec.id, dataset: { sec: sec.id } },
-      h('h2.sec-title', null, sec.title),
-      sec.desc ? h('p.sec-desc', null, sec.desc) : null,
-      ...sec.groups.map((g) => h('div.group', { id: g.id || null }, h('div.card-title', null, g.title), h('div.card', null, g.items))));
-    return el;
-  }), h('div.no-results', { id: 'no-results', hidden: true }, 'No settings match your search.'));
-  for (const it of items) it.update(page.settings);
+  pending = SECTIONS.map((sec) => ({ sec, el: h('section.section', { id: sec.id, dataset: { sec: sec.id } },
+    h('h2.sec-title', null, sec.title),
+    sec.desc ? h('p.sec-desc', null, sec.desc) : null) }));
+  $('sections').replaceChildren(...pending.map((x) => x.el), h('div.no-results', { id: 'no-results', hidden: true }, 'No settings match your search.'));
   navItems = SECTIONS.map((sec) => h('a.nav-item', { href: '#' + sec.id, dataset: { sec: sec.id } }, icon(sec.icon), sec.title));
   $('nav').replaceChildren(...navItems);
 }
 
+function buildNext() {
+  const next = pending.shift();
+  if (!next) return false;
+  const from = items.length;
+  next.el.append(...next.sec.groups().map((g) => h('div.group', { id: g.id || null }, h('div.card-title', null, g.title), h('div.card', null, g.items))));
+  // (every row and widget is drawn from the settings as it's made: only which ones are greyed out is left)
+  for (let i = from; i < items.length; i++) if (items[i].apply) items[i].apply(page.settings);
+  if (cardsBuilt) cardsBuilt(next.el);
+  return true;
+}
+function buildAll() { while (buildNext()); }
+// Builds the sections up to the one that is, or has, `id` (a group), so it can be gone to.
+function buildTo(id) {
+  const i = pending.findIndex((x) => x.sec.id === id);
+  if (i >= 0) { for (let k = 0; k <= i; k++) buildNext(); return; }
+  while (!document.getElementById(id) && buildNext());
+}
+function buildRest() { if (buildNext() && pending.length) setTimeout(buildRest, 0); }
+
 function filter(q) {
   q = q.trim().toLowerCase();
+  buildAll();
   let any = false;
   for (const sec of document.querySelectorAll('.section')) {
     let secAny = false;
@@ -1820,6 +1854,7 @@ function goToHash(ev) {
   const raw = decodeURIComponent((location.hash || '').slice(1));
   if (!raw) return;
   const [id, arg] = raw.split('/');
+  buildTo(id);
   const target = document.getElementById(id === 'clear' ? 'clear' : id) || document.getElementById(id);
   if (!target) return;
   target.scrollIntoView({ block: 'start', behavior: ev && ev.type === 'hashchange' ? 'smooth' : 'instant' });
@@ -1844,22 +1879,21 @@ function goToHash(ev) {
 // Cards rise into view as you scroll to them (Animations → Bifrost pages).
 function reveal() {
   if (!anim('internalPages') || !('IntersectionObserver' in window)) return;
-  const seen = new WeakSet();
+  // Cards already on screen when the page opens don't animate (it would just look slow); the rest do. Which
+  // ones those are, the observer says (measuring each card here would lay out the whole page, sections off
+  // screen included, before it could show); "when the page opens" is its first moments, while the sections
+  // that show are built.
+  const quietUntil = performance.now() + 400;
   const io = new IntersectionObserver((entries) => {
+    const opening = performance.now() < quietUntil;
     for (const e of entries) {
-      if (!e.isIntersecting || seen.has(e.target)) continue;
-      seen.add(e.target);
+      if (!e.isIntersecting) continue;
       io.unobserve(e.target);
-      animate(e.target, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.16,1,.3,1)' }, 'internalPages');
+      if (!opening) animate(e.target, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 260, easing: 'cubic-bezier(.16,1,.3,1)' }, 'internalPages');
     }
   }, { rootMargin: '0px 0px -20px 0px' });
-  // Cards already on screen when the page opens don't animate (it would just look slow); the rest do.
-  requestAnimationFrame(() => {
-    for (const c of document.querySelectorAll('.group .card')) {
-      const r = c.getBoundingClientRect();
-      if (r.top < innerHeight && r.bottom > 0) seen.add(c); else io.observe(c);
-    }
-  });
+  cardsBuilt = (el) => { for (const c of el.querySelectorAll('.group .card')) io.observe(c); };
+  for (const c of document.querySelectorAll('.group .card')) io.observe(c);
 }
 
 // Highlights the section you're looking at in the side navigation.
@@ -1889,8 +1923,15 @@ await boot({
 $('title-ico').append(icon('sliders'));
 $('search-ico').append(icon('search'));
 build();
+{
+  const id = decodeURIComponent((location.hash || '').slice(1)).split('/')[0];
+  if (id) buildTo(id);
+  if (!document.querySelector('.section .group')) buildNext();
+}
 spy();
 reveal();
+// The rest, once the page shows.
+requestAnimationFrame(() => setTimeout(buildRest, 0));
 const search = $('settings-q');
 search.addEventListener('input', debounce(() => {
   if (redrawShortcuts) redrawShortcuts();

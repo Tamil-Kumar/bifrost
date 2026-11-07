@@ -43,7 +43,8 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 ```
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
-task manager), `behavior` (settings that change behavior, the Launcher section's included), `everyday` (video, full screen and what shows
+task manager), `behavior` (settings that change behavior, the Launcher section's included; the settings page opening with what
+you see and building the rest after), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the address bar's permissions button, notifications, the keyboard following the tab on screen, find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups, Dark Reader, Stylus with a

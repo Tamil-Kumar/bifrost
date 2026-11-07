@@ -1,8 +1,12 @@
 'use strict';
 // Registering as a browser: Windows "Default apps" capabilities (per user, no admin), Start menu and
 // desktop shortcuts, and a .desktop entry on Linux.
+//
+// All of it runs other programs (reg.exe, xdg-settings), which takes a moment each: always without waiting
+// on them here (a synchronous run holds up everything Bifrost does meanwhile; asking reg.exe whether Bifrost is
+// the default made the settings page slow to open).
 const { app, shell } = require('electron');
-const { execFileSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -11,53 +15,67 @@ const NAME = 'Bifrost';
 const PROGID = 'BifrostHTML';
 const AUMID = 'Bifrost.Browser';
 
-function reg(args) {
-  return execFileSync('reg.exe', args, { windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+function run(cmd, args) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true, encoding: 'utf8', timeout: 15000 }, (err, out) => (err ? reject(err) : resolve(out)));
+  });
 }
+const reg = (args) => run('reg.exe', args);
 function regAdd(key, name, value) {
   const args = ['add', key, '/f', '/t', 'REG_SZ', '/d', value];
   if (name === null) args.splice(2, 0, '/ve'); else args.splice(2, 0, '/v', name);
-  reg(args);
+  return reg(args);
 }
 
 function exe() { return app.getPath('exe'); }
 
+// Whether Bifrost is the default browser (a promise). The answer is kept a few seconds: the settings, about
+// and welcome pages all ask, and one question is enough for all of them.
+let known = null, knownAt = 0, asking = null;
 function isDefault() {
+  if (known !== null && Date.now() - knownAt < 5000) return Promise.resolve(known);
+  if (!asking) {
+    asking = check()
+      .then((v) => { known = v; knownAt = Date.now(); return v; })
+      .finally(() => { asking = null; });
+  }
+  return asking;
+}
+async function check() {
   try {
     if (process.platform === 'win32') {
-      const out = reg(['query', 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', '/v', 'ProgId']);
+      const out = await reg(['query', 'HKCU\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice', '/v', 'ProgId']);
       return out.includes(PROGID);
     }
-    if (process.platform === 'linux') {
-      const out = execFileSync('xdg-settings', ['get', 'default-web-browser'], { encoding: 'utf8' });
-      return /bifrost/i.test(out);
-    }
+    if (process.platform === 'linux') return /bifrost/i.test(await run('xdg-settings', ['get', 'default-web-browser']));
     return app.isDefaultProtocolClient('https');
   } catch { return false; }
 }
+// (asked again after you change it here)
+function forget() { known = null; }
 
-function registerWindows() {
+async function registerWindows() {
   const e = exe();
   const quoted = `"${e}"`;
   const base = `HKCU\\Software\\Clients\\StartMenuInternet\\${NAME}`;
-  regAdd(base, null, NAME);
-  regAdd(`${base}\\Capabilities`, 'ApplicationName', NAME);
-  regAdd(`${base}\\Capabilities`, 'ApplicationDescription', 'A fast, customizable browser');
-  regAdd(`${base}\\Capabilities`, 'ApplicationIcon', `${quoted},0`);
-  for (const proto of ['http', 'https', 'ftp']) regAdd(`${base}\\Capabilities\\URLAssociations`, proto, PROGID);
-  for (const ext of ['.htm', '.html', '.shtml', '.xhtml', '.svg', '.webp', '.pdf']) regAdd(`${base}\\Capabilities\\FileAssociations`, ext, PROGID);
-  regAdd(`${base}\\Capabilities\\StartMenu`, 'StartMenuInternet', NAME);
-  regAdd(`${base}\\DefaultIcon`, null, `${quoted},0`);
-  regAdd(`${base}\\shell\\open\\command`, null, quoted);
+  await regAdd(base, null, NAME);
+  await regAdd(`${base}\\Capabilities`, 'ApplicationName', NAME);
+  await regAdd(`${base}\\Capabilities`, 'ApplicationDescription', 'A fast, customizable browser');
+  await regAdd(`${base}\\Capabilities`, 'ApplicationIcon', `${quoted},0`);
+  for (const proto of ['http', 'https', 'ftp']) await regAdd(`${base}\\Capabilities\\URLAssociations`, proto, PROGID);
+  for (const ext of ['.htm', '.html', '.shtml', '.xhtml', '.svg', '.webp', '.pdf']) await regAdd(`${base}\\Capabilities\\FileAssociations`, ext, PROGID);
+  await regAdd(`${base}\\Capabilities\\StartMenu`, 'StartMenuInternet', NAME);
+  await regAdd(`${base}\\DefaultIcon`, null, `${quoted},0`);
+  await regAdd(`${base}\\shell\\open\\command`, null, quoted);
   const cls = `HKCU\\Software\\Classes\\${PROGID}`;
-  regAdd(cls, null, `${NAME} HTML Document`);
-  regAdd(cls, 'AppUserModelId', AUMID);
-  regAdd(`${cls}\\Application`, 'ApplicationName', NAME);
-  regAdd(`${cls}\\Application`, 'ApplicationIcon', `${quoted},0`);
-  regAdd(`${cls}\\Application`, 'AppUserModelId', AUMID);
-  regAdd(`${cls}\\DefaultIcon`, null, `${quoted},0`);
-  regAdd(`${cls}\\shell\\open\\command`, null, `${quoted} --single-argument %1`);
-  regAdd('HKCU\\Software\\RegisteredApplications', NAME, `Software\\Clients\\StartMenuInternet\\${NAME}\\Capabilities`);
+  await regAdd(cls, null, `${NAME} HTML Document`);
+  await regAdd(cls, 'AppUserModelId', AUMID);
+  await regAdd(`${cls}\\Application`, 'ApplicationName', NAME);
+  await regAdd(`${cls}\\Application`, 'ApplicationIcon', `${quoted},0`);
+  await regAdd(`${cls}\\Application`, 'AppUserModelId', AUMID);
+  await regAdd(`${cls}\\DefaultIcon`, null, `${quoted},0`);
+  await regAdd(`${cls}\\shell\\open\\command`, null, `${quoted} --single-argument %1`);
+  await regAdd('HKCU\\Software\\RegisteredApplications', NAME, `Software\\Clients\\StartMenuInternet\\${NAME}\\Capabilities`);
 }
 
 function desktopEntry() {
@@ -86,8 +104,9 @@ Exec="${exe()}" --private
 }
 
 async function makeDefault() {
+  forget();
   if (process.platform === 'win32') {
-    registerWindows();
+    await registerWindows();
     // Windows lets only the user pick the default; open the Default apps page for this browser.
     await shell.openExternal(`ms-settings:defaultapps?registeredAppUser=${NAME}`).catch(() => shell.openExternal('ms-settings:defaultapps'));
     return { opened: 'settings' };
@@ -96,16 +115,18 @@ async function makeDefault() {
     const dir = path.join(os.homedir(), '.local', 'share', 'applications');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'bifrost.desktop'), desktopEntry());
-    try { execFileSync('xdg-settings', ['set', 'default-web-browser', 'bifrost.desktop']); } catch { /* not available */ }
-    try { execFileSync('xdg-mime', ['default', 'bifrost.desktop', 'x-scheme-handler/http', 'x-scheme-handler/https', 'text/html']); } catch { /* not available */ }
-    return { done: isDefault() };
+    try { await run('xdg-settings', ['set', 'default-web-browser', 'bifrost.desktop']); } catch { /* not available */ }
+    try { await run('xdg-mime', ['default', 'bifrost.desktop', 'x-scheme-handler/http', 'x-scheme-handler/https', 'text/html']); } catch { /* not available */ }
+    forget();
+    return { done: await isDefault() };
   }
   app.setAsDefaultProtocolClient('http');
   app.setAsDefaultProtocolClient('https');
-  return { done: isDefault() };
+  forget();
+  return { done: await isDefault() };
 }
 
-function installShortcuts({ desktop = true, startMenu = true } = {}) {
+async function installShortcuts({ desktop = true, startMenu = true } = {}) {
   const made = [];
   if (process.platform === 'win32') {
     const opts = { target: exe(), appUserModelId: AUMID, icon: exe(), iconIndex: 0, description: 'Bifrost browser' };
@@ -117,7 +138,7 @@ function installShortcuts({ desktop = true, startMenu = true } = {}) {
       const p = path.join(app.getPath('desktop'), `${NAME}.lnk`);
       if (shell.writeShortcutLink(p, 'replace', opts)) made.push(p);
     }
-    registerWindows();
+    await registerWindows();
   } else if (process.platform === 'linux') {
     const dir = path.join(os.homedir(), '.local', 'share', 'applications');
     fs.mkdirSync(dir, { recursive: true });

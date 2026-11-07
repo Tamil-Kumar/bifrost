@@ -992,6 +992,30 @@ try {
       try { await clickTab('bifrost://settings'); await t.ui(() => window.__wbTest.command('closeTab')); await sleep(400); } catch { /* not open */ }
     }
   });
+
+  await R.step('Settings opens with the section you see and builds the rest right after; a search, or an address further down, finds it at once', async () => {
+    const guest = (js) => t.guest('bifrost://settings', js);
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(100); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    try {
+      await closeSettingsTabs();
+      // Opened as it is: the first section, then every one of them, filled in.
+      await open('bifrost://settings/', false);
+      await until(() => guest("!!document.querySelector('#appearance .group')"), 8000, 'the first section');
+      const n = await until(() => guest("(() => { const s = [...document.querySelectorAll('.section')]; return s.length > 10 && s.every((x) => x.querySelector('.group')) && s.length; })()"), 5000, 'every section filled in');
+      const rows = await guest("document.querySelectorAll('.srow[data-path]').length");
+      assert(rows > 150, `${n} sections, but only ${rows} settings`);
+      await closeSettingsTabs();
+      // A search finds what's at the bottom of the page.
+      await open('bifrost://settings/', false);
+      await until(() => guest("!!document.querySelector('#appearance .group')"), 8000, 'the page');
+      await guest("(() => { const q = document.getElementById('settings-q'); q.value = 'download updates'; q.dispatchEvent(new Event('input')); return 1; })()");
+      await until(() => guest("(() => { const r = document.querySelector('[data-path=\"updates.auto\"]'); return !!r && !r.closest('[hidden]') && !document.querySelector('[data-path=\"appearance.density\"]:not([hidden])'); })()"), 3000, 'only the Updates row');
+      await closeSettingsTabs();
+      // Opened at a group near the bottom: it's built and at the top of the window.
+      await open('bifrost://settings/#sync-devices', false);
+      await until(() => guest("(() => { const g = document.getElementById('sync-devices'); if (!g) return null; const y = g.querySelector('.card-title').getBoundingClientRect().top; return Math.abs(y - 90) < 4 ? y : null; })()"), 6000, 'Sync → its computers at the top');
+    } finally { await closeSettingsTabs(); }
+  });
 } finally {
   x.close();
   const errs = (await t.pageLogs()).filter((l) => /pageerror|Uncaught/i.test(l));

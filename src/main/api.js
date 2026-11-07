@@ -410,10 +410,10 @@ function register() {
   });
 
   // --------------------------------------------------------------------- app
-  ipc.handle('app:info', 'internal', () => ({
+  ipc.handle('app:info', 'internal', async () => ({
     version: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node, v8: process.versions.v8,
     platform: process.platform, arch: process.arch, profile: ctx.profile, exe: app.getPath('exe'),
-    userAgent: require('./useragent').defaultUA(), isDefault: require('./default-browser').isDefault(),
+    userAgent: require('./useragent').defaultUA(), isDefault: await require('./default-browser').isDefault(),
     drm: require('./drm').info(), updates: ctx.updater ? ctx.updater.info() : null,
   }));
   ipc.handle('app:open-path', ['settings', 'about'], (event, which) => {
