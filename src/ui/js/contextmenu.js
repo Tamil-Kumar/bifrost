@@ -1,5 +1,5 @@
 // Bifrost browser UI — the right-click menu for pages (links, images, media, text, editing).
-import { S, emit, tabByWc, accelFor } from './state.js';
+import { S, emit, tabByWc, accelFor, setting } from './state.js';
 import { copyText } from './util.js';
 import { showMenu } from './menus.js';
 import { toast } from './prompts.js';
@@ -96,7 +96,7 @@ function panelMenu(wv, p) {
   }
   if (link) {
     items.push(
-      /^(https?|ftp):/i.test(link) ? { label: 'Open link in new tab', icon: 'plus', action: () => T.openTab({ url: link, active: false }) } : null,
+      /^(https?|ftp):/i.test(link) ? { label: 'Open link in new tab', icon: 'plus', action: () => T.openTab({ url: link, active: !!setting('tabs.switchToNewTabs') }) } : null,
       web && /^https?:/i.test(link) ? { label: 'Open link here', icon: 'sidebar', action: () => wv.loadURL(link) } : null,
       { label: 'Copy link address', icon: 'link', action: () => copyText(link) }, '-');
   }
@@ -161,7 +161,7 @@ export function showPageMenu(p) {
 
   if (link) {
     items.push(
-      { label: 'Open link in new tab', icon: 'plus', action: () => T.openTab({ url: link, active: false, opener: tab }) },
+      { label: 'Open link in new tab', icon: 'plus', action: () => T.openTab({ url: link, active: !!setting('tabs.switchToNewTabs'), opener: tab }) },
       { label: 'Open link in split view', icon: 'split', action: () => { T.selectTab(tab, { focus: false }); T.openUrl(link, { where: 'split' }); } },
       { label: 'Open link in new window', icon: 'window', action: () => T.openUrl(link, { where: 'window' }) },
       S.isPrivate ? null : { label: 'Open link in private window', icon: 'mask', action: () => T.openUrl(link, { where: 'private' }) },

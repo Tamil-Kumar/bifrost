@@ -339,7 +339,8 @@ function onWindowOpen(guest, { url, disposition, features, frameName }) {
   }
   if (ctl) {
     // foreground-tab: target=_blank or Ctrl+Shift+click · background-tab: Ctrl/middle click · new-window: Shift+click
-    ctl.send('open-url', { url, background: disposition === 'background-tab', newWindow: disposition === 'new-window' && !wantsPopup, openerWcId: guest.id });
+    // (Settings → Tabs → Switch to links you open in a new tab turns the clicks round: the UI, openFromMain)
+    ctl.send('open-url', { url, background: disposition === 'background-tab', foreground: disposition === 'foreground-tab', newWindow: disposition === 'new-window' && !wantsPopup, openerWcId: guest.id });
   }
   return { action: 'deny' };
 }

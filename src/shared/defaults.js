@@ -156,6 +156,7 @@
     },
     tabs: {
       newTabPosition: 'afterActive', // afterActive | end
+      switchToNewTabs: false,        // Ctrl+click and middle-click on a link take you to its new tab (Shift too: it opens behind)
       newTabOpensLauncher: true,     // Ctrl+T and + open the launcher; pick something to open it in a new tab
       closeWindowWithLastTab: false,
       newTabPage: 'speeddial',       // speeddial | blank | url

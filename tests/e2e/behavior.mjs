@@ -20,6 +20,8 @@ const site = await startSite(undefined, { routes: {
   '/dl/file.zip': (req, res) => { res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="file.zip"' }); res.end(Buffer.alloc(1024)); },
   // A dark page whose color comes from a wrapper, not from <body> (as in many web apps).
   '/dark.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Dark</title><style>html,body{margin:0;height:100%}#app{position:fixed;inset:0;background:#13233a;color:#e8eef7;font:20px sans-serif;padding:40px}</style><div id="app">A dark app</div>'); },
+  // Links, for opening in a new tab.
+  '/links.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Links</title><body style="font:22px sans-serif;margin:40px"><p><a id=l href="/b.html?ln">A link</a></p><p><a id=blank href="/b.html?lb" target="_blank">A link that opens a tab</a></p>'); },
   // A page to visit and then remove from history from the launcher.
   '/forget.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Forget me soon</title><p>forget me</p>'); },
   // Three pages to bookmark, for the launcher's ranking.
@@ -77,6 +79,64 @@ try {
       await open(site.url + '/b.html'); await sleep(500);
     }
     await set('tabs.activateOnClose', 'previous');
+  });
+
+  await R.step('a link opened in a new tab (Ctrl+click, middle-click) opens behind; with “Switch to links you open in a new tab”, in front, and Ctrl+Shift+click behind; a link that opens a tab by itself comes to the front either way', async () => {
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let v; while (Date.now() < end) { v = await fn(); if (v) return v; await sleep(120); } throw new Error('timed out waiting for ' + label); };
+    const view = () => t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => e.getBoundingClientRect().width > 50 && getComputedStyle(e).visibility !== 'hidden'); const r = w.getBoundingClientRect(); return { x: r.x, y: r.y }; });
+    // Points the link at a new address (so each case's tab can be told apart), and says where it is on screen.
+    const aim = async (id, q) => {
+      const r = await t.guest('/links.html', `(() => { const a = document.getElementById(${JSON.stringify(id)}); a.href = '/b.html?${q}'; const r = a.getBoundingClientRect(); return { x: r.x + 20, y: r.y + r.height / 2 }; })()`);
+      const v = await view();
+      return { x: v.x + r.x, y: v.y + r.y };
+    };
+    const opened = (q) => until(async () => (await tabs()).some((tb) => tb.url.endsWith('?' + q)), 4000, 'a tab for ?' + q);
+    const back = async (q) => {
+      await t.main(({ webContents }, q) => { const ctl = global.__bifrost.registry.lastFocused(); for (const wc of webContents.getAllWebContents()) if (!wc.isDestroyed() && wc.getType() === 'webview' && wc.getURL().endsWith('?' + q)) ctl.send('extension-tab-action', { wcId: wc.id, action: 'close' }); }, q);
+      await sleep(400);
+      if (!/\/links\.html$/.test(await activeUrl())) await clickTab('/links.html');
+      await sleep(200);
+    };
+    const ctrlClick = async (p, shift = false) => { await x.keyDown('Control_L'); if (shift) await x.keyDown('Shift_L'); await sleep(60); await x.click(p.x, p.y); await sleep(60); if (shift) await x.keyUp('Shift_L'); await x.keyUp('Control_L'); };
+    const check = async (q, wantFront, how) => {
+      await opened(q);
+      await sleep(500);
+      const on = await activeUrl();
+      assert(wantFront ? on.endsWith('?' + q) : /\/links\.html$/.test(on), `${how}: on ${on}, not ${wantFront ? 'the new tab' : 'the page with the link'}`);
+      await back(q);
+    };
+    try {
+      await open(site.url + '/links.html', false); await sleep(1300);
+      // Off (as in Chrome).
+      await set('tabs.switchToNewTabs', false);
+      await ctrlClick(await aim('l', 'off-ctrl'));
+      await check('off-ctrl', false, 'off, Ctrl+click');
+      await ctrlClick(await aim('l', 'off-ctrlshift'), true);
+      await check('off-ctrlshift', true, 'off, Ctrl+Shift+click');
+      // On (as in Firefox).
+      await set('tabs.switchToNewTabs', true);
+      await ctrlClick(await aim('l', 'on-ctrl'));
+      await check('on-ctrl', true, 'on, Ctrl+click');
+      let p = await aim('l', 'on-middle');
+      await x.click(p.x, p.y, 2);
+      await check('on-middle', true, 'on, middle-click');
+      await ctrlClick(await aim('l', 'on-ctrlshift'), true);
+      await check('on-ctrlshift', false, 'on, Ctrl+Shift+click');
+      p = await aim('blank', 'on-blank');
+      await x.click(p.x, p.y);
+      await check('on-blank', true, 'on, a link that opens a tab by itself');
+      // …and its menu's Open link in new tab.
+      p = await aim('l', 'on-menu');
+      await x.click(p.x, p.y, 3);
+      const item = await until(() => t.ui(() => { const e = [...document.querySelectorAll('.menu [role="menuitem"]')].find((m) => /^Open link in new tab/.test(m.textContent.trim())); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }), 3000, 'the link’s menu');
+      await sleep(300);
+      const item2 = await t.ui(() => { const e = [...document.querySelectorAll('.menu [role="menuitem"]')].find((m) => /^Open link in new tab/.test(m.textContent.trim())); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await x.click((item2 || item).x, (item2 || item).y);
+      await check('on-menu', true, 'on, Open link in new tab');
+    } finally {
+      await set('tabs.switchToNewTabs', false);
+      try { await x.keyUp('Shift_L'); await x.keyUp('Control_L'); } catch { /* up */ }
+    }
   });
 
   await R.step('middle-click closes a tab — or doesn’t, when turned off', async () => {

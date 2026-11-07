@@ -1547,6 +1547,7 @@ function sections() {
     { id: 'tabs', title: 'Tabs', icon: 'window', desc: 'Opening, closing, startup and sleeping tabs.', groups: () => [
       { title: 'Opening and closing', items: [
         I.seg('tabs.newTabPosition', 'New tabs open', 'Links always open next to the page they came from.', [['afterActive', 'Next to the current tab'], ['end', 'At the end']]),
+        I.toggle('tabs.switchToNewTabs', 'Switch to links you open in a new tab', 'Ctrl+click or middle-click a link: it opens in a new tab and takes you there (with Shift held too, it opens behind instead), as does Open link in new tab in its menu. Off, they open behind the tab you’re on, as in Chrome.', { keywords: 'ctrl click middle click link new tab background foreground switch focus open behind front' }),
         I.select('tabs.activateOnClose', 'After closing a tab, show', '', [['previous', 'The tab you used before'], ['right', 'The tab after it'], ['left', 'The tab before it']]),
         I.toggle('tabs.middleClickCloses', 'Middle-click closes a tab', ''),
         I.toggle('tabs.doubleClickToClose', 'Double-click closes a tab', ''),

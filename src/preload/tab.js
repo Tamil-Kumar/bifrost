@@ -324,8 +324,9 @@ function setupKeys() {
 
   ipcRenderer.invoke('tab:config', location.href).then((c) => { cfg = c; buildKeymap(); }).catch(() => {});
   ipcRenderer.on('tab-config', (_e, c) => { cfg = c; buildKeymap(); if (vimOff()) exitHints(); });
-  // You clicking into the page (so the address bar knows the page didn't just grab focus by itself).
-  window.addEventListener('pointerdown', (e) => { if (e.isTrusted) toHost('wb-pointer'); }, { capture: true, passive: true });
+  // You clicking into the page (so the address bar knows the page didn't just grab focus by itself), and
+  // whether Shift was held (a link opened in a new tab by it goes in front or behind: openFromMain).
+  window.addEventListener('pointerdown', (e) => { if (e.isTrusted) toHost('wb-pointer', { shift: e.shiftKey, button: e.button }); }, { capture: true, passive: true });
 
   // ------------------------------------------------------------ shortcuts
   function chordOf(e) { return { ctrl: e.ctrlKey, alt: e.altKey, shift: e.shiftKey, meta: e.metaKey, code: e.code }; }

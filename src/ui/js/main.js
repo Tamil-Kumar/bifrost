@@ -93,12 +93,24 @@ function listen() {
   });
 }
 
-function openFromMain({ url, background, newWindow, openerWcId, split }) {
+function openFromMain({ url, background, foreground, newWindow, openerWcId, split }) {
   if (!url) return;
   const opener = tabByWc(openerWcId);
   if (newWindow) T.openUrl(url, { where: 'window' });
   else if (split) { if (opener) T.selectTab(opener, { focus: false }); T.openUrl(url, { where: 'split' }); }
-  else T.openTab({ url, active: !background, opener });
+  else T.openTab({ url, active: linkInFront(!background, foreground, opener), opener });
+}
+
+// A link a page opens in a new tab: Ctrl+click and middle-click put it behind, and with Shift as well in front
+// (as Chromium has it); with Settings → Tabs → "Switch to links you open in a new tab", the other way round
+// (as Firefox has it). A link that opens a tab by itself (target=_blank, a plain click) always comes to the
+// front: told apart from Ctrl+Shift+click by Shift, held in the press that opened it (preload/tab.js).
+function linkInFront(active, foreground, opener) {
+  if (!setting('tabs.switchToNewTabs')) return active;
+  if (!active) return true;
+  const p = opener && opener.lastPointer;
+  if (foreground && p && p.shift && performance.now() - p.at < 4000) return false;
+  return active;
 }
 
 async function handleRequest(method, args) {
@@ -149,6 +161,8 @@ function onGuestMessage(tab, channel, args) {
   } else if (channel === 'wb-copy') {
     V.guest(tab, 'copyText', { text: String(args[0] || '') }).catch(() => {});
   } else if (channel === 'wb-pointer') {
+    const o = args[0] || {};
+    tab.lastPointer = { shift: !!o.shift, button: Number(o.button) || 0, at: performance.now() };
     emit('page-pointer', tab);
   } else if (channel === 'wb-popup-blocked') {
     popupBlocked(tab, String(args[0] || ''), String(args[1] || tab.url || ''));
