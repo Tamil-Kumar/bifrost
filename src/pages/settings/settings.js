@@ -3,7 +3,7 @@
 import {
   boot, wb, h, icon, page, get, set, segmented, switchEl, confirmDialog, promptDialog, dialog, toast, command, debounce, showMenu, openUrl,
 } from '/_/common/page.js';
-import { animate, anim, timeAgo, faviconEl, hostOf } from '/_/common/util.js';
+import { animate, anim, timeAgo, faviconEl, hostOf, fmtBytes } from '/_/common/util.js';
 import { layoutEditor } from './layout-editor.js';
 import { importExtensionsDialog, importExtensionsMenu } from '/_/common/import-extensions.js';
 import { LANGUAGES, languageName, translateCode } from '/_/common/translate.js';
@@ -56,6 +56,14 @@ const save = (path, value, restart) => {
 // that every setting does something.
 const META = [];
 window.__settingsMeta = META;
+
+const TEXT_BIG = 300000;   // characters a text box shows at most (see I.textarea)
+function lineCount(s) {
+  if (!s) return 0;
+  let n = 1;
+  for (let i = s.indexOf('\n'); i !== -1; i = s.indexOf('\n', i + 1)) n++;
+  return s.endsWith('\n') ? n - 1 : n;
+}
 
 // Item builders. Each returns a row element and registers how to refresh it.
 const I = {
@@ -130,13 +138,53 @@ const I = {
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
     return register(row(label, desc, input, { path, stack: wide }), () => { if (document.activeElement !== input) input.value = get(path) || ''; }, label + ' ' + (desc || '') + ' ' + keywords, when);
   },
-  textarea(path, label, desc, { placeholder = '', rows = 6, when, keywords = '' } = {}) {
+  // A box of text. One with more in it than TEXT_BIG says how much there is instead of showing it (a box with
+  // megabytes in it takes seconds to show, and selecting it all stops the page for minutes), with a way to show
+  // it anyway. clear: a Clear button ({ ask, done }: what it asks first, and says after).
+  textarea(path, label, desc, { placeholder = '', rows = 6, when, keywords = '', clear = null } = {}) {
     const ta = h('textarea.field.mono', { rows, placeholder, spellcheck: 'false' });
-    ta.value = get(path) || '';
-    const send = debounce(() => save(path, ta.value), 500);
-    ta.addEventListener('input', send);
-    ta.addEventListener('blur', () => send.flush());
-    return register(row(label, desc, ta, { path, stack: true }), () => { if (document.activeElement !== ta) ta.value = get(path) || ''; }, label + ' ' + (desc || '') + ' ' + keywords, when);
+    // Saved a moment after you stop typing, and when you leave the box; only what you typed (a box that
+    // isn't showing its text has nothing in it to save).
+    let typed = false;
+    const send = debounce(() => { typed = false; save(path, ta.value); }, 500);
+    let anyway = false;
+    const big = h('p.status-line.ta-big');
+    const show = h('button.btn.small', { type: 'button', dataset: { act: 'show' }, onclick: () => { anyway = true; draw(); } }, 'Show it anyway');
+    const clearBtn = clear ? h('button.btn.small', { type: 'button', dataset: { act: 'clear' }, onclick: async () => {
+      if (typed) send.flush();
+      const n = lineCount(ta.hidden ? get(path) || '' : ta.value);
+      if (!(await confirmDialog(clear.ask, { detail: `${n.toLocaleString()} line${n === 1 ? '' : 's'}`, ok: 'Clear', danger: true }))) return;
+      send.cancel();
+      typed = false;
+      anyway = false;
+      try { await set(path, ''); } catch (e) { toast({ text: e.message, iconName: 'warn' }); return; }
+      ta.value = '';
+      draw();
+      toast({ text: clear.done, iconName: 'check' });
+    } }, icon('trash'), 'Clear') : null;
+    const bar = h('div.btn-row.ta-bar', null, show, clearBtn);
+    const buttons = (has) => {
+      if (clearBtn) clearBtn.hidden = !has;
+      bar.hidden = show.hidden && (!clearBtn || clearBtn.hidden);
+    };
+    ta.addEventListener('input', () => { typed = true; send(); buttons(!!ta.value); });
+    ta.addEventListener('blur', () => { if (typed) send.flush(); });
+    const draw = () => {
+      if (document.activeElement === ta) return;
+      const v = get(path) || '';
+      const hide = v.length > TEXT_BIG && !anyway;
+      ta.hidden = hide;
+      big.hidden = !hide;
+      show.hidden = !hide;
+      if (hide) {
+        const n = lineCount(v);
+        big.textContent = `${n.toLocaleString()} line${n === 1 ? '' : 's'} (${fmtBytes(v.length)}): too much to show here.`;
+        if (ta.value) ta.value = '';
+      } else if (ta.value !== v) ta.value = v;
+      buttons(!!v);
+    };
+    draw();
+    return register(row(label, desc, h('div.ta-box', null, ta, big, bar), { path, stack: true }), draw, label + ' ' + (desc || '') + ' ' + keywords + (clear ? ' clear' : ''), when);
   },
   color(path, label, desc, { when } = {}) {
     const input = h('input.color', { type: 'color' });
@@ -1707,7 +1755,7 @@ function sections() {
       { title: 'Dangerous sites', items: [
         I.toggle('privacy.dangerousSites', 'Warn me about dangerous sites', 'Pages known for phishing, malware or scams are stopped before they load, with a warning (and a way through if you’re sure); downloads from them are blocked. Uses the Phishing URL and Malicious URL blocklists and uBlock Origin’s “Badware risks”, updated twice a day. Works even with ad blocking off.', { keywords: 'safe browsing phishing malware scam security deceptive' }),
       ] },
-      { title: 'Ad and tracker blocking', items: [
+      { title: 'Ad and tracker blocking', id: 'adblock', items: [
         I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy, uBlock Origin’s lists and HaGeZi’s DNS blocklists.', { keywords: 'adblock ublock hagezi' }),
         I.toggle('privacy.adblock.cosmetic', 'Hide leftover ad spaces', 'Removes empty boxes and runs uBlock’s anti-adblock fixes.', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.youtubeSkip', 'Hide and skip YouTube ads', 'A video ad is covered and muted the moment it starts, then skipped. The ads in YouTube’s pages are hidden and ads are taken out of Shorts. YouTube itself is left as it is, so it keeps loading.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads skip video shorts' }),
@@ -1719,7 +1767,7 @@ function sections() {
         I.toggle('privacy.adblock.lists.domains', 'Ad, tracker and scam domains', 'HaGeZi’s DNS blocklists (Ultimate, with its pop-up ads and device trackers): over 280,000 whole domains, blocked wherever a page loads from them, and pop-up ads. Never the site you’re on, nor a company’s own services on its own sites, so sites keep working; if one doesn’t, allow ads on it below.', { when: (st) => st.privacy.adblock.enabled, keywords: 'hagezi dns blocklist ultimate domains popups' }),
         I.select('privacy.adblock.updateHours', 'Update the lists', '', [[6, 'Every 6 hours'], [24, 'Every day'], [72, 'Every 3 days'], [168, 'Every week']], { number: true, when: (st) => st.privacy.adblock.enabled }),
         I.custom('Status', '', adblockStatus, { stack: true }),
-        I.textarea('privacy.adblock.customFilters', 'My filters', 'Adblock Plus / uBlock syntax, one per line.', { placeholder: '||ads.example.com^\nexample.com##.banner', keywords: 'custom rules' }),
+        I.textarea('privacy.adblock.customFilters', 'My filters', 'Adblock Plus / uBlock syntax, one per line.', { placeholder: '||ads.example.com^\nexample.com##.banner', keywords: 'custom rules', clear: { ask: 'Clear all your filters?', done: 'Your filters are cleared' } }),
         I.list('privacy.adblock.allowlist', 'Sites where ads are allowed', '', { placeholder: 'example.com', keywords: 'whitelist allowlist' }),
       ] },
       { title: 'Connections and tracking', items: [

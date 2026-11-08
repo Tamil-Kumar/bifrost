@@ -180,3 +180,7 @@
 .pe-main > small { color: var(--overlay); font-size: .82rem; }
 .pe-ctl { flex: none; display: flex; align-items: center; gap: 6px; }
 .pe-list > .erow { margin-top: 6px; }
+
+/* A box of text (I.textarea): with too much in it to show, how much there is; then its buttons */
+.ta-big { margin: 0; padding: 10px 12px; border: 1px dashed var(--s1); border-radius: var(--r-btn); }
+.ta-bar { margin-top: 8px; }

@@ -50,7 +50,7 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
 task manager), `behavior` (settings that change behavior, the Launcher section's included, how long the downloads box stays, links opened in a new tab in front or behind; the settings page opening with what
-you see and building the rest after), `everyday` (video, full screen and what shows
+you see and building the rest after; a box of text too big to show, and My filters' Clear button), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
 questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar; its buttons and

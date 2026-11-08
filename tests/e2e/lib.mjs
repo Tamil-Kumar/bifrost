@@ -56,7 +56,9 @@ export async function startSite(dir = path.join(ROOT, 'tests', 'site'), { routes
 export function reporter(name) {
   const results = [];
   return {
+    // ONLY=<words>: just the steps whose titles have them in.
     async step(title, fn) {
+      if (process.env.ONLY && !title.includes(process.env.ONLY)) return;
       const t0 = Date.now();
       try {
         await fn();

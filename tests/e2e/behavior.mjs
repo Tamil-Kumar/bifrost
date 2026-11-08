@@ -1104,6 +1104,76 @@ try {
       await until(() => guest("(() => { const g = document.getElementById('sync-devices'); if (!g) return null; const y = g.querySelector('.card-title').getBoundingClientRect().top; return Math.abs(y - 90) < 4 ? y : null; })()"), 6000, 'Sync → its computers at the top');
     } finally { await closeSettingsTabs(); }
   });
+
+  await R.step('Settings → My filters: a list too big to show (a whole DNS blocklist) says how big it is instead, and shows if you ask; Clear asks, then empties it; typing brings the Clear button back', async () => {
+    const guest = (js) => t.guest('bifrost://settings', js);
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(100); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    const ROW = '[data-path="privacy.adblock.customFilters"]';
+    const state = () => guest(`(() => { const r = document.querySelector('${ROW}'); const ta = r.querySelector('textarea'), big = r.querySelector('.ta-big'); return { box: !ta.hidden, len: ta.value.length, big: big.hidden ? '' : big.textContent, show: !r.querySelector('[data-act=show]').hidden, clear: !r.querySelector('[data-act=clear]').hidden }; })()`);
+    const filters = () => t.main(() => global.__bifrost.settings.get().privacy.adblock.customFilters);
+    const view = () => t.ui(() => { const w = [...document.querySelectorAll('#views webview')].find((e) => e.getBoundingClientRect().width > 50 && getComputedStyle(e).visibility !== 'hidden'); const r = w.getBoundingClientRect(); return { x: r.x, y: r.y }; });
+    // Where to click: the element scrolled to the middle of the page (at once: the page scrolls smoothly) and
+    // staying there, on screen.
+    const at = async (sel) => {
+      const v = await view();
+      const p = await until(() => guest(`(async () => {
+        const e = document.querySelector(${JSON.stringify(sel)});
+        if (!e) return null;
+        e.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const a = e.getBoundingClientRect();
+        await new Promise((r) => setTimeout(r, 200));
+        const b = e.getBoundingClientRect();
+        return b.width && b.top === a.top && b.top >= 0 && b.bottom <= innerHeight ? { x: b.x + Math.min(b.width / 2, 40), y: b.y + b.height / 2 } : null;
+      })()`), 5000, sel);
+      return { x: v.x + p.x, y: v.y + p.y };
+    };
+    const click = async (sel) => { const p = await at(sel); await x.click(p.x, p.y); };
+    const dialogButton = (label) => until(async () => { const v = await view(); const p = await guest(`(() => { const b = [...document.querySelectorAll('.dialog .btn')].find((e) => e.textContent.trim() === ${JSON.stringify(label)}); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`); return p && { x: v.x + p.x, y: v.y + p.y }; }, 3000, 'the dialog’s ' + label);
+    // A list like a whole DNS blocklist pasted in (HaGeZi's is 280,000 lines, 6 MB; this one, 20,000).
+    const big = Array.from({ length: 20000 }, (_, i) => `||ad${i}.tracker-example.com^`).join('\n') + '\n';
+    try {
+      await closeSettingsTabs();
+      await set('privacy.adblock.customFilters', big);
+      await open('bifrost://settings/#adblock', false);
+      const s1 = await until(async () => { const s = await state(); return s.big ? s : null; }, 8000, 'My filters');
+      assert(!s1.box && s1.len === 0 && s1.show && s1.clear && /^20,000 lines \([\d.]+ KB\): too much to show here\.$/.test(s1.big), 'too big to show: ' + JSON.stringify(s1));
+      // (scrolling down to it, as you would: the page stops keeping the group it opened at at the top)
+      const v0 = await view();
+      await x.move(v0.x + 500, v0.y + 400); await x.wheel('down', 1); await sleep(300);
+      // Show it anyway: all of it, in the box.
+      await click(ROW + ' [data-act=show]');
+      const s2 = await until(async () => { const s = await state(); return s.box ? s : null; }, 5000, 'the list in the box');
+      assert(s2.len === big.length && !s2.big && !s2.show && s2.clear, 'shown anyway: ' + JSON.stringify({ ...s2, want: big.length }));
+      // Clear asks first: Cancel (Esc) keeps the list; Clear empties it.
+      await click(ROW + ' [data-act=clear]');
+      const d = await until(() => guest("(() => { const d = document.querySelector('.dialog'); return d ? d.textContent : null; })()"), 3000, 'the question');
+      assert(/^Clear all your filters\?20,000 lines/.test(d), 'it asks: ' + d);
+      await sleep(250);
+      await x.key('Escape');
+      await until(async () => !(await guest("!!document.querySelector('.dialog')")), 3000, 'the question answered');
+      await sleep(300);
+      assert((await filters()) === big, 'Cancel changed the filters');
+      await click(ROW + ' [data-act=clear]');
+      const ok = await dialogButton('Clear');
+      await sleep(250);
+      await x.click(ok.x, ok.y);
+      await until(async () => (await filters()) === '', 5000, 'the filters cleared');
+      const s3 = await until(async () => { const s = await state(); return s.box && !s.clear ? s : null; }, 3000, 'an empty box');
+      assert(s3.len === 0 && !s3.big && !s3.show, 'cleared: ' + JSON.stringify(s3));
+      const toasts = await guest("[...document.querySelectorAll('.toast-text')].map((e) => e.textContent).join(' | ')");
+      assert(/Your filters are cleared/.test(toasts), 'no word that they’re cleared: ' + toasts);
+      // Typing in the empty box: the Clear button is back as you type, and what you type is saved.
+      await click(ROW + ' textarea');
+      await sleep(150);
+      for (const k of ['a', 'd', 's']) await x.key(k);
+      await until(async () => (await state()).clear, 1500, 'the Clear button, while typing');
+      await until(async () => (await filters()) === 'ads', 3000, 'what was typed, saved');
+      await t.shot('behavior-my-filters');
+    } finally {
+      await set('privacy.adblock.customFilters', '');
+      await closeSettingsTabs();
+    }
+  });
 } finally {
   x.close();
   const errs = (await t.pageLogs()).filter((l) => /pageerror|Uncaught/i.test(l));

@@ -266,6 +266,7 @@ select.select-sm { height: 28px; padding: 0 6px; border: 1px solid var(--s1); bo
 .menu-item.hot { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 12%, var(--hover)), var(--hover)); }
 .btn.primary { background: var(--accent-grad); border-color: transparent; box-shadow: 0 6px 18px -8px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, .18); }
 .btn.primary:hover { filter: brightness(1.07) saturate(1.05); }
+.btn.primary.danger { background: var(--red); border-color: var(--red); box-shadow: 0 6px 18px -8px color-mix(in srgb, var(--red) 70%, transparent), inset 0 1px 0 rgba(255, 255, 255, .18); }
 .switch input:checked + .switch-track { background: var(--accent-grad); box-shadow: 0 0 12px -3px var(--accent-glow); }
 .field:focus { box-shadow: 0 0 0 3px var(--accent-soft), 0 6px 18px -10px var(--accent-glow); }
 .dialog-icon { background: var(--accent-grad); color: var(--accent-text); box-shadow: 0 6px 16px -8px var(--accent-glow); }
