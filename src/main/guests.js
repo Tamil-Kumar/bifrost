@@ -6,6 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const crypto = require('node:crypto');
 const ctx = require('./context');
+const touchpad = require('./touchpad');
 const protocol = require('./protocol');
 const { compileShortcuts, findCommand, VIM_KEYS } = require('../shared/defaults');
 const ua = require('./useragent');
@@ -133,9 +134,12 @@ function init() {
     const wc = event.sender;
     if (!msg || typeof msg !== 'object') return;
     // Swiping turned off, or what's left of the touchpad coasting after a swipe (on the page it went to, say):
-    // the page stops following this one, and the rest of its gesture, straight away.
-    if (ctx.settings.get('gestures.swipe') === false || (msg.phase === 'start' && coasting.has(wc.id))) {
+    // the page stops following this one, and the rest of its gesture, straight away (until the coasting is
+    // over: endCoast).
+    const coastingNow = msg.phase === 'start' && coasting.get(wc.id);
+    if (ctx.settings.get('gestures.swipe') === false || coastingNow) {
       if (msg.phase === 'start') { try { event.senderFrame.send('tab-swipe-done', { ignore: true }); } catch { /* gone */ } }
+      if (coastingNow) coastingNow.frames.add(event.senderFrame);
       return;
     }
     let host = null;
@@ -143,13 +147,19 @@ function init() {
     if (!host || host.isDestroyed()) return;
     const phase = ['start', 'move', 'end'].includes(msg.phase) ? msg.phase : null;
     if (!phase) return;
-    if (phase === 'start') swipes.set(wc.id, { frame: event.senderFrame, lifted: false });
+    // (tracked: the touchpad says when the fingers lift; they're down, or lifted just before the page said)
+    const f = touchpad.fingers;
+    const late = f !== null && f < 2 && !touchpad.lifting && Date.now() - touchpad.liftedAt < LATE;
+    if (phase === 'start') swipes.set(wc.id, { frame: event.senderFrame, lifted: false, tracked: f !== null && (f >= 2 || touchpad.lifting || late), ended: false });
     else if (phase === 'end') swipes.delete(wc.id);
     const steps = Array.isArray(msg.steps) ? msg.steps.slice(0, 64).map(Number).filter(Number.isFinite) : [];
-    host.send('swipe', { wcId: wc.id, phase, dir: Math.sign(Number(msg.dir) || 0), steps });
-    // (the page took a moment to tell, and the fingers have lifted already)
-    const g = phase === 'start' && gestures.get(wc.id);
-    if (g && g.lifted && Date.now() - g.lifted < LATE && !testing('lift')) liftSwipe(wc);
+    // (down: the touchpad says it's fingers on it, so no leftover coasting from the swipe before, however soon)
+    host.send('swipe', { wcId: wc.id, phase, dir: Math.sign(Number(msg.dir) || 0), steps, down: phase === 'start' && f !== null && f >= 2 });
+    // (after a moment: should the touchpad only now be saying fingers came down again, it's a new swipe instead)
+    if (phase === 'start' && late) {
+      const s = swipes.get(wc.id);
+      setTimeout(() => { if (swipes.get(wc.id) === s && !wc.isDestroyed() && touchpad.fingers !== null && touchpad.fingers < 2) liftSwipe(wc); }, LATE_CHECK);
+    }
   });
   // A link was pressed (or hovered) in a tab, or a launcher result highlighted: connect ahead.
   ipcMain.on('tab:preconnect', (event, url) => {
@@ -245,46 +255,42 @@ function ownerOf(guest) {
   return win ? ctx.registry.get(win.id) : null;
 }
 
-// Swipes in progress: guest webContents id -> { frame (the one the swipe is in), lifted }. A page can't tell
-// when the fingers leave the touchpad (it only sees the wheel), but Chromium can, and says so in the wheel
-// events it sends the page: moving fingers send steps, and lifting them sends one that doesn't move at all,
-// the end of the scroll after a slow swipe, or the start of the touchpad's coasting after a quick one. That's
-// when a swipe goes ('lift': ui/js/swipe.js). The end of the scroll gesture as a whole (gestureScrollEnd) is
-// the last word, for touchpads that never say: after a quick swipe it only comes once the coasting is over
-// too, a second or two later on Windows (DirectManipulation goes from the fingers moving straight to
-// coasting, and Chromium ends the gesture when that ends).
+// Swipes in progress: guest webContents id -> { frame (the one the swipe is in), lifted, tracked, ended }. A page
+// can't tell when the fingers leave the touchpad (it only sees the wheel), and nothing Chromium passes on says
+// either: the scroll gesture's end (gestureScrollEnd) comes once the fingers have lifted and any coasting after a
+// quick swipe is over too, a second or two later on Windows, and its wheel steps look the same for coasting and
+// for fingers moving (one that doesn't move at all comes now and then while they do, too). Windows' precision
+// touchpads say it themselves (touchpad.js): with one, a swipe goes the moment the fingers lift ('lift':
+// ui/js/swipe.js), and the gesture's end means nothing while they're still down. Without one (or before it has
+// said anything) a swipe waits for the gesture's end, as it always did.
 const swipes = new Map();
-// The scroll gesture going on in each guest (from gestureScrollBegin to its end): when the fingers lifted, if
-// they have (for a page that only says it's a swipe after that, a busy one say: a moment's grace, no more).
-const gestures = new Map();
-const LATE = 500;
 // After a swipe let go: guest id -> its coasting ({ since, t }), steps still coming (onto the page it went to,
-// say) until one that doesn't move (the coasting's end), a moment without any, or the gesture's end. A swipe
-// that starts in it is what's left of that one.
+// say) until fingers touch the touchpad again, a moment goes by without any, or the gesture ends. A swipe that
+// starts in it is what's left of that one.
 const coasting = new Map();
 const COAST_QUIET = 150;   // ms without a step: the coasting is over
 const COAST_MAX = 4000;    // and over after this long in any case
-// Tests move the fingers with Electron's own wheel events, each a little scroll gesture of its own, so they lift
-// them themselves (global.__swipeManualRelease true: lifting, and the gesture's end; 'gse': only its end).
-const testing = (what) => process.env.BIFROST_TEST === '1' && (global.__swipeManualRelease === true || global.__swipeManualRelease === what);
+const LATE = 500;          // a page that only says it's a swipe after the fingers lifted (a busy one): this long
+const LATE_CHECK = 40;
+// Tests move the fingers with Electron's own wheel events, each a little scroll gesture of its own, so they end
+// the gesture themselves (global.__swipeManualRelease), and say what the touchpad would (global.__touchpad).
+const manual = () => process.env.BIFROST_TEST === '1' && !!global.__swipeManualRelease;
 function swipeInput(guest, input) {
   const id = guest.id, type = input.type;
-  if (type === 'gestureScrollBegin') { gestures.set(id, { lifted: 0 }); return; }
-  if (type === 'mouseWheel') {
-    const still = !input.deltaX && !input.deltaY;
-    const g = gestures.get(id);
-    if (still && g && !g.lifted) g.lifted = Date.now();
-    const s = swipes.get(id);
-    if (s && !s.lifted) { if (still && !testing('lift')) liftSwipe(guest); return; }
-    const c = coasting.get(id);
-    if (c) { if (still && !testing('lift') && Date.now() - c.since > 40) endCoast(id); else coast(id); }
-    return;
-  }
-  if (type === 'gestureFlingStart') { const s = swipes.get(id); if (s && !s.lifted && !testing('lift')) liftSwipe(guest); return; }
-  if (type !== 'gestureScrollEnd' || testing('gse')) return;
-  gestures.delete(id);
+  if (type === 'mouseWheel') { if (coasting.has(id)) coast(id); return; }
+  // (touchpads whose coasting Chromium makes itself start it as the fingers lift: Linux, ChromeOS)
+  if (type === 'gestureFlingStart') { const s = swipes.get(id); if (s && !s.lifted && !manual()) liftSwipe(guest); return; }
+  if (type !== 'gestureScrollEnd' || manual()) return;
   endCoast(id);
-  if (swipes.has(id)) releaseSwipe(guest);
+  gestureEnded(guest);
+}
+// The gesture is over: so is the swipe, unless the touchpad says the fingers are still down (then it's over
+// when they lift: it's only just seen them go, say, or the gesture turned into pinching).
+function gestureEnded(guest) {
+  const s = swipes.get(guest.id);
+  if (!s) return;
+  if (s.tracked && !s.lifted && touchpad.fingers >= 2) { s.ended = true; return; }
+  releaseSwipe(guest);
 }
 function liftSwipe(guest) {
   const s = swipes.get(guest.id);
@@ -292,19 +298,35 @@ function liftSwipe(guest) {
   s.lifted = true;
   coast(guest.id, true);
   try { const host = guest.hostWebContents; if (host && !host.isDestroyed()) host.send('swipe', { wcId: guest.id, phase: 'lift' }); } catch { /* gone */ }
+  if (s.ended) releaseSwipe(guest);
 }
+function eachSwipe(fn) {
+  for (const [id, s] of [...swipes]) {
+    const wc = webContents.fromId(id);
+    if (wc && !wc.isDestroyed()) fn(wc, s);
+  }
+}
+// The touchpad: fingers lifting let the swipe go; fingers touching it again end what's left of the coasting.
+touchpad.on('lift', () => eachSwipe((wc, s) => { if (s.tracked && !s.lifted) liftSwipe(wc); }));
+touchpad.on('down', () => { for (const id of [...coasting.keys()]) endCoast(id); });
+// (it stopped saying: a swipe whose gesture is over doesn't wait for it)
+touchpad.on('unknown', () => eachSwipe((wc, s) => { if (s.ended) releaseSwipe(wc); }));
 function coast(id, fresh = false) {
+  if (fresh) endCoast(id);
   let c = coasting.get(id);
-  if (c && fresh) { clearTimeout(c.t); c = null; }
-  if (!c) { c = { since: Date.now(), t: null }; coasting.set(id, c); }
+  if (!c) { c = { since: Date.now(), t: null, frames: new Set() }; coasting.set(id, c); }
   clearTimeout(c.t);
-  if (Date.now() - c.since > COAST_MAX) { coasting.delete(id); return; }
-  c.t = setTimeout(() => { if (coasting.get(id) === c) coasting.delete(id); }, COAST_QUIET);
+  if (Date.now() - c.since > COAST_MAX) { endCoast(id); return; }
+  c.t = setTimeout(() => { if (coasting.get(id) === c) endCoast(id); }, COAST_QUIET);
 }
+// The coasting is over: the frames that were told to ignore it (it looked like a swipe) hear that what comes
+// next is a gesture of its own (fingers touching the touchpad again stop the coasting with no pause between).
 function endCoast(id) {
   const c = coasting.get(id);
-  if (c) clearTimeout(c.t);
+  if (!c) return;
+  clearTimeout(c.t);
   coasting.delete(id);
+  for (const f of c.frames) { try { if (!f.isDestroyed()) f.send('tab-swipe-done', { over: true }); } catch { /* gone */ } }
 }
 function releaseSwipe(guest) {
   const s = swipes.get(guest.id);
@@ -313,16 +335,17 @@ function releaseSwipe(guest) {
   try { const host = guest.hostWebContents; if (host && !host.isDestroyed()) host.send('swipe', { wcId: guest.id, phase: 'release' }); } catch { /* gone */ }
 }
 if (process.env.BIFROST_TEST === '1') {
-  // The fingers lifting (what the still wheel step says), and the gesture's end (gestureScrollEnd).
+  // The fingers lifting (as the touchpad would say), and the gesture's end (gestureScrollEnd).
   global.__swipeLift = (id) => { const wc = webContents.fromId(id); if (wc && swipes.has(id)) liftSwipe(wc); return !!wc; };
-  global.__swipeRelease = (id) => { const wc = webContents.fromId(id); endCoast(id); if (wc && swipes.has(id)) releaseSwipe(wc); return !!wc; };
+  global.__swipeRelease = (id) => { const wc = webContents.fromId(id); endCoast(id); if (wc && swipes.has(id)) gestureEnded(wc); return !!wc; };
   global.__swipeCoasting = (id) => coasting.has(id);
+  global.__swipeState = (id) => { const s = swipes.get(id); return s ? { lifted: s.lifted, tracked: s.tracked, ended: !!s.ended } : null; };
 }
 
 function setup(guest, ctl) {
   const isPrivate = ctl.isPrivate;
   guest.on('input-event', (e, input) => swipeInput(guest, input));
-  guest.once('destroyed', () => { swipes.delete(guest.id); gestures.delete(guest.id); endCoast(guest.id); });
+  guest.once('destroyed', () => { swipes.delete(guest.id); endCoast(guest.id); });
   guest.__wbWindow = ctl.id;
   let lastUrl = '';
   let typedUrl = null;

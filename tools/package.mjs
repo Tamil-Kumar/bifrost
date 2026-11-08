@@ -10,6 +10,7 @@
 //   README.txt
 //   files/app                Bifrost itself (package.json, src, assets)
 //   files/win                the launcher and installer stubs (tools/win/bin), with their C sources in src/
+//                            (and the touchpad watcher's, which is in app/assets/bin)
 //   files/setup.ps1          tools/setup/setup.ps1 with this version and Electron's checksums filled in
 //   files/assemble.cjs, resedit.cjs (+ its license)
 // The Windows stubs must be built for this version first: sh tools/win/build.sh
@@ -86,10 +87,11 @@ copyDir(path.join(ROOT, 'src'), path.join(files, 'app', 'src'), junk);
 const notShipped = (p, e) => junk(p, e) || /[\\/]assets[\\/]icons[\\/](source|icon-(512|1024)\.png)$/.test(p);
 copyDir(path.join(ROOT, 'assets'), path.join(files, 'app', 'assets'), notShipped);
 
-// The Windows programs, and their sources (so what runs can be checked and rebuilt).
+// The Windows programs, and their sources (so what runs can be checked and rebuilt; the touchpad watcher
+// is in the app's assets/bin).
 fs.mkdirSync(path.join(files, 'win', 'src'), { recursive: true });
 for (const f of ['BifrostPortable.exe', 'installer-x64.exe', 'installer-arm64.exe', 'miniz-LICENSE.txt']) fs.copyFileSync(path.join(ROOT, 'tools', 'win', 'bin', f), path.join(files, 'win', f));
-for (const f of ['launcher.c', 'installer.c', 'build.sh', 'res.rc.in', 'app.manifest']) fs.copyFileSync(path.join(ROOT, 'tools', 'win', f), path.join(files, 'win', 'src', f));
+for (const f of ['launcher.c', 'installer.c', 'touchpad.c', 'build.sh', 'res.rc.in', 'app.manifest']) fs.copyFileSync(path.join(ROOT, 'tools', 'win', f), path.join(files, 'win', 'src', f));
 
 // The setup itself.
 const ps = fs.readFileSync(path.join(ROOT, 'tools', 'setup', 'setup.ps1'), 'utf8')

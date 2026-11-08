@@ -93,6 +93,8 @@ function start() {
     ctx.downloads = require('./downloads');
     ctx.windows = require('./windows');
     require('./guests').init();
+    // (how many fingers are on the touchpad, for swipes: Windows' precision touchpads)
+    require('./touchpad').init(ctx);
     require('./web-theme').init();
 
     // The browser UI runs in the default session; pages run in persist:main (or private sessions).

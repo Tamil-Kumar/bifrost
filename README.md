@@ -11,7 +11,8 @@ folder, and a lot of settings — every animation can be turned off.
 ```
 src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads,
                 ad blocker, dangerous-site warnings (safety.js), extensions (extensions/), imports from
-                other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys)
+                other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
+                the fingers on the touchpad (touchpad.js: when they lift, for swipes)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
                 adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
@@ -21,9 +22,9 @@ src/pages       internal pages (bifrost://settings, history, downloads, bookmark
 src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking),
                 launcher-settings.js (the launcher's settings files, Waypoint's included, and its keys)
 src/vendor      electron-chrome-extensions, electron-chrome-web-store, Ghostery's adblocker, Readability
-assets          icons, bundled filter lists
+assets          icons, bundled filter lists, bin/ (the touchpad watcher for Windows, x64 and ARM64)
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
-                installer stubs, built with llvm-mingw)
+                installer stubs, and the touchpad watcher, touchpad.c; built with llvm-mingw)
 tests           e2e/ (Playwright + Electron under Xvfb, real pointer and keys through XTest), setup/,
                 unit/, site/ (local test pages), fixtures/
 ```
@@ -52,7 +53,10 @@ Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side b
 questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
-usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures`, `hidpi` (a 150% display:
+usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures` (two-finger swipes: the arrow, on
+either side; going only once the fingers lift, said by the touchpad watcher, played here by
+tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; coasting; the swipes that
+don't count; settings), `hidpi` (a 150% display:
 menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),
 `passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),
 `youtube` (YouTube's ads against a local stand-in for youtube.com: video ads covered and skipped, whatever
@@ -70,7 +74,9 @@ getNotifications(), blocked sites). The Windows setup, end to end with PowerShel
 what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you
 use and open comes first), `launcher-settings` that every setting
 of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and
-what Enter and the launcher's other keys do; `side-bar` the side bar's order, yours or the usual one).
+what Enter and the launcher's other keys do; `side-bar` the side bar's order, yours or the usual one;
+`touchpad` the touchpad watcher, counting fingers in made-up touchpad reports and running the program
+itself, both under Wine; it's skipped without llvm-mingw and Wine).
 
 ## Releases
 
@@ -95,7 +101,8 @@ three need someone who can already start programs as you.
 
 ```
 node tools/make-icons.mjs                 # assets/icons from the logo (assets/icons/source/bifrost-logo.png)
-sh tools/win/build.sh                     # the Windows stubs, after changing the version or the icon
+sh tools/win/build.sh                     # the Windows stubs and assets/bin/touchpad-*.exe, after changing
+                                          # the version, the icon or their C sources
 node tools/package.mjs win-setup          # dist/Bifrost-<version>-Windows.zip (builds Bifrost on the PC)
 node tools/release.mjs [--sign]           # dist/release: what the release workflow publishes
 ```

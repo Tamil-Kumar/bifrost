@@ -1,14 +1,18 @@
 // Two-finger touchpad swipes: back and forward with the arrow — only once the fingers lift — and the swipes
 // that don't count (things that scroll sideways, pages that take the wheel, a mouse, Shift), plus settings.
 //
-// Electron can't send a real touchpad gesture, so the tests play the fingers: wheel steps for moving them,
-// global.__swipeLift (main/guests.js) for lifting them, which on a real touchpad comes from Chromium as a wheel
-// step that doesn't move, and global.__swipeRelease for the end of the whole gesture (the coasting after a quick
-// swipe included). The last steps check that wiring with the browser's own events.
-import { launch, startSite, reporter, assert, sleep } from './lib.mjs';
+// Electron can't send a real touchpad gesture, so the tests play the fingers: wheel steps for moving them, and
+// global.__swipeRelease (main/guests.js) for the end of the whole gesture, which on a real touchpad comes from
+// Chromium once the fingers have lifted and any coasting after them is over. Windows' precision touchpads also
+// say how many fingers are on them (main/touchpad.js): global.__touchpad plays that. The last steps check the
+// wiring with the browser's own events, and with a stand-in for the touchpad watcher.
+import fs from 'node:fs';
+import path from 'node:path';
+import { launch, startSite, reporter, assert, sleep, ROOT } from './lib.mjs';
 
 const site = await startSite();
-const t = await launch({ profile: '/home/claude/bf-test/profiles/gestures', args: [site.url + '/index.html?G'], env: { BIFROST_TEST: '1' } });
+const CTL = '/home/claude/bf-test/profiles/gestures-touchpad.ctl';
+const t = await launch({ profile: '/home/claude/bf-test/profiles/gestures', args: [site.url + '/index.html?G'], env: { BIFROST_TEST: '1', BIFROST_TOUCHPAD: path.join(ROOT, 'tests', 'fixtures', 'touchpad-standin.mjs'), BIFROST_TOUCHPAD_CTL: CTL } });
 const R = reporter('gestures');
 const setSetting = (p, v) => t.main((_, [p, v]) => global.__bifrost.settings.set(p, v), [p, v]);
 const tab = () => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); const x = S.tabs.find((y) => y.id === ws.activeTabId); return { url: x.url, wcId: x.wcId, back: !!x.canGoBack, fwd: !!x.canGoForward }; });
@@ -205,83 +209,198 @@ try {
       await sleep(400);
     }
   };
-  const liftOnly = async () => { const { wcId } = await tab(); return t.main((_, id) => global.__swipeLift(id), wcId); };
+  // What the touchpad says: how many fingers are on it (null: it doesn't say, as without a precision touchpad).
+  const pad = async (n, wait = 0) => { await t.main((_, n) => global.__touchpad(n), n); if (wait) await sleep(wait); };
+  const DEBOUNCE = 60;   // (main/touchpad.js waits 40 ms before fewer than two fingers count as lifting)
 
-  await R.step('a quick swipe goes as the fingers lift, not once the touchpad has stopped coasting; what’s left of the coasting doesn’t swipe on the page it went to', async () => {
+  await R.step('with a touchpad that says when the fingers lift: a quick swipe goes then, not once its coasting is over; what’s left of the coasting doesn’t swipe on the page it went to', async () => {
     await pages('/wide.html?f1', '/wide.html?f2');
     const p = await at('#plain');
+    await pad(2);
     let r = await fingers({ ...p, steps: even(260) });
     assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
-    const t0 = Date.now();
-    await liftOnly();
-    await waitFor(async () => (await tab()).url.endsWith('?f1'), 3000, 'went back as the fingers lifted');
-    const took = Date.now() - t0;
-    assert(took < 800, 'took ' + took + ' ms');
-    // The touchpad coasting on for over a second (past the moment after going when the window ignores new
-    // swipes anyway), onto the page it went back to: no swipe of its own.
+    // The fingers lift, and the touchpad coasts on (the same way) for over a second, past the moment after going
+    // when the window ignores new swipes anyway, onto the page it went back to: no swipe of its own there.
     const { wcId } = await tab();
     const seen = await t.main(async ({ webContents }, o) => {
       const wc = webContents.fromId(o.wcId);
+      const t0 = Date.now();
+      global.__touchpad(0);
+      let went = null, coasting = true;
       const arrows = [];
-      let coasting = true;
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < 90; i++) {
         wc.sendInputEvent({ type: 'mouseWheel', x: o.x, y: o.y, deltaX: 14, deltaY: 0, wheelTicksX: 0.1, wheelTicksY: 0, hasPreciseScrollingDeltas: true, canScroll: true });
         await new Promise((res) => setTimeout(res, 16));
-        if (i % 10 === 9) {
+        if (went === null && wc.getURL().endsWith('?f1')) went = Date.now() - t0;
+        if (went !== null && i % 8 === 7) {
           arrows.push(await wc.hostWebContents.executeJavaScript(`!!document.querySelector('.swipe-arrow:not(.leaving)') || !!window.__wbTest.swipe()`));
           coasting = coasting && global.__swipeCoasting(o.wcId);
         }
       }
-      return { arrows, coasting };
+      return { went, arrows, coasting };
     }, { wcId, ...p });
-    assert(!seen.arrows.some(Boolean) && seen.coasting, 'the coasting: ' + JSON.stringify(seen));
+    assert(seen.went !== null && seen.went < 800, 'went back as the fingers lifted: ' + JSON.stringify(seen));
+    assert(seen.arrows.length >= 5 && !seen.arrows.some(Boolean) && seen.coasting, 'the coasting: ' + JSON.stringify(seen));
     await sleep(400);
     assert(!(await t.main((_, id) => global.__swipeCoasting(id), wcId)), 'still coasting once it stopped');
     assert((await tab()).url.endsWith('?f1'), 'went back once: ' + (await tab()).url);
-    // A swipe of its own after that goes, forward this time.
+    await lift();
+    // Fingers on the touchpad again end the coasting at once; a swipe of its own then goes, forward this time.
+    await pad(2);
     r = await fingers({ ...p, steps: even(260, 14, 1) });
     assert(r.arrow && r.arrow.armed && r.arrow.go === 'forward', 'a new swipe: ' + JSON.stringify(r));
-    await liftOnly();
+    await pad(0);
     await waitFor(async () => (await tab()).url.endsWith('?f2'), 3000, 'went forward');
     await lift();
     await sleep(700);
   });
 
-  await R.step('a quick flick: coasting just after the fingers lift can still light the arrow; otherwise lifting goes nowhere', async () => {
+  await R.step('…a quick flick: coasting just after the fingers lift can still light the arrow; otherwise lifting goes nowhere', async () => {
     const p = await at('#plain');
     // Too short, and nothing after it: the arrow goes, the page stays.
+    await pad(2);
     let r = await fingers({ ...p, steps: even(60, 5) });
     assert(r.arrow && !r.arrow.armed, 'short: ' + JSON.stringify(r));
-    await liftOnly();
-    await sleep(500);
+    await pad(0, DEBOUNCE + 450);
     assert((await tab()).url.endsWith('?f2') && !(await ui()).arrow, 'stayed, arrow gone: ' + JSON.stringify(await ui()));
     await lift();
     await sleep(300);
+    // Short, then coasting the other way after the fingers lift: it takes the arrow out, but doesn't bring the
+    // other side's in (that's for fingers on the touchpad), and nothing goes.
+    await pad(2);
+    r = await fingers({ ...p, steps: even(80, 4) });
+    assert(r.arrow && r.arrow.side === 'left' && !r.arrow.armed, 'short: ' + JSON.stringify(r));
+    await pad(0, DEBOUNCE);
+    r = await fingers({ ...p, steps: even(300, 6, 1) });
+    assert(!r.arrow || r.arrow.side === 'left', 'the other side’s arrow came in: ' + JSON.stringify(r));
+    await sleep(400);
+    const after = await ui();
+    assert((await tab()).url.endsWith('?f2') && !after.arrow && !after.s, 'stayed, arrow gone: ' + JSON.stringify(after));
+    await lift();
+    await sleep(300);
     // Short, then coasting on right after the fingers lift: it lights, and goes.
+    await pad(2);
     r = await fingers({ ...p, steps: even(80, 4) });
     assert(r.arrow && !r.arrow.armed, 'not lit before lifting: ' + JSON.stringify(r));
-    await liftOnly();
+    await pad(0, DEBOUNCE);
     await fingers({ ...p, steps: even(90, 4) });
     await waitFor(async () => (await tab()).url.endsWith('?f1'), 3000, 'went back with the coasting');
     await lift();
     await sleep(700);
   });
 
-  await R.step('the browser’s own still wheel step is the fingers lifting: the swipe goes then, before the gesture ends', async () => {
+  await R.step('…two swipes in a row: fingers touching again while the first is still coasting make a swipe of their own at once', async () => {
+    await pages('/wide.html?m1', '/wide.html?m2', '/wide.html?m3');
+    const p = await at('#plain');
+    await pad(2);
+    const r = await fingers({ ...p, steps: even(260) });
+    assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
+    // They lift (it goes back), the touchpad coasts on onto the page it went to, then fingers come down again
+    // and swipe once more, the wheel steps never pausing; they lift again: it goes back again.
+    const { wcId } = await tab();
+    const seen = await t.main(async ({ webContents }, o) => {
+      const wc = webContents.fromId(o.wcId);
+      const step = async (d) => {
+        wc.sendInputEvent({ type: 'mouseWheel', x: o.x, y: o.y, deltaX: d, deltaY: 0, wheelTicksX: d / 120, wheelTicksY: 0, hasPreciseScrollingDeltas: true, canScroll: true });
+        await new Promise((res) => setTimeout(res, 16));
+      };
+      global.__touchpad(0);
+      for (let i = 0; i < 25; i++) await step(10);
+      const first = { url: wc.getURL(), coasting: global.__swipeCoasting(o.wcId) };
+      global.__touchpad(2);
+      for (let i = 0; i < 14; i++) await step(260 / 14);
+      await new Promise((res) => setTimeout(res, 60));
+      const arrow = await wc.hostWebContents.executeJavaScript(`(() => { const a = document.querySelector('.swipe-arrow:not(.leaving)'); return a ? { armed: a.classList.contains('armed'), go: a.dataset.go } : null; })()`);
+      global.__touchpad(0);
+      return { first, arrow };
+    }, { wcId, ...p });
+    assert(seen.first.url.endsWith('?m2') && seen.first.coasting, 'went back once, then coasting: ' + JSON.stringify(seen));
+    assert(seen.arrow && seen.arrow.armed && seen.arrow.go === 'back', 'the second swipe: ' + JSON.stringify(seen));
+    await waitFor(async () => (await tab()).url.endsWith('?m1'), 3000, 'went back again');
+    await lift();
+    await sleep(700);
+  });
+
+  await R.step('…fingers that stay down never go: not swiping back and forth, not resting, not with the browser’s own gesture ends and still steps in between (Windows sends those while they’re down)', async () => {
     await pages('/wide.html?g1', '/wide.html?g2');
     const p = await at('#plain');
-    // From here the browser's still steps count (each of Electron's wheel steps ends with one), its gesture
-    // ends still don't: only the fingers lifting can make it go.
-    await t.main(() => { global.__swipeManualRelease = 'gse'; });
+    // From here the browser's own events count (each of Electron's wheel steps is a little scroll gesture of its
+    // own: a still step, then the gesture's end), all while the touchpad says two fingers are down.
+    await t.main(() => { global.__swipeManualRelease = false; });
     try {
-      await fingers({ ...p, steps: [-15, -150] });
-      await waitFor(async () => (await tab()).url.endsWith('?g1'), 3000, 'went back');
-      const last = await t.ui(() => window.__wbTest.swipeLast());
-      assert(last && last.go === 'back', JSON.stringify(last));
+      await pad(2);
+      let r = await fingers({ ...p, steps: even(260) });
+      assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
+      await sleep(600);
+      r = await fingers({ ...p, steps: even(200, 10, 1) });   // back the other way
+      r = await fingers({ ...p, steps: even(260) });           // and again
+      await sleep(800);                                        // resting
+      assert((await tab()).url.endsWith('?g2'), 'went with the fingers down: ' + (await tab()).url);
+      const st = await t.main((_, id) => global.__swipeState(id), (await tab()).wcId);
+      assert(st && st.tracked && !st.lifted && st.ended, 'the swipe: ' + JSON.stringify(st));
+      // They lift (lit): it goes.
+      await pad(0);
+      await waitFor(async () => (await tab()).url.endsWith('?g1'), 3000, 'went back as they lifted');
     } finally {
       await t.main(() => { global.__swipeManualRelease = true; });
     }
+    await sleep(700);
+  });
+
+  await R.step('…the gesture’s end while the touchpad says two fingers are down waits for them; should the watcher stop instead, it goes then', async () => {
+    await pages('/wide.html?k1', '/wide.html?k2');
+    const p = await at('#plain');
+    await pad(2);
+    const r = await fingers({ ...p, steps: even(260) });
+    assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
+    await lift();   // the gesture's end, with the touchpad still saying two fingers
+    await sleep(1000);
+    assert((await tab()).url.endsWith('?k2'), 'went with the fingers down: ' + (await tab()).url);
+    const st = await t.main((_, id) => global.__swipeState(id), (await tab()).wcId);
+    assert(st && st.ended && !st.lifted, 'the swipe: ' + JSON.stringify(st));
+    await pad(null);
+    await waitFor(async () => (await tab()).url.endsWith('?k1'), 1000, 'went back as the watcher stopped');
+    await sleep(700);
+  });
+
+  await R.step('…the page only saying it’s a swipe after the fingers lifted (a busy page) still goes', async () => {
+    await pages('/wide.html?h1', '/wide.html?h2');
+    const p = await at('#plain');
+    await pad(2);
+    await pad(0, DEBOUNCE + 20);
+    await fingers({ ...p, steps: even(260) });
+    await waitFor(async () => (await tab()).url.endsWith('?h1'), 3000, 'went back');
     await lift();
+    await pad(null);
+    await sleep(700);
+  });
+
+  await R.step('swiping back the other way, on past where it started: the other side’s arrow comes in, and that’s where it goes', async () => {
+    // (here: back and forward both, ?h1 between the page before and ?h2)
+    const p = await at('#plain');
+    let r = await fingers({ ...p, steps: even(200) });
+    assert(r.arrow && r.arrow.side === 'left' && r.arrow.go === 'back' && r.arrow.armed, 'back first: ' + JSON.stringify(r));
+    r = await fingers({ ...p, steps: even(380, 16, 1) });
+    assert(r.arrow && r.arrow.side === 'right' && r.arrow.go === 'forward' && r.arrow.armed, 'then forward: ' + JSON.stringify(r));
+    const n = await t.ui(() => document.querySelectorAll('.swipe-arrow:not(.leaving)').length);
+    assert(n === 1, 'arrows showing: ' + n);
+    await lift();
+    await waitFor(async () => (await tab()).url.endsWith('?h2'), 3000, 'went forward');
+    await sleep(700);
+  });
+
+  await R.step('…and the touchpad watcher’s own word reaches the swipes (a stand-in for it here)', async () => {
+    await waitFor(() => t.main(() => global.__touchpadState().running && global.__touchpadState().touchpads === 1), 5000, 'the stand-in running');
+    await pages('/wide.html?i1', '/wide.html?i2');
+    const p = await at('#plain');
+    fs.writeFileSync(CTL, 'fingers 2\n');
+    await waitFor(() => t.main(() => global.__touchpadState().fingers === 2), 3000, 'fingers 2 from the stand-in');
+    const r = await fingers({ ...p, steps: even(260) });
+    assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
+    fs.writeFileSync(CTL, 'fingers 0\n');
+    await waitFor(async () => (await tab()).url.endsWith('?i1'), 3000, 'went back when it said they lifted');
+    await lift();
+    await pad(null);
     await sleep(700);
   });
 

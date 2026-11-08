@@ -2,12 +2,13 @@
 //
 // A tab tells us (preload/tab.js, through the main process) when a sideways swipe starts that its page has
 // no use for, and every step the fingers take. An arrow comes in from that side of the page as you swipe;
-// once it's all the way in (gestures.swipeDistance) it lights up. Nothing happens until the fingers leave the
-// touchpad: the main process hears that from Chromium itself ('lift', see main/guests.js), and then, if the
-// arrow is lit, the tab goes back or forward at once. If it isn't quite, the touchpad's coasting after a quick
-// flick has a moment to light it. The end of the whole gesture ('release') settles it for touchpads that
-// never say when the fingers lift. Swiping back the other way before letting go cancels it; resting the
-// fingers keeps it waiting. Nothing shows when there's nowhere to go that way.
+// once it's all the way in (gestures.swipeDistance) it lights up. Swiping back the other way takes it out again,
+// and on past where you started brings the other one in from the other side, as in Chrome. Nothing happens
+// until the fingers leave the touchpad: then, if the arrow is lit, the tab goes back or forward. Windows'
+// precision touchpads say when they lift ('lift', main/touchpad.js and main/guests.js), and it goes at once (if
+// the arrow isn't quite lit, the coasting after a quick flick has a moment to light it, though never to bring
+// in the other one); otherwise it's the end of the whole scroll gesture that says ('release'). Resting the
+// fingers keeps it waiting. No arrow shows on a side with nowhere to go.
 import { on, setting, tabByWc, activeTab } from './state.js';
 import { h, anim, dur } from './util.js';
 import { icon } from './icons.js';
@@ -16,10 +17,14 @@ import * as V from './views.js';
 const wb = window.wb;
 const SIZE = 52;      // the arrow's disc, px
 const INSET = 14;     // how far in from the page's edge it ends up
-const SETTLE = 600;   // ms after going back or forward when a new swipe in that tab is leftover coasting
+const OVER = 24;      // px past where the swipe started, the other way, before the other side's arrow comes in
+const SETTLE = 600;   // ms after going back or forward when a new swipe in that tab is leftover coasting (unless
+                      // the touchpad says there are fingers on it)
 const COAST = 200;    // ms after the fingers lift in which the touchpad's coasting may still light the arrow
 const STALE = 6000;   // a swipe that never hears back is dropped after this long without news
-let cur = null;       // the swipe in progress: { tab, side, go, amount, armed, lifted, el, clip, distance }, or { tab, ignore }
+// The swipe in progress: { tab, side, go, amount (toward that side's way), armed, lifted, el, clip (null: nowhere
+// to go that way), distance, reverse }, or { tab, ignore }.
+let cur = null;
 let staleT = null;
 const quietUntil = new Map();   // tab id -> time
 let last = null;      // the last swipe that went somewhere (for tests): { go }
@@ -31,38 +36,60 @@ function cfg() {
 
 function touch() {
   clearTimeout(staleT);
-  staleT = setTimeout(() => { if (cur) { const c = cur; cur = null; if (c.el) leave(c, false); } }, STALE);
+  staleT = setTimeout(() => { if (cur) { const c = cur; cur = null; clearTimeout(c.coastT); leave(c, false); } }, STALE);
 }
 
-function start(tab, dir) {
-  if (cur && cur.tab === tab) { touch(); return; }   // the same swipe going on
-  drop();
+// (down: the touchpad says this is fingers on it, not what's left of the coasting after going somewhere)
+function start(tab, dir, down) {
+  // The same swipe going on (in another of the page's frames, say), unless the fingers lifted and came down again.
+  if (cur && cur.tab === tab && !(down && (cur.lifted || cur.ignore))) { touch(); return; }
+  if (cur && cur.tab === tab) end(tab); else drop();
   const c = cfg();
   if (!c.on || !dir) return;
-  const side = dir < 0 ? 'left' : 'right';
-  const go = (dir < 0) !== c.reverse ? 'back' : 'forward';
-  const can = go === 'back' ? tab.canGoBack : tab.canGoForward;
   touch();
-  if (!can || !tab.pane || Date.now() < (quietUntil.get(tab.id) || 0)) { cur = { tab, ignore: true }; return; }
-  const el = h('div.swipe-arrow.' + side, { dataset: { go } }, h('div.swipe-disc', null, icon(go)));
-  const clip = h('div.swipe-clip', null, el);
-  tab.pane.body.appendChild(clip);
-  cur = { tab, side, go, amount: 0, armed: false, el, clip, distance: c.distance };
-  draw(cur);
+  if (!tab.pane || (!down && Date.now() < (quietUntil.get(tab.id) || 0))) { cur = { tab, ignore: true }; return; }
+  cur = { tab, amount: 0, armed: false, lifted: false, distance: c.distance, reverse: c.reverse, el: null, clip: null };
+  aim(cur, dir < 0 ? 'left' : 'right');
+}
+
+// The swipe heading for one side: its arrow comes in there, if there's somewhere to go that way.
+function aim(c, side) {
+  c.side = side;
+  c.go = (side === 'left') !== c.reverse ? 'back' : 'forward';
+  c.armed = false;
+  const can = c.go === 'back' ? c.tab.canGoBack : c.tab.canGoForward;
+  if (!can) { c.el = c.clip = null; return; }
+  c.el = h('div.swipe-arrow.' + side, { dataset: { go: c.go } }, h('div.swipe-disc', null, icon(c.go)));
+  c.clip = h('div.swipe-clip', null, c.el);
+  c.tab.pane.body.appendChild(c.clip);
+  draw(c);
 }
 
 function move(tab, steps) {
   if (!cur || cur.tab !== tab || cur.ignore) return;
   touch();
-  // Fingers going the swipe's way add to it; going back takes away.
-  for (const dx of steps) cur.amount = Math.max(0, cur.amount + (cur.side === 'left' ? -dx : dx));
-  draw(cur);
+  // Fingers going the swipe's way add to it; going back takes away, and on past where it started, it heads for
+  // the other side.
+  for (const dx of steps) {
+    cur.amount += cur.side === 'left' ? -dx : dx;
+    if (!cur.el) cur.amount = Math.min(cur.amount, 0);   // (nowhere to go this way: nothing to build up)
+    // (the coasting after the fingers lifted only lights the arrow that's there)
+    if (cur.lifted) cur.amount = Math.max(cur.amount, 0);
+    else if (cur.amount < -OVER) {
+      const over = -cur.amount - OVER;
+      if (cur.el) leave({ el: cur.el, clip: cur.clip, side: cur.side }, false);
+      aim(cur, cur.side === 'left' ? 'right' : 'left');
+      cur.amount = over;
+    }
+  }
+  if (cur.el) draw(cur);
   // (coasting after the fingers lifted lit it)
   if (cur.lifted && cur.armed) decide();
 }
 
 function draw(c) {
-  const { el, amount, distance, side } = c;
+  const { el, distance, side } = c;
+  const amount = Math.max(0, c.amount);
   const p = Math.min(1, amount / distance);
   // From just outside the page to INSET px inside it, with a little give past the end.
   const x = -SIZE + p * (SIZE + INSET) + Math.min(24, Math.max(0, amount - distance) * 0.1);
@@ -75,7 +102,7 @@ function draw(c) {
 // The fingers left the touchpad: go if the arrow is lit; if it isn't, the coasting has a moment to light it.
 function lift(tab) {
   if (!cur || cur.tab !== tab || cur.ignore || cur.lifted) return;
-  if (cur.armed) { decide(); return; }
+  if (cur.armed || !cur.el) { decide(); return; }
   const c = cur;
   c.lifted = true;
   c.coastT = setTimeout(() => { if (cur === c) decide(); }, COAST);
@@ -108,12 +135,13 @@ function end(tab) {
   cur = null;
   clearTimeout(staleT);
   clearTimeout(c.coastT);
-  if (c.el) leave(c, false);
+  leave(c, false);
 }
 
 // The arrow goes: on with a little pulse if it went, back out the way it came if not.
 function leave(c, went) {
   const { el, clip, side } = c;
+  if (!el || !clip) return;
   el.classList.add('leaving');
   if (!anim('swipe')) { clip.remove(); return; }
   const from = el.style.transform;
@@ -134,10 +162,10 @@ function drop() {
 }
 
 export function init() {
-  wb.on('swipe', ({ wcId, phase, dir, steps } = {}) => {
+  wb.on('swipe', ({ wcId, phase, dir, steps, down } = {}) => {
     const tab = tabByWc(wcId);
     if (!tab) return;
-    if (phase === 'start') start(tab, dir);
+    if (phase === 'start') start(tab, dir, !!down);
     else if (phase === 'move') move(tab, Array.isArray(steps) ? steps : []);
     else if (phase === 'lift') lift(tab);
     else if (phase === 'release') release(tab);
@@ -148,6 +176,6 @@ export function init() {
   on('tab-closing', (t) => { if (cur && cur.tab === t) drop(); });
 }
 
-// For tests: the swipe in progress, and the last one that went somewhere.
+// For tests: the swipe in progress (ignore: no arrow, nowhere to go that way), and the last one that went somewhere.
 export const _last = () => last;
-export const _state = () => (cur ? { go: cur.go || null, amount: cur.amount || 0, armed: !!cur.armed, lifted: !!cur.lifted, ignore: !!cur.ignore } : null);
+export const _state = () => (cur ? { go: cur.go || null, side: cur.side || null, amount: Math.max(0, cur.amount || 0), armed: !!cur.armed, lifted: !!cur.lifted, ignore: !!cur.ignore || !cur.el } : null);

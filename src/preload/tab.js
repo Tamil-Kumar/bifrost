@@ -354,6 +354,8 @@ if (isTop && /^https?:$/.test(location.protocol)) {
     reset();
   };
   ipcRenderer.on('tab-swipe-done', (_e, d) => {
+    // (the coasting it was told to ignore is over: what comes next is new, even without a pause before it)
+    if (d && d.over) { if (mode === 'other') reset(); return; }
     if (mode !== 'swipe') return;
     reset();
     if (d && d.ignore) { mode = 'other'; endT = setTimeout(finish, IDLE); }
