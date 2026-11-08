@@ -604,6 +604,34 @@ try {
     }
   });
 
+  await R.step('the buttons at the bottom of the sidebar are evenly spaced, the side bar’s and the bottom row’s alike: collapsed (with the spaces strip hidden, too) and open', async () => {
+    // Every button there, in order (down the column when it's collapsed).
+    const buttons = () => t.ui(() => [...document.querySelectorAll('#sidebar-panels > .ps-btn, #sidebar-bottom .ws-dot, #sidebar-bottom > .tb-btn')]
+      .filter((e) => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden')
+      .map((e) => { const r = e.getBoundingClientRect(); return { k: e.dataset.key || e.dataset.tb || e.dataset.bar || (e.closest('.ws-strip') ? 'space' : '?'), x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) }; }));
+    const even = (b) => { const gaps = b.slice(1).map((e, i) => e.y - (b[i].y + b[i].h)); return b.length >= 4 && gaps.every((g) => g === 2) && b.every((e) => e.h === b[0].h && e.x === b[0].x); };
+    try {
+      await set('appearance.sidebarCollapsed', true); await sleep(800);
+      let b = await buttons();
+      assert(even(b) && b.some((e) => e.k === 'space') && b.some((e) => e.k === 'downloads') && b.some((e) => e.k === 'history'), 'collapsed: ' + JSON.stringify(b));
+      await t.shot('everyday-sidebar-bottom-collapsed');
+      await set('appearance.showWorkspaceStrip', false); await sleep(500);
+      b = await buttons();
+      assert(even(b) && !b.some((e) => e.k === 'space'), 'collapsed, no spaces strip: ' + JSON.stringify(b));
+      await set('appearance.showWorkspaceStrip', true);
+      // Open: the side bar's row and the bottom row are as far apart as two buttons in a row.
+      await set('appearance.sidebarCollapsed', false); await sleep(800);
+      const r = await t.ui(() => {
+        const p = [...document.querySelectorAll('#sidebar-panels > .ps-btn')].map((e) => e.getBoundingClientRect());
+        const q = document.querySelector('#sidebar-bottom > .tb-btn').getBoundingClientRect();
+        return { rows: Math.round(q.top - p[0].bottom), buttons: Math.round(p[1].left - p[0].right) };
+      });
+      assert(r.rows === 2 && r.buttons === 2, 'open: ' + JSON.stringify(r));
+    } finally {
+      await set('appearance.sidebarCollapsed', false); await set('appearance.showWorkspaceStrip', true); await sleep(500);
+    }
+  });
+
   await R.step('the mouse’s back and forward buttons go back and forward', async () => {
     const onScreen = () => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); return S.tabs.find((x) => x.id === ws.activeTabId).url; });
     await open(site.url + '/a.html?mouse'); await sleep(1200);

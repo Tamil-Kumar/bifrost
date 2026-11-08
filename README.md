@@ -50,7 +50,8 @@ task manager), `behavior` (settings that change behavior, the Launcher section's
 you see and building the rest after), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
-questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar), find, zoom,
+questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar; its buttons and
+the sidebar's bottom row evenly spaced, collapsed and open), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures` (two-finger swipes: the arrow, on

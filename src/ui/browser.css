@@ -317,11 +317,15 @@ body {
 :root.sidebar-collapsed .group-inner { padding-left: 0; }
 
 /* ---------------------------------------------------------- bottom */
+/* The side bar's buttons (#sidebar-panels, when it has any) and the bottom row make one block under a line:
+   their buttons are as far apart from one row (or, collapsed, one column) to the next as within one. */
 #sidebar-bottom.empty { display: none; }
 #sidebar-bottom { flex: none; display: flex; align-items: center; gap: var(--btn-gap); padding: 6px var(--sb-pad) 8px; border-top: 1px solid color-mix(in srgb, var(--s0) 60%, transparent); }
-.ws-strip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+#sidebar-panels:not(.empty) + #sidebar-bottom { border-top: 0; padding-top: var(--btn-gap); }
+.ws-strip { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--btn-gap); overflow-x: auto; scrollbar-width: none; }
 .ws-strip::-webkit-scrollbar { display: none; }
 :root.no-ws-strip .ws-strip { visibility: hidden; }
+:root.sidebar-collapsed.no-ws-strip .ws-strip { display: none; }   /* (in a column it would leave a gap) */
 .ws-dot {
   flex: none; width: calc(var(--btn-size) - 2px); height: calc(var(--btn-size) - 2px);
   display: grid; place-items: center;
@@ -337,6 +341,7 @@ body {
 .sb-tools { flex: none; display: flex; gap: var(--btn-gap); }
 :root.sidebar-collapsed #sidebar-bottom { flex-direction: column; padding: 6px var(--sb-pad); }
 :root.sidebar-collapsed .ws-strip { flex-direction: column; overflow: visible; }
+:root.sidebar-collapsed .ws-dot { width: var(--btn-size); height: var(--btn-size); }   /* (a column of buttons the same size) */
 :root.sidebar-collapsed .sb-tools { flex-direction: column; }
 
 #sidebar-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 4; }
@@ -432,9 +437,11 @@ img.ps-ico { object-fit: contain; border-radius: 4px; }
 .fbox.ps-ico .letter { width: 18px; height: 18px; font-size: 11px; }
 .ps-btn.ps-add { color: var(--overlay); }
 .ps-badge { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--red); color: var(--crust); font-size: 9.5px; font-weight: 800; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
-#sidebar-panels { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--btn-gap); padding: 4px var(--sb-pad); }
+/* (with the bottom row, one block under a line: see #sidebar-bottom) */
+#sidebar-panels { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--btn-gap); padding: 6px var(--sb-pad) 8px; border-top: 1px solid color-mix(in srgb, var(--s0) 60%, transparent); }
+#sidebar-panels:has(+ #sidebar-bottom:not(.empty)) { padding-bottom: 0; }
 #sidebar-panels.empty { display: none; }
-:root.sidebar-collapsed #sidebar-panels { flex-direction: column; flex-wrap: nowrap; }
+:root.sidebar-collapsed #sidebar-panels { flex-direction: column; flex-wrap: nowrap; padding-bottom: 6px; }
 :root.html-fs #panel-strip { display: none !important; }
 
 /* The + button's box: a website, a suggestion, an extension. */
