@@ -54,7 +54,7 @@ questions, notifications, dialogs; arranging it: its + off with its menu, its ro
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures` (two-finger swipes: the arrow, on
-either side; going only once the fingers lift, said by the touchpad watcher, played here by
+either side, and turning back taking it out at once; going only once the fingers lift, said by the touchpad watcher, played here by
 tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; coasting; the swipes that
 don't count; settings), `hidpi` (a 150% display:
 menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),

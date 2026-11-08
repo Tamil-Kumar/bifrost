@@ -2,9 +2,10 @@
 //
 // A tab tells us (preload/tab.js, through the main process) when a sideways swipe starts that its page has
 // no use for, and every step the fingers take. An arrow comes in from that side of the page as you swipe;
-// once it's all the way in (gestures.swipeDistance) it lights up. Swiping back the other way takes it out again,
-// and on past where you started brings the other one in from the other side, as in Chrome. Nothing happens
-// until the fingers leave the touchpad: then, if the arrow is lit, the tab goes back or forward. Windows'
+// once it's all the way in (gestures.swipeDistance) it lights up, and swiping on past that builds nothing up.
+// So turning back takes it out again straight away, wherever the fingers are, twice as fast as it came in;
+// and on past where it's all the way out brings the other one in from the other side, as in Chrome. Nothing
+// happens until the fingers leave the touchpad: then, if the arrow is lit, the tab goes back or forward. Windows'
 // precision touchpads say when they lift ('lift', main/touchpad.js and main/guests.js), and it goes at once (if
 // the arrow isn't quite lit, the coasting after a quick flick has a moment to light it, though never to bring
 // in the other one); otherwise it's the end of the whole scroll gesture that says ('release'). Resting the
@@ -17,7 +18,9 @@ import * as V from './views.js';
 const wb = window.wb;
 const SIZE = 52;      // the arrow's disc, px
 const INSET = 14;     // how far in from the page's edge it ends up
-const OVER = 24;      // px past where the swipe started, the other way, before the other side's arrow comes in
+const OVER = 24;      // px on the other way, once the arrow is all the way out, before the other side's comes in
+const BACK = 2;       // turning back takes the arrow out this many times as fast as it came in
+const WOBBLE = 1 / 8; // of the distance a lit arrow may go back out and stay lit (the fingers wobbling as they lift)
 const SETTLE = 600;   // ms after going back or forward when a new swipe in that tab is leftover coasting (unless
                       // the touchpad says there are fingers on it)
 const COAST = 200;    // ms after the fingers lift in which the touchpad's coasting may still light the arrow
@@ -68,10 +71,13 @@ function aim(c, side) {
 function move(tab, steps) {
   if (!cur || cur.tab !== tab || cur.ignore) return;
   touch();
-  // Fingers going the swipe's way add to it; going back takes away, and on past where it started, it heads for
+  // Fingers going the swipe's way add to it, up to all the way in; going back takes away, BACK times as fast
+  // (what's left of a step once the arrow is all the way out counts as it is), and on past that, it heads for
   // the other side.
   for (const dx of steps) {
-    cur.amount += cur.side === 'left' ? -dx : dx;
+    let d = cur.side === 'left' ? -dx : dx;
+    if (d < 0 && cur.amount > 0) d = -d * BACK <= cur.amount ? d * BACK : -(cur.amount + (-d - cur.amount / BACK));
+    cur.amount = Math.min(cur.distance, cur.amount + d);
     if (!cur.el) cur.amount = Math.min(cur.amount, 0);   // (nowhere to go this way: nothing to build up)
     // (the coasting after the fingers lifted only lights the arrow that's there)
     if (cur.lifted) cur.amount = Math.max(cur.amount, 0);
@@ -91,11 +97,12 @@ function draw(c) {
   const { el, distance, side } = c;
   const amount = Math.max(0, c.amount);
   const p = Math.min(1, amount / distance);
-  // From just outside the page to INSET px inside it, with a little give past the end.
-  const x = -SIZE + p * (SIZE + INSET) + Math.min(24, Math.max(0, amount - distance) * 0.1);
+  // From just outside the page to INSET px inside it.
+  const x = -SIZE + p * (SIZE + INSET);
   el.style.transform = `translateX(${side === 'left' ? x : -x}px)`;
   el.style.opacity = String(Math.min(1, p * 1.5));
-  c.armed = amount >= distance;
+  // Lit all the way in; once lit, through a wobble back out too.
+  c.armed = c.armed ? amount > distance * (1 - WOBBLE) : amount >= distance;
   el.classList.toggle('armed', c.armed);
 }
 

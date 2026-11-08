@@ -90,12 +90,38 @@ try {
     assert(r.arrow && r.arrow.armed, 'lit: ' + JSON.stringify(r));
     await sleep(1000);
     assert(await urlIs(/wide\.html/), 'went while slowing down with the fingers still down');
-    // Back the other way, then lifting: nothing.
-    r = await fingers({ ...p, steps: even(200, 10, 1) });
+    // A little back the other way, then lifting: nothing.
+    r = await fingers({ ...p, steps: even(30, 3, 1) });
     assert(r.arrow && !r.arrow.armed, 'unlit: ' + JSON.stringify(r));
     await lift();
     await settle();
     assert(await urlIs(/wide\.html/), 'cancelled');
+    assert(!(await ui()).arrow, 'arrow gone');
+  });
+
+  await R.step('swiping on past all the way in builds nothing up: wherever the fingers are, turning back takes the arrow out at once, twice as fast as it came in; a wobble as they lift doesn’t unlight it', async () => {
+    const p = await at('#plain');
+    const near = (a, b) => Math.abs(a - b) < 0.5;
+    // From one side of the touchpad to the other: lit, and no further in than lit.
+    let r = await fingers({ ...p, steps: even(600, 30) });
+    assert(r.arrow && r.arrow.armed && near(r.s.amount, 120), 'lit, all the way in: ' + JSON.stringify(r));
+    r = await fingers({ ...p, steps: even(6, 2, 1) });   // a wobble back: on its way out, still lit
+    assert(r.arrow && r.arrow.armed && near(r.s.amount, 108), 'a wobble: ' + JSON.stringify(r));
+    r = await fingers({ ...p, steps: even(10, 2, 1) });  // on back: not lit any more
+    assert(r.arrow && !r.arrow.armed && near(r.s.amount, 88), 'going out: ' + JSON.stringify(r));
+    r = await fingers({ ...p, steps: even(44, 4, 1) });  // and all the way out, 60 px from lit
+    assert(r.s && r.s.go === 'back' && near(r.s.amount, 0), 'all the way out: ' + JSON.stringify(r));
+    // This way again: it comes back in as it did at first.
+    r = await fingers({ ...p, steps: even(119, 7) });
+    assert(r.arrow && !r.arrow.armed && near(r.s.amount, 119), 'not quite: ' + JSON.stringify(r));
+    r = await fingers({ ...p, steps: even(2, 1) });
+    assert(r.arrow && r.arrow.armed && near(r.s.amount, 120), 'lit again: ' + JSON.stringify(r));
+    // Out a way, and lifting there: nothing.
+    r = await fingers({ ...p, steps: even(30, 3, 1) });
+    assert(r.arrow && !r.arrow.armed && near(r.s.amount, 60), 'out a way: ' + JSON.stringify(r));
+    await lift();
+    await settle();
+    assert(await urlIs(/wide\.html/), 'stayed');
     assert(!(await ui()).arrow, 'arrow gone');
   });
 
