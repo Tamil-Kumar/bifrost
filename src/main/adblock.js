@@ -1,6 +1,8 @@
 'use strict';
-// Built-in ad and tracker blocking (Ghostery's engine with EasyList, EasyPrivacy and uBlock Origin lists).
-// Network blocking runs in the main process; element hiding and scriptlets are injected by a preload.
+// Built-in ad and tracker blocking (Ghostery's engine with EasyList, EasyPrivacy and uBlock Origin lists, and
+// HaGeZi's DNS blocklists as a domain list in an engine of its own: domain-list.js says how it's kept from
+// breaking sites). Network blocking runs in the main process; element hiding and scriptlets are injected by a
+// preload.
 const { app, ipcMain, net, webContents: WC } = require('electron');
 const { Worker } = require('node:worker_threads');
 const path = require('node:path');
@@ -10,6 +12,7 @@ const crypto = require('node:crypto');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const ctx = require('./context');
+const DomainList = require('./domain-list');
 
 // YouTube. Its pages get no page scripts from the lists unless you ask for them (privacy.adblock.youtubeFilters):
 // with them YouTube can stop loading at its grey placeholders, so by default its own requests are left alone,
@@ -35,9 +38,16 @@ const SCRIPTLET_PREFIX = "if (typeof scriptletGlobals === 'undefined') { var scr
 
 const BUNDLED = path.join(__dirname, '..', '..', 'assets', 'adblock');
 const PRELOAD = path.join(__dirname, '..', 'preload', 'adblock.js');
-const REMOTE = 'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/';
+const TEST = process.env.BIFROST_TEST === '1';
+// (the tests: lists from a local server, and a small domain list of their own)
+const REMOTE = (TEST && process.env.BIFROST_LISTS_REMOTE) || 'https://raw.githubusercontent.com/ghostery/adblocker/master/packages/adblocker/assets/';
+const DOMAINS_REMOTE = TEST ? process.env.BIFROST_DOMAINS_REMOTE || '' : '';
+const DOMAINS_LIST = TEST ? process.env.BIFROST_DOMAINS_LIST || '' : '';
 const FILTER_REV = 2;
-const CATEGORIES = { ads: 'Ads', tracking: 'Trackers', annoyances: 'Annoyances', cookieNotices: 'Cookie notices' };
+const DOMAINS_REV = 1;  // bump when what the domain list's engine is built from changes
+const CATEGORIES = { ads: 'Ads', tracking: 'Trackers', annoyances: 'Annoyances', cookieNotices: 'Cookie notices', domains: 'Ad and tracker domains (HaGeZi)' };
+const LIST_CATS = ['ads', 'tracking', 'annoyances', 'cookieNotices'];   // the lists' engine (domains: its own)
+const firstLine = (e) => String((e && e.message) || e).split('\n')[0].replace(/^Error: /, '');
 
 let Blocker = null; // ElectronBlocker class, loaded lazily (half a megabyte of code)
 function blockerModule() {
@@ -50,7 +60,10 @@ class AdBlock extends EventEmitter {
     super();
     this.engine = null;
     this.engineKey = '';
+    this.domains = null;       // the domain list's engine (when it's on)
+    this.domainsKey = '';
     this.loading = null;
+    this.failedAt = 0;         // when a scheduled update last failed
     this.counts = new Map();   // webContents id -> blocked count for the current page
     this.pages = new Map();    // webContents id -> top-level page URL
     this.total = 0;
@@ -83,8 +96,8 @@ class AdBlock extends EventEmitter {
     });
     ctx.settings.on('changed', ({ path: p }) => {
       if (!p || p.startsWith('privacy.adblock')) {
-        const key = this.wantedKey();
-        if (key !== this.engineKey && this.settings.enabled) this.load().catch((e) => console.error('[adblock]', e));
+        if (this.settings.enabled && (this.wantedKey() !== this.engineKey || this.wantedDomainsKey() !== this.domainsKey)) this.load().catch((e) => console.error('[adblock]', e));
+        this.scheduleUpdate();
       }
     });
     if (this.settings.enabled) this.load().catch((e) => console.error('[adblock] load', e));
@@ -94,16 +107,33 @@ class AdBlock extends EventEmitter {
   // ----------------------------------------------------------------- engine
   wantedKey() {
     const s = this.settings;
-    const cats = Object.keys(CATEGORIES).filter((c) => s.lists[c]);
+    const cats = LIST_CATS.filter((c) => s.lists[c]);
     const custom = crypto.createHash('sha1').update(s.customFilters || '').digest('hex').slice(0, 10);
     const stamp = ctx.db.kvGet('adblock.listsUpdated', 0);
     // FILTER_REV: bump when the worker changes which filters it keeps (see adblock-worker.js).
     return `${cats.join('+')}|c${s.cosmetic ? 1 : 0}|${custom}|${stamp}|${blockerModule().ENGINE_VERSION || 0}|r${FILTER_REV}`;
   }
 
+  // The domain list's engine ('' with the list off).
+  wantedDomainsKey() {
+    if (!this.settings.lists.domains) return '';
+    const keep = crypto.createHash('sha1').update(this.keepText()).digest('hex').slice(0, 10);
+    const stamp = ctx.db.kvGet('adblock.domainsUpdated', 0);
+    return `domains|${stamp}|${keep}|${DOMAINS_LIST}|${blockerModule().ENGINE_VERSION || 0}|d${DOMAINS_REV}`;
+  }
+
+  // Bifrost's exceptions to the domain list (assets/adblock/domains-keep.txt).
+  keepText() {
+    if (this.keep === undefined) {
+      try { this.keep = fs.readFileSync(path.join(BUNDLED, 'domains-keep.txt'), 'utf8'); } catch { this.keep = ''; }
+    }
+    return this.keep;
+  }
+
   listText(cat) {
     const updated = path.join(this.dir, 'lists', cat + '.txt');
     if (fs.existsSync(updated)) return fs.readFileSync(updated, 'utf8');
+    if (cat === 'domains' && DOMAINS_LIST) return fs.readFileSync(DOMAINS_LIST, 'utf8');
     return zlib.gunzipSync(fs.readFileSync(path.join(BUNDLED, cat + '.txt.gz'))).toString('utf8');
   }
 
@@ -113,51 +143,86 @@ class AdBlock extends EventEmitter {
     return zlib.gunzipSync(fs.readFileSync(path.join(BUNDLED, 'resources.json.gz'))).toString('utf8');
   }
 
+  // The lists' engine and the domain list's, each from its cache or built afresh (in a worker).
   load() {
     if (this.loading) return this.loading;
     this.loading = (async () => {
+      const s = this.settings;
       const key = this.wantedKey();
-      const cacheFile = path.join(this.dir, 'engine-' + crypto.createHash('sha1').update(key).digest('hex').slice(0, 16) + '.bin');
-      const { ElectronBlocker } = blockerModule();
-      let engine = null;
-      if (fs.existsSync(cacheFile)) {
-        try { engine = ElectronBlocker.deserialize(new Uint8Array(fs.readFileSync(cacheFile))); } catch { engine = null; }
-      }
-      if (!engine) {
-        const s = this.settings;
-        const text = Object.keys(CATEGORIES).filter((c) => s.lists[c]).map((c) => this.listText(c)).join('\n') + '\n' + (s.customFilters || '');
-        const buf = await this.buildInWorker(text, this.resourcesText(), s.cosmetic);
-        engine = ElectronBlocker.deserialize(new Uint8Array(buf));
-        fs.mkdirSync(this.dir, { recursive: true });
-        for (const f of fs.readdirSync(this.dir)) if (/^engine-.*\.bin$/.test(f)) fs.rmSync(path.join(this.dir, f), { force: true });
-        fs.writeFileSync(cacheFile, Buffer.from(buf));
-      }
+      const dkey = this.wantedDomainsKey();
+      const { ElectronBlocker, FiltersEngine } = blockerModule();
+      const [engine, domains] = await Promise.all([
+        this.engine && key === this.engineKey ? this.engine : this.cachedEngine('engine', key, () => ({
+          job: 'lists',
+          text: LIST_CATS.filter((c) => s.lists[c]).map((c) => this.listText(c)).join('\n') + '\n' + (s.customFilters || ''),
+          resources: this.resourcesText(),
+          cosmetic: s.cosmetic,
+        }), (buf) => ElectronBlocker.deserialize(buf)),
+        !dkey ? null : this.domains && dkey === this.domainsKey ? this.domains : this.cachedEngine('domains', dkey, () => ({
+          job: 'domains',
+          text: this.listText('domains') + '\n' + this.keepText(),
+        }), (buf) => FiltersEngine.deserialize(buf)),
+      ]);
       this.engine = engine;
       this.engineKey = key;
+      this.domains = domains;
+      this.domainsKey = dkey;
       this.emit('ready');
       return engine;
     })().finally(() => {
       this.loading = null;
-      // Settings changed while this engine was being built (new filters, lists): build again.
-      if (this.settings.enabled && this.wantedKey() !== this.engineKey) setImmediate(() => this.load().catch((e) => console.error('[adblock]', e)));
+      // Settings changed while the engines were being built (new filters, lists): build again.
+      if (this.settings.enabled && (this.wantedKey() !== this.engineKey || this.wantedDomainsKey() !== this.domainsKey)) setImmediate(() => this.load().catch((e) => console.error('[adblock]', e)));
     });
     return this.loading;
   }
 
-  buildInWorker(text, resources, cosmetic) {
+  async cachedEngine(prefix, key, work, deserialize) {
+    const cacheFile = path.join(this.dir, prefix + '-' + crypto.createHash('sha1').update(key).digest('hex').slice(0, 16) + '.bin');
+    if (fs.existsSync(cacheFile)) {
+      try { return deserialize(new Uint8Array(fs.readFileSync(cacheFile))); } catch { /* built again below */ }
+    }
+    const { buffer } = await this.runWorker(work());
+    const engine = deserialize(new Uint8Array(buffer));
+    fs.mkdirSync(this.dir, { recursive: true });
+    for (const f of fs.readdirSync(this.dir)) if (f.startsWith(prefix + '-') && f.endsWith('.bin')) fs.rmSync(path.join(this.dir, f), { force: true });
+    fs.writeFileSync(cacheFile, Buffer.from(buffer));
+    return engine;
+  }
+
+  runWorker(data) {
     return new Promise((resolve, reject) => {
-      const w = new Worker(path.join(__dirname, 'adblock-worker.js'), { workerData: { text, resources, cosmetic } });
-      w.once('message', (m) => { w.terminate(); m.ok ? resolve(m.buffer) : reject(new Error(m.error)); });
+      const w = new Worker(path.join(__dirname, 'adblock-worker.js'), { workerData: data });
+      w.once('message', (m) => { w.terminate(); m.ok ? resolve(m) : reject(new Error(m.error)); });
       w.once('error', reject);
     });
   }
 
-  // Fetches fresh lists from the filter mirror, then rebuilds the engine.
-  async updateLists() {
-    const s = ctx.settings.get('privacy.adblock');
-    const manifest = JSON.parse(fs.readFileSync(path.join(BUNDLED, 'lists.json'), 'utf8'));
+  // Fetches fresh lists (EasyList and uBlock Origin's from Ghostery's mirror, the domain list from HaGeZi's
+  // repository), then rebuilds the engines. Each kind on its own: one that can't be fetched keeps what it had,
+  // and the error says which. only: the kinds to fetch ('lists', 'domains'; all of them without it).
+  async updateLists({ only = null } = {}) {
+    const s = this.settings;
     const out = path.join(this.dir, 'lists');
     fs.mkdirSync(out, { recursive: true });
+    const failed = [];
+    let lists = false, domains = false;
+    if (!only || only.has('lists')) {
+      try { await this.updateFilterLists(out); lists = true; } catch (e) { failed.push('EasyList and uBlock Origin’s lists (' + firstLine(e) + ')'); }
+    }
+    if ((!only || only.has('domains')) && s.lists.domains) {
+      try { await this.updateDomains(out); domains = true; } catch (e) { failed.push('HaGeZi’s domain list (' + firstLine(e) + ')'); }
+    }
+    if (lists) ctx.db.kvSet('adblock.listsUpdated', Date.now());
+    if (domains) ctx.db.kvSet('adblock.domainsUpdated', Date.now());
+    if (lists || domains) await this.load();
+    if (failed.length) throw new Error(failed.join('; '));
+    return { updated: Date.now() };
+  }
+
+  async updateFilterLists(out) {
+    const s = this.settings;
+    const manifest = JSON.parse(fs.readFileSync(path.join(BUNDLED, 'lists.json'), 'utf8'));
     const fetchText = async (rel) => {
       const r = await net.fetch(REMOTE + rel, { cache: 'no-store' });
       if (!r.ok) throw new Error(`${rel}: HTTP ${r.status}`);
@@ -170,19 +235,63 @@ class AdBlock extends EventEmitter {
       fs.writeFileSync(path.join(out, cat + '.txt'), texts.join('\n'));
     }
     fs.writeFileSync(path.join(out, 'resources.json'), await fetchText('ublock-origin/resources.json'));
-    ctx.db.kvSet('adblock.listsUpdated', Date.now());
-    await this.load();
-    return { updated: Date.now() };
   }
 
+  // HaGeZi's lists and allowlists (domain-list.js SOURCES), from GitHub or its mirror, made into one list
+  // (in a worker: a few hundred thousand lines). A list that came out much smaller than the one it would replace
+  // is a download gone wrong: the old one stays.
+  async updateDomains(out) {
+    const { SOURCES, MIN_RULES, ruleCount } = DomainList;
+    const bases = DOMAINS_REMOTE ? [DOMAINS_REMOTE] : SOURCES.bases;
+    const get = async (rel) => {
+      let err = null;
+      for (const base of bases) {
+        try {
+          const r = await net.fetch(base + rel, { cache: 'no-store' });
+          if (r.ok) return { name: rel, text: await r.text() };
+          err = new Error(`${rel}: HTTP ${r.status}`);
+        } catch (e) { err = new Error(`${rel}: ${firstLine(e)}`); }
+      }
+      throw err;
+    };
+    // (a few at a time)
+    const all = async (rels) => {
+      const got = new Array(rels.length);
+      let next = 0;
+      await Promise.all(Array.from({ length: 4 }, async () => { while (next < rels.length) { const i = next++; got[i] = await get(rels[i]); } }));
+      return got;
+    };
+    const blocks = await all(SOURCES.block);
+    const allows = await all(SOURCES.allow);
+    const r = await this.runWorker({ job: 'compose', blocks, allows, min: DOMAINS_REMOTE ? 1 : MIN_RULES });
+    let before = 0;
+    try { before = ruleCount(this.listText('domains')); } catch { before = 0; }
+    if (before && r.rules < before / 2) throw new Error(`it came with ${r.rules} rules, against ${before} before: kept the one there was`);
+    const file = path.join(out, 'domains.txt');
+    fs.writeFileSync(file + '.part', r.text);
+    fs.renameSync(file + '.part', file);
+  }
+
+  // The lists are fetched again once they're older than Settings says (each kind by its own age); after a try
+  // that failed, not for an hour.
   scheduleUpdate() {
     clearTimeout(this.updateTimer);
-    const hours = Math.max(1, ctx.settings.get('privacy.adblock.updateHours') || 24);
-    const last = ctx.db.kvGet('adblock.listsUpdated', 0);
-    const due = Math.max(60e3, last + hours * 3600e3 - Date.now());
+    const period = Math.max(1, ctx.settings.get('privacy.adblock.updateHours') || 24) * 3600e3;
+    const stamps = () => {
+      const st = { lists: ctx.db.kvGet('adblock.listsUpdated', 0) };
+      if (this.settings.lists.domains) st.domains = ctx.db.kvGet('adblock.domainsUpdated', 0);
+      return st;
+    };
+    const oldest = Math.min(...Object.values(stamps()));
+    const due = Math.max(60e3, oldest + period - Date.now(), this.failedAt + 3600e3 - Date.now());
     this.updateTimer = setTimeout(() => {
-      if (this.settings.enabled) this.updateLists().catch((e) => console.warn('[adblock] list update failed:', e.message)).finally(() => this.scheduleUpdate());
-      else this.scheduleUpdate();
+      if (!this.settings.enabled) { this.scheduleUpdate(); return; }
+      const now = Date.now();
+      const only = new Set(Object.entries(stamps()).filter(([, t]) => now - t >= period - 60e3).map(([k]) => k));
+      if (!only.size) { this.scheduleUpdate(); return; }
+      this.updateLists({ only })
+        .then(() => { this.failedAt = 0; }, (e) => { this.failedAt = Date.now(); console.warn('[adblock] list update failed:', e.message); })
+        .finally(() => this.scheduleUpdate());
     }, Math.min(due, 2 ** 31 - 1));
   }
 
@@ -234,10 +343,63 @@ class AdBlock extends EventEmitter {
     const { Request } = blockerModule();
     const req = Request.fromRawDetails({ requestId: String(d.id), url: d.url, type: d.resourceType || 'other', sourceUrl: pageUrl || d.referrer || '', tabId: d.webContentsId });
     if (req.type === 'other') req.guessTypeOfRequest();
-    const { redirect, match } = this.engine.match(req);
-    if (!redirect && !match) return;
+    const standIn = (res) => ({ redirectURL: `${RES_SCHEME}://r/${RES_TOKEN}/${encodeURIComponent(res.filename)}` });
+    const { redirect, match, exception } = this.engine.match(req);
+    if (redirect || match) {
+      this.count(d.webContentsId);
+      return redirect && redirect.filename ? standIn(redirect) : { cancel: true };
+    }
+    // Then the domain list (unless the lists themselves let this through).
+    if (exception || !this.domainBlocked(req, host, () => { try { return d.frame ? hostOf(d.frame.url) : ''; } catch { return ''; } })) return;
     this.count(d.webContentsId);
-    return redirect && redirect.filename ? { redirectURL: `${RES_SCHEME}://r/${RES_TOKEN}/${encodeURIComponent(redirect.filename)}` } : { cancel: true };
+    const res = this.standInFor(req);
+    return res && res.filename ? standIn(res) : { cancel: true };
+  }
+
+  // Whether the domain list stops this request, made from a page on pageHost (frameHost(): the host of the
+  // frame that made it). See domain-list.js for what it leaves alone.
+  domainBlocked(req, pageHost, frameHost) {
+    if (!this.domains || !this.settings.lists.domains || !pageHost) return false;
+    const r = this.domains.match(req);
+    if (!r.match) return false;
+    const rule = r.filter && typeof r.filter.getHostname === 'function' ? r.filter.getHostname() : '';
+    const frame = typeof frameHost === 'function' ? frameHost() : frameHost || '';
+    // The site you're on (or the frame's own).
+    if (DomainList.covers(rule, pageHost) || DomainList.covers(rule, frame)) return false;
+    // A company's own services on its own sites.
+    const { Request } = blockerModule();
+    const site = (h) => (h ? Request.fromRawDetails({ url: 'https://' + h + '/', type: 'mainFrame' }).domain || h : '');
+    if (DomainList.sameOwner(req.domain, site(pageHost)) || (frame && frame !== pageHost && DomainList.sameOwner(req.domain, site(frame)))) return false;
+    // The lists' exceptions (their fixes for sites they'd break, your own @@ rules).
+    const e = this.engine;
+    if (e && e.exceptions.match(req, e.isFilterExcluded.bind(e))) return false;
+    return true;
+  }
+
+  // What uBlock Origin's lists put in place of a script they'd rather a page got a harmless copy of, when
+  // something blocks it (their redirect-rule filters): the domain list's blocks get it too.
+  standInFor(req) {
+    const e = this.engine;
+    if (!e) return null;
+    let best = null;
+    for (const f of e.redirects.matchAll(req, e.isFilterExcluded.bind(e))) {
+      if (f.isRedirectRule() && (!best || f.getRedirectPriority() > best.getRedirectPriority())) best = f;
+    }
+    if (!best || best.getRedirectResource() === 'none') return null;
+    try { return e.resources.getResource(best.getRedirectResource()); } catch { return null; }
+  }
+
+  // A pop-up a page opens (window.open) to a site on the domain list: a pop-up ad, unless it's the page's own
+  // site, the same company's, or you allowed pop-ups (or ads) on that page's site.
+  isAdPopup(top, url) {
+    const s = this.settings;
+    if (!this.engine || !this.domains || !s.enabled || !s.lists.domains || !/^https?:/i.test(url || '')) return false;
+    const host = hostOf(top);
+    if (!/^https?:/i.test(top || '') || !host || this.allowlisted(host)) return false;
+    try { if (ctx.db.siteSettings(host).popups) return false; } catch { /* no site settings */ }
+    const { Request } = blockerModule();
+    const req = Request.fromRawDetails({ url, type: 'other', sourceUrl: top });
+    return this.domainBlocked(req, host, '');
   }
 
   // bifrost-res://r/<token>/<name>: one of the lists' stand-in resources.
@@ -393,9 +555,12 @@ class AdBlock extends EventEmitter {
   }
 
   status() {
+    const lists = ctx.db.kvGet('adblock.listsUpdated', 0), domains = ctx.db.kvGet('adblock.domainsUpdated', 0);
     return {
       enabled: this.settings.enabled, ready: !!this.engine, loading: !!this.loading, total: this.total,
-      listsUpdated: ctx.db.kvGet('adblock.listsUpdated', 0), bundled: JSON.parse(fs.readFileSync(path.join(BUNDLED, 'lists.json'), 'utf8')).generated,
+      listsUpdated: Math.max(lists, this.settings.lists.domains ? domains : 0), filtersUpdated: lists, domainsUpdated: domains,
+      domainList: !!this.domains,
+      bundled: JSON.parse(fs.readFileSync(path.join(BUNDLED, 'lists.json'), 'utf8')).generated,
       categories: CATEGORIES,
     };
   }

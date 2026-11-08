@@ -165,7 +165,7 @@ function onGuestMessage(tab, channel, args) {
     tab.lastPointer = { shift: !!o.shift, button: Number(o.button) || 0, at: performance.now() };
     emit('page-pointer', tab);
   } else if (channel === 'wb-popup-blocked') {
-    popupBlocked(tab, String(args[0] || ''), String(args[1] || tab.url || ''));
+    popupBlocked(tab, String(args[0] || ''), String(args[1] || tab.url || ''), args[2] === 'ad');
   } else if (channel === 'wb-page-color') {
     // The page's colors at its edges (preload/tab.js), for "Match the page" (theme.js).
     const c = args[0] || {};
@@ -176,10 +176,11 @@ function onGuestMessage(tab, channel, args) {
   }
 }
 
-// A page tried to open a pop-up by itself: say so (once per page and a few seconds), with a way to open it
-// anyway or to allow pop-ups on that site from now on.
+// A page tried to open a pop-up by itself, or one to a site on the ad blocker's domain list (ad: a pop-up
+// ad): say so (once per page and a few seconds), with a way to open it anyway or to allow pop-ups on that site
+// from now on.
 const popupNotes = new Map();   // tab id -> { from, count, time }
-function popupBlocked(tab, url, from) {
+function popupBlocked(tab, url, from, ad = false) {
   if (!/^(https?|ftp):/i.test(url) && url !== '') return;
   const host = hostOf(from).replace(/^www\./, '');
   const prev = popupNotes.get(tab.id);
@@ -187,7 +188,7 @@ function popupBlocked(tab, url, from) {
   if (prev && now - prev.time < 8000) { prev.count++; prev.time = now; return; }
   popupNotes.set(tab.id, { from, count: 1, time: now });
   emit('toast', {
-    text: `Pop-up blocked${host ? ' on ' + host : ''}`, iconName: 'shield', timeout: 7000,
+    text: `${ad ? 'Pop-up ad' : 'Pop-up'} blocked${host ? ' on ' + host : ''}`, iconName: 'shield', timeout: 7000,
     actions: [
       url ? { label: 'Open it', action: () => T.openTab({ url, opener: tab }) } : null,
       host ? { label: 'Always allow here', action: () => wb.invoke('site:set', hostOf(from), 'popups', true).then(() => emit('toast', { text: `Pop-ups allowed on ${host}`, iconName: 'shield', timeout: 2500 })) } : null,

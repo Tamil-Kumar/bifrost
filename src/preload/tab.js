@@ -54,17 +54,17 @@ if (isTop && /^https?:$/.test(location.protocol)) {
 if (/^(https?|file):$/.test(location.protocol)) {
   try {
     contextBridge.executeInMainWorld({
-      func: (blocked) => {
+      func: (blocked, ad) => {
         const native = window.open;
         if (typeof native !== 'function') return;
         const wrapped = new Proxy(native, {
           apply(target, self, args) {
+            let url = '';
+            try { url = args[0] ? new URL(String(args[0]), location.href).href : ''; } catch { url = String(args[0] || ''); }
             const ua = navigator.userActivation;
             if (ua && !ua.isActive) {
-              let url = '';
-              try { url = args[0] ? new URL(String(args[0]), location.href).href : ''; } catch { url = String(args[0] || ''); }
               if (!blocked(url)) return null;
-            }
+            } else if (url && ad(url)) return null;
             return Reflect.apply(target, self, args);
           },
         });
@@ -76,6 +76,13 @@ if (/^(https?|file):$/.test(location.protocol)) {
         try { allowed = !!ipcRenderer.sendSync('tab:popup-allowed', url); } catch { allowed = false; }
         if (!allowed) { try { ipcRenderer.sendToHost('wb-popup-blocked', url, location.href); } catch { /* host gone */ } }
         return allowed;
+      // Returns true when it's a pop-up ad (a site on the ad blocker's domain list): it's blocked.
+      }, (url) => {
+        if (!/^https?:/i.test(url)) return false;
+        let isAd = false;
+        try { isAd = !!ipcRenderer.sendSync('tab:popup-ad', url); } catch { isAd = false; }
+        if (isAd) { try { ipcRenderer.sendToHost('wb-popup-blocked', url, location.href, 'ad'); } catch { /* host gone */ } }
+        return isAd;
       }],
     });
   } catch { /* old Electron */ }

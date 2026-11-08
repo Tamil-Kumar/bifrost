@@ -1,0 +1,14 @@
+[Adblock Plus]
+! Title: Bifrost's tests: a small domain list in place of HaGeZi's (tests/e2e/blocking.mjs)
+! Block rules: 8 | Exception rules: 2
+!
+||tracker.example^
+||ads.adnet.example^
+||metrics.shop.example^
+||monitoring.googleapis.com^
+||px-cloud.net^
+||doubleclick.net^
+||popads.example^
+||frames.example^
+@@||ok.tracker.example^
+@@||ad.doubleclick.net^

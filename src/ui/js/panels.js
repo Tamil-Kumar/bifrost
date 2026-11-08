@@ -572,7 +572,7 @@ function onPageMessage(rec, channel, args) {
     const url = String(args[0] || ''), from = String(args[1] || rec.url);
     if (!/^(https?|ftp):/i.test(url) && url !== '') return;
     const host = hostOf(from).replace(/^www\./, '');
-    toast({ text: `Pop-up blocked${host ? ' on ' + host : ''}`, iconName: 'shield', timeout: 7000, actions: url ? [{ label: 'Open it', action: () => T.openTab({ url }) }] : [] });
+    toast({ text: `${args[2] === 'ad' ? 'Pop-up ad' : 'Pop-up'} blocked${host ? ' on ' + host : ''}`, iconName: 'shield', timeout: 7000, actions: url ? [{ label: 'Open it', action: () => T.openTab({ url }) }] : [] });
   }
 }
 

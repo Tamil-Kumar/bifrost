@@ -1708,7 +1708,7 @@ function sections() {
         I.toggle('privacy.dangerousSites', 'Warn me about dangerous sites', 'Pages known for phishing, malware or scams are stopped before they load, with a warning (and a way through if you’re sure); downloads from them are blocked. Uses the Phishing URL and Malicious URL blocklists and uBlock Origin’s “Badware risks”, updated twice a day. Works even with ad blocking off.', { keywords: 'safe browsing phishing malware scam security deceptive' }),
       ] },
       { title: 'Ad and tracker blocking', items: [
-        I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy and uBlock Origin’s lists.', { keywords: 'adblock ublock' }),
+        I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy, uBlock Origin’s lists and HaGeZi’s DNS blocklists.', { keywords: 'adblock ublock hagezi' }),
         I.toggle('privacy.adblock.cosmetic', 'Hide leftover ad spaces', 'Removes empty boxes and runs uBlock’s anti-adblock fixes.', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.youtubeSkip', 'Hide and skip YouTube ads', 'A video ad is covered and muted the moment it starts, then skipped. The ads in YouTube’s pages are hidden and ads are taken out of Shorts. YouTube itself is left as it is, so it keeps loading.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads skip video shorts' }),
         I.toggle('privacy.adblock.youtubeFilters', 'Remove YouTube ads before they play (experimental)', 'Runs the lists’ page scripts on YouTube and blocks its own ad requests. YouTube can get stuck loading with this on; reload YouTube after changing it.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads scriptlets filters' }),
@@ -1716,6 +1716,7 @@ function sections() {
         I.toggle('privacy.adblock.lists.tracking', 'Trackers', '', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.lists.annoyances', 'Annoyances', 'Newsletter popups, “open in app” banners and similar.', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.lists.cookieNotices', 'Cookie notices', 'Hides cookie banners.', { when: (st) => st.privacy.adblock.enabled }),
+        I.toggle('privacy.adblock.lists.domains', 'Ad, tracker and scam domains', 'HaGeZi’s DNS blocklists (Ultimate, with its pop-up ads and device trackers): over 280,000 whole domains, blocked wherever a page loads from them, and pop-up ads. Never the site you’re on, nor a company’s own services on its own sites, so sites keep working; if one doesn’t, allow ads on it below.', { when: (st) => st.privacy.adblock.enabled, keywords: 'hagezi dns blocklist ultimate domains popups' }),
         I.select('privacy.adblock.updateHours', 'Update the lists', '', [[6, 'Every 6 hours'], [24, 'Every day'], [72, 'Every 3 days'], [168, 'Every week']], { number: true, when: (st) => st.privacy.adblock.enabled }),
         I.custom('Status', '', adblockStatus, { stack: true }),
         I.textarea('privacy.adblock.customFilters', 'My filters', 'Adblock Plus / uBlock syntax, one per line.', { placeholder: '||ads.example.com^\nexample.com##.banner', keywords: 'custom rules' }),

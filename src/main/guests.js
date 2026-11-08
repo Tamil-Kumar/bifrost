@@ -206,6 +206,17 @@ function init() {
     try { const host = hostOf((event.senderFrame && event.senderFrame.url) || event.sender.getURL()); ok = !!(host && ctx.db.siteSettings(host).popups); } catch { ok = false; }
     event.returnValue = ok;
   });
+  // …and ones it opens in answer to a click, to a site on the ad blocker's domain list: pop-up ads
+  // (adblock.js isAdPopup), blocked the same way.
+  ipcMain.on('tab:popup-ad', (event, url) => {
+    let ad = false;
+    try {
+      let top = '';
+      try { top = (event.senderFrame && event.senderFrame.top && event.senderFrame.top.url) || event.sender.getURL(); } catch { top = event.sender.getURL(); }
+      ad = !!(ctx.adblock && ctx.adblock.isAdPopup(top, String(url || '')));
+    } catch { ad = false; }
+    event.returnValue = ad;
+  });
   // Your own style for a site (the site's info popover → Add a style): the tab preload applies it like a
   // userstyle, to every frame from that site.
   ipcMain.handle('tab:site-css', (event, url) => {

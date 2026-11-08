@@ -2,7 +2,8 @@
 
 A keyboard-first browser built on Electron: vertical or horizontal tabs, spaces, split view, a side panel
 for bookmarks, history, websites and extensions (with a side bar, as in Firefox), a launcher
-that searches bookmarks, tabs, history and the web, a built-in ad blocker, warnings for dangerous sites,
+that searches bookmarks, tabs, history and the web, a built-in ad blocker (EasyList, EasyPrivacy, uBlock
+Origin's lists and HaGeZi's DNS blocklists), warnings for dangerous sites,
 page translation, Chrome extensions (Manifest V2 and V3), sync between your computers through a cloud
 folder, and a lot of settings — every animation can be turned off.
 
@@ -10,7 +11,8 @@ folder, and a lot of settings — every animation can be turned off.
 
 ```
 src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads,
-                ad blocker, dangerous-site warnings (safety.js), extensions (extensions/), imports from
+                ad blocker (adblock.js; domain-list.js: HaGeZi's lists and what keeps them from breaking
+                sites), dangerous-site warnings (safety.js), extensions (extensions/), imports from
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
                 the fingers on the touchpad (touchpad.js: when they lift, for swipes)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
@@ -22,7 +24,8 @@ src/pages       internal pages (bifrost://settings, history, downloads, bookmark
 src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking),
                 launcher-settings.js (the launcher's settings files, Waypoint's included, and its keys)
 src/vendor      electron-chrome-extensions, electron-chrome-web-store, Ghostery's adblocker, Readability
-assets          icons, bundled filter lists, bin/ (the touchpad watcher for Windows, x64 and ARM64)
+assets          icons, bundled filter lists (adblock/: domains.txt.gz is HaGeZi's, domains-keep.txt Bifrost's
+                exceptions to it), bin/ (the touchpad watcher for Windows, x64 and ARM64)
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
                 installer stubs, and the touchpad watcher, touchpad.c; built with llvm-mingw)
 tests           e2e/ (Playwright + Electron under Xvfb, real pointer and keys through XTest), setup/,
@@ -62,6 +65,10 @@ menus open at the pointer, things are where they're drawn), `web` (translation, 
 `passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),
 `youtube` (YouTube's ads against a local stand-in for youtube.com: video ads covered and skipped, whatever
 kind; the ads in its pages hidden; ads taken out of Shorts; embedded players; the settings that turn it off),
+`blocking` (the ad blocker's domain list, HaGeZi's, here tests/fixtures/domains-test.txt, against local
+stand-in sites: what pages load from listed domains blocked, never the site you're on nor a company's own
+services on its own sites, its exceptions scoped to it, your own @@ rules and uBlock's stand-ins, the list off
+or a site allowed, pop-up ads, updating from HaGeZi's files and keeping the old list when that goes wrong),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
 and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
@@ -71,7 +78,9 @@ built with gcc, that writes them down and clicks or closes them; clicks bringing
 and reaching its worker, also after the worker has stopped or the tab has gone to sleep; tags,
 getNotifications(), blocked sites). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
-`sync-engine` cover sync's merging and its handling of broken files and missing folders, `file-guard`
+`sync-engine` cover sync's merging and its handling of broken files and missing folders, `domain-list` the ad
+blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
+Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
 what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you
 use and open comes first), `launcher-settings` that every setting
 of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and
@@ -114,4 +123,6 @@ both builds) and both installers. Those aren't signed for Widevine (Netflix won'
 
 ## License
 
-GPL-3.0-or-later. Bundled components keep their own licenses (see src/vendor).
+GPL-3.0-or-later. Bundled components keep their own licenses (see src/vendor), and so do the filter lists in
+assets/adblock: EasyList and EasyPrivacy, uBlock Origin's and Peter Lowe's lists, and HaGeZi's DNS
+blocklists (https://github.com/hagezi/dns-blocklists, GPL-3.0).

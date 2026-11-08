@@ -1,0 +1,51 @@
+! Bifrost: what HaGeZi's lists block that sites need in order to work. These are exceptions to the domain
+! list only (src/main/domain-list.js): what EasyList, EasyPrivacy and uBlock Origin's lists block stays blocked.
+!
+! Bot checks and captchas (HUMAN/PerimeterX's "Press & Hold"): without them the site can't let you in.
+@@||px-cdn.net^
+@@||px-cloud.net^
+@@||px-client.net^
+@@||perimeterx.net^
+@@||pxchk.net^
+! Fraud checks when you sign up, sign in or pay.
+@@||sardine.ai^
+! Where you are, from your IP address: shops and services use it for your country, currency and language,
+! and some sign-ins check it.
+@@||ipinfo.io^
+@@||ipapi.co^
+@@||ipapi.com^
+@@||ip-api.com^
+@@||ipify.org^
+@@||geolocation-db.com^
+@@||bigdatacloud.net^
+@@||ipgeolocation.io^
+@@||ipdata.co^
+@@||ipregistry.co^
+@@||ipwho.is^
+@@||ipwhois.app^
+@@||ipstack.com^
+@@||geojs.io^
+@@||country.is^
+@@||ip2location.io^
+@@||geoplugin.net^
+@@||ipbase.com^
+@@||icanhazip.com^
+@@||jsonip.com^
+@@||checkip.amazonaws.com^
+! Embedded posts, timelines and badges.
+@@||syndication.twitter.com^
+@@||syndication.x.com^
+@@||platform.linkedin.com^
+@@||widgets.wp.com^
+! Video players' licence check (no player without it).
+@@||entitlements.jwplayer.com^
+! Personalization that keeps the page hidden until it has loaded (otherwise a blank page for seconds).
+@@||cdn.evgnet.com^
+@@||cdn.qubit.com^
+! Help and chat widgets, and sign-up forms.
+@@||widget.freshworks.com^
+@@||js.driftt.com^
+@@||static.olark.com^
+@@||a.klaviyo.com^
+! Feature flags web apps wait for before they show anything.
+@@||app.posthog.com^
