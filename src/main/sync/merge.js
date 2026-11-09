@@ -247,7 +247,7 @@ function sameBookmarks(snapshot, result) {
 // Settings that follow you. Left out: what belongs to one computer (its screen, its folders, its hardware,
 // its performance profile and how much history the launcher keeps in memory), bookmark folders (their ids
 // are this computer's), and sync's own settings.
-const SYNCED = ['appearance', 'animations', 'tabs', 'workspaces', 'split', 'search', 'launcher', 'privacy', 'keyboard', 'gestures', 'translate', 'accounts',
+const SYNCED = ['appearance', 'animations', 'tabs', 'workspaces', 'split', 'search', 'launcher', 'privacy', 'keyboard', 'gestures', 'translate', 'accounts', 'webStyles',
   'extensions.allowWebStore', 'extensions.popupsInWindow', 'advanced.spellcheck', 'advanced.spellcheckLanguages'];
 const LOCAL = ['appearance.uiScale', 'appearance.sidebarWidth', 'appearance.sidebarCollapsed', 'appearance.newTab.background', 'appearance.newTab.image',
   'appearance.newTab.speedDialFolder', 'appearance.newTab.moduleCfg.folder', 'launcher.bookmarkFolders', 'launcher.boosts.folders', 'launcher.historyIndex', 'privacy.clearOnExit'];

@@ -9,6 +9,7 @@ module.exports = {
   adblock: null,     // AdBlock
   safety: null,      // Safety (dangerous-site warnings)
   googleAccounts: null, // GoogleAccounts (which Google account Google's sites open with)
+  webStyles: null,   // WebStyles (dark mode for websites, your userstyles)
   sync: null,        // Sync (main/sync)
   updater: null,     // Updater (main/updater.js)
   extensions: null,  // Extensions

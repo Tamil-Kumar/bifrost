@@ -197,3 +197,21 @@
 .gacc-note { margin: 0; }
 .gacc-warn { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--peach); font-size: .82rem; }
 .gacc-warn svg { width: 14px; height: 14px; }
+
+/* Settings → Website styles: your styles, and the editor */
+.ustyles { display: flex; flex-direction: column; gap: 10px; }
+.ustyle-list { display: flex; flex-direction: column; gap: 2px; }
+.ustyle { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-top: 1px solid var(--s0); min-width: 0; }
+.ustyle:first-child { border-top: 0; }
+.ustyle-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.ustyle-text b small { font-weight: 400; color: var(--subtext); }
+.ustyle-text > small { color: var(--subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.style-dialog { max-width: calc(100vw - 48px); }
+.style-editor { display: flex; flex-direction: column; gap: 10px; }
+.style-editor textarea.style-code { min-height: 340px; font-size: .85rem; white-space: pre; }
+.style-vars { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 14px; }
+.style-var { display: flex; flex-direction: column; gap: 4px; font-size: .88rem; color: var(--subtext); }
+.style-var input.color { width: 64px; height: 32px; padding: 2px; }
+.style-error { color: var(--red); margin: 0; }
+.style-editor .dialog-actions { padding: 0; }
+.dark-sites .erow > .mono { overflow: hidden; text-overflow: ellipsis; }

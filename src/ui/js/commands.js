@@ -79,6 +79,17 @@ async function reader(t) {
   } catch (e) { toast({ text: 'Reader view isn’t available for this page', iconName: 'reader' }); }
 }
 
+// Dark mode for the site you're on (its info popover has the same switch; Settings → Website styles lists them).
+async function toggleWebDarkSite(t, on) {
+  if (!t || !/^(https?|file):/i.test(t.url)) { toast({ text: 'Dark mode works on web pages', iconName: 'moon', timeout: 1800 }); return; }
+  const host = hostOf(t.url);
+  const info = await wb.invoke('site:info', t.url).catch(() => null);
+  const want = on == null ? !(info && info.dark) : !!on;
+  const now = await wb.invoke('web:dark-site', host, want).catch(() => null);
+  if (now == null) return;
+  toast({ text: now ? `Dark mode on for ${host}` : `Dark mode off for ${host}`, iconName: now ? 'moon' : 'sun', timeout: 1800 });
+}
+
 function toggleVimSite(host, on) {
   if (!host) return;
   const list = (setting('keyboard.vim.excludedSites') || []).slice();
@@ -245,6 +256,13 @@ export function run(id, args = {}) {
       return;
     }
     case 'toggleVimSite': toggleVimSite(args.host || (t && hostOf(t.url)), args.on); return;
+    case 'toggleWebDarkSite': toggleWebDarkSite(t, args.on); return;
+    case 'toggleWebDark': {
+      const on = !setting('webStyles.dark');
+      set('webStyles.dark', on);
+      toast({ text: on ? 'Dark mode on for websites' : 'Dark mode off for websites', iconName: on ? 'moon' : 'sun', timeout: 1800 });
+      return;
+    }
     // ---- window
     case 'newWindow': wb.send('window:control', 'newWindow'); return;
     case 'newPrivateWindow': wb.send('window:control', 'newPrivateWindow'); return;

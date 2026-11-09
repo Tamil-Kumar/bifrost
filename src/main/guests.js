@@ -217,27 +217,24 @@ function init() {
     } catch { ad = false; }
     event.returnValue = ad;
   });
-  // Your own style for a site (the site's info popover → Add a style): the tab preload applies it like a
-  // userstyle, to every frame from that site.
-  ipcMain.handle('tab:site-css', (event, url) => {
-    if (event.sender.getType() !== 'webview') return '';
-    const host = hostOf((event.senderFrame && event.senderFrame.url) || url);
-    return (host && ctx.db.siteSettings(host).css) || '';
+  // What a frame is styled with (main/web-styles.js: your userstyles, the site's own style from its info
+  // popover, dark mode's brightness): asked for as the frame starts, before it draws anything, so a style is
+  // there from the first paint; changes come after it (tab-site-css).
+  ipcMain.on('tab:page-css', (event, url) => {
+    let css = '';
+    try {
+      if (event.sender.getType() === 'webview' && ctx.webStyles) {
+        const f = event.senderFrame;
+        css = ctx.webStyles.cssFor((f && f.url) || String(url || ''), !f || !f.parent);
+      }
+    } catch { css = ''; }
+    event.returnValue = css;
   });
 }
 
-// A site's style changed: every frame showing that site gets it straight away (no reload).
-function pushSiteCss(host) {
-  const css = (host && ctx.db.siteSettings(host).css) || '';
-  for (const wc of webContents.getAllWebContents()) {
-    if (wc.isDestroyed() || wc.getType() !== 'webview') continue;
-    let frames = [];
-    try { frames = wc.mainFrame.framesInSubtree; } catch { continue; }
-    for (const f of frames) {
-      const h = hostOf(f.url);
-      if (h && (h === host)) { try { f.send('tab-site-css', css); } catch { /* frame gone */ } }
-    }
-  }
+// A site's style changed: every frame gets what's for it now (no reload).
+function pushSiteCss() {
+  if (ctx.webStyles) ctx.webStyles.pushAll();
 }
 
 function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }

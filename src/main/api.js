@@ -265,6 +265,9 @@ function register() {
       youtube: require('./adblock').isYouTube(host),
       vimOff: (ctx.settings.get('keyboard.vim.excludedSites') || []).some((h) => host === h || host.endsWith('.' + h)),
       httpAllowed: !!s.httpAllowed, siteCss: s.css || '', popups: !!s.popups,
+      // dark mode here, and the styles that are for this page (main/web-styles.js)
+      dark: ctx.webStyles ? ctx.webStyles.darkFor(url) : false,
+      styles: ctx.webStyles ? ctx.webStyles.forPage(url) : [],
     };
   });
   ipc.handle('site:set', 'internal', (event, host, key, value) => {
@@ -517,6 +520,20 @@ function register() {
   ctx.db.on('bookmarks-changed', (e) => broadcastAll('bookmarks-changed', e));
   ctx.db.on('history-changed', () => broadcastToPages('history-changed', {}));
   if (ctx.sync) ctx.sync.on('changed', () => broadcastAll('sync-changed', {}));
+  // How websites look (main/web-styles.js): dark mode for a site, and your styles (Settings → Website styles,
+  // the site info popover).
+  const WS = () => { if (!ctx.webStyles) throw new Error('Bifrost isn’t ready'); return ctx.webStyles; };
+  ipc.handle('web:dark-site', ['settings'], (event, host, on) => { WS().setSiteDark(String(host || ''), !!on); return WS().darkFor('https://' + String(host || '') + '/'); });
+  ipc.handle('styles:list', ['settings'], () => WS().list());
+  ipc.handle('styles:get', ['settings'], (event, id) => WS().get(String(id || '')));
+  ipc.handle('styles:save', ['settings'], (event, o) => WS().put(String((o && o.code) || ''), { id: (o && o.id) || null, values: (o && o.values) || null }));
+  ipc.handle('styles:set-enabled', ['settings'], (event, id, on) => WS().setEnabled(String(id || ''), !!on));
+  ipc.handle('styles:delete', ['settings'], (event, id) => WS().remove(String(id || '')));
+  ipc.handle('styles:preview', ['settings'], (event, url) => WS().preview(String(url || '')));
+  ipc.handle('styles:install', ['settings'], (event, o) => WS().put(String((o && o.code) || ''), { from: 'url', url: String((o && o.url) || '') }));
+  ipc.handle('styles:import-stylus', ['settings'], (event, text) => WS().importStylus(String(text || '')));
+  ipc.handle('styles:check-updates', ['settings'], () => WS().checkUpdates());
+  if (ctx.webStyles) ctx.webStyles.on('changed', () => broadcastToPages('styles-changed', {}, 'settings'));
   // Settings → Accounts: your Google accounts, as Google lists them (main/google-accounts.js).
   ipc.handle('google:accounts', ['settings'], (event, opts) => ctx.googleAccounts.accounts(!!(opts && opts.refresh)));
   if (ctx.googleAccounts) ctx.googleAccounts.on('changed', (s) => broadcastToPages('google-accounts-changed', s, 'settings'));

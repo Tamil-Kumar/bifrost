@@ -324,6 +324,11 @@
     // default, an email ('' = Google's choice, the first account you signed in to); sites, for particular ones:
     // [{ site: 'youtube.com', email }] (email '' = Google's choice there).
     accounts: { google: { default: '', sites: [] } },
+    // How websites look (main/web-styles.js, main/web-theme.js): Bifrost's dark mode for websites (Chromium's
+    // own, drawn dark with no script in the page; a site with a dark theme of its own is told to use it), sites
+    // of your own either way ({ 'example.com': true | false }), and brightness, contrast and sepia over it, in
+    // percent. Your userstyles are kept in styles.json in the profile, not here.
+    webStyles: { dark: false, darkSites: {}, brightness: 100, contrast: 100, sepia: 0 },
     // Translating pages (Google Translate's website translator). target: a Google Translate code, or ''
     // for the language Windows uses; offer: a Translate button in the address bar on pages in another one.
     translate: { offer: true, target: '', neverFor: [] },
@@ -552,6 +557,7 @@
     ['copyUrl', 'Copy page address', 'Page', []],
     ['toggleAdblockSite', 'Toggle ad blocking on this site', 'Page', []],
     ['toggleVimSite', 'Toggle Vim keys on this site', 'Page', []],
+    ['toggleWebDarkSite', 'Dark mode on this site', 'Page', ['Alt+Shift+A']],
     ['newWindow', 'New window', 'Window', ['Ctrl+N']],
     ['newPrivateWindow', 'New private window', 'Window', ['Ctrl+Shift+N']],
     ['closeWindow', 'Close window', 'Window', ['Ctrl+Shift+W']],
@@ -579,6 +585,7 @@
     ['clearData', 'Clear browsing data', 'Tools', ['Ctrl+Shift+Delete']],
     ['importData', 'Import from another browser', 'Tools', []],
     ['toggleVim', 'Turn Vim keys on or off', 'Tools', []],
+    ['toggleWebDark', 'Dark mode for websites', 'Tools', ['Alt+Shift+D']],
     ['toggleAnimations', 'Turn animations on or off', 'Tools', []],
     ['cycleTheme', 'Next theme', 'Tools', []],
   ].map(([id, title, category, keys]) => ({ id, title, category, keys }));
@@ -688,7 +695,7 @@
 
   // Deep-merges stored values onto defaults: unknown keys dropped, wrong types replaced by defaults.
   // Objects listed in OPEN_KEYS keep arbitrary keys (maps the user fills in).
-  const OPEN_KEYS = new Set(['keyboard.shortcuts', 'keyboard.vim.keys', 'appearance.customTheme']);
+  const OPEN_KEYS = new Set(['keyboard.shortcuts', 'keyboard.vim.keys', 'appearance.customTheme', 'webStyles.darkSites']);
   function deepMerge(def, val, pathKey = '') {
     if (OPEN_KEYS.has(pathKey)) return val && typeof val === 'object' && !Array.isArray(val) ? clone(val) : clone(def);
     if (Array.isArray(def)) return Array.isArray(val) ? clone(val) : clone(def);

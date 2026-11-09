@@ -95,6 +95,10 @@ function start() {
     require('./guests').init();
     // (how many fingers are on the touchpad, for swipes: Windows' precision touchpads)
     require('./touchpad').init(ctx);
+    // Dark mode for websites and your userstyles (before the tabs' color schemes: they ask it).
+    const { WebStyles } = require('./web-styles');
+    ctx.webStyles = new WebStyles();
+    ctx.webStyles.init();
     require('./web-theme').init();
 
     // The browser UI runs in the default session; pages run in persist:main (or private sessions).

@@ -1263,6 +1263,158 @@ function googleSitesWidget() {
   return { el: box, update: () => { if (!typingIn(box)) draw(); } };
 }
 
+// ------------------------------------------------------------ website styles
+// Dark mode's own sites (webStyles.darkSites: { site: true | false }), and your userstyles (main/web-styles.js,
+// kept in styles.json: read and changed through styles:*).
+const UC = window.WBUsercss;
+
+function darkSitesWidget() {
+  const box = h('div.elist.dark-sites');
+  const draw = () => {
+    const map = get('webStyles.darkSites') || {};
+    const change = (next) => save('webStyles.darkSites', next);
+    const rows = Object.keys(map).sort().map((site) => {
+      const sel = h('select.field', { 'aria-label': 'Dark mode on ' + site }, h('option', { value: 'on' }, 'Dark'), h('option', { value: 'off' }, 'As drawn'));
+      sel.value = map[site] ? 'on' : 'off';
+      sel.addEventListener('change', () => change({ ...map, [site]: sel.value === 'on' }));
+      return h('div.erow', { dataset: { site } }, h('span.grow.mono', null, site), sel,
+        h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: () => { const next = { ...map }; delete next[site]; change(next); } }, icon('close')));
+    });
+    const input = h('input.field.w-md', { type: 'text', placeholder: 'example.com', spellcheck: 'false', 'aria-label': 'Site' });
+    const sel = h('select.field', null, h('option', { value: 'on' }, 'Dark'), h('option', { value: 'off' }, 'As drawn'));
+    sel.value = get('webStyles.dark') ? 'off' : 'on';
+    const add = () => {
+      const site = String(input.value || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^www\./, '');
+      if (!site) return;
+      change({ ...map, [site]: sel.value === 'on' });
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+    box.replaceChildren(...rows, h('div.erow', null, input, sel, h('button.btn.small', { type: 'button', dataset: { act: 'add-dark-site' }, onclick: add }, icon('plus'), 'Add')));
+  };
+  draw();
+  return { el: box, update: () => { if (!typingIn(box)) draw(); } };
+}
+
+// The editor for a style: its code, and its variables when it has any. Resolves when it's saved or closed.
+function editStyle({ id = null, code = '', title = 'New style', vars = [], values = {} } = {}) {
+  const ta = h('textarea.field.mono.style-code', { spellcheck: 'false', rows: 18 });
+  ta.value = code;
+  const err = h('p.status-line.style-error', { hidden: true });
+  const chosen = { ...values };
+  const controls = (vars || []).map((v) => {
+    const cur = chosen[v.name] != null ? String(chosen[v.name]) : String(v.default || '');
+    let el;
+    if (v.type === 'select') {
+      el = h('select.field', null, (v.options || []).map((o) => h('option', { value: o.name }, o.label || o.name)));
+      el.value = cur;
+    } else if (v.type === 'checkbox') {
+      el = h('input', { type: 'checkbox', checked: cur === '1' });
+    } else if (v.type === 'color' && /^#[0-9a-f]{6}$/i.test(cur)) {
+      el = h('input.field.color', { type: 'color', value: cur });
+    } else if (v.type === 'number' || v.type === 'range') {
+      el = h('input.field.num', { type: 'number', value: cur, min: v.min, max: v.max, step: v.step || 'any' });
+    } else {
+      el = h('input.field', { type: 'text', value: cur, spellcheck: 'false' });
+    }
+    const read = () => { chosen[v.name] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value; };
+    el.addEventListener('change', read);
+    return h('label.style-var', { dataset: { var: v.name } }, h('span', null, v.label || v.name), el);
+  });
+  const body = h('div.style-editor', null,
+    controls.length ? h('div.style-vars', null, controls) : null,
+    ta, err,
+    h('p.muted.small', null, 'A userstyle: its ==UserStyle== header (with @name), then CSS. @-moz-document domain("…"), url-prefix("…"), url("…") or regexp("…") says which pages a part is for; what’s outside one is for every page.'));
+  let p;
+  const saveIt = async () => {
+    err.hidden = true;
+    try {
+      const out = await wb.invoke('styles:save', { id, code: ta.value, values: controls.length ? chosen : null });
+      p.close(out);
+    } catch (e) {
+      err.textContent = String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      err.hidden = false;
+    }
+  };
+  body.append(h('div.dialog-actions', null,
+    h('button.btn', { type: 'button', onclick: () => p.close(null) }, 'Cancel'),
+    h('button.btn.primary', { type: 'button', dataset: { act: 'save-style' }, onclick: saveIt }, 'Save')));
+  p = dialog({ title, body, buttons: [], width: 860, className: 'style-dialog' });
+  setTimeout(() => ta.focus(), 50);
+  return p;
+}
+
+function userStylesWidget() {
+  const box = h('div.ustyles');
+  const list = h('div.ustyle-list');
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+  const msg = (text, iconName = 'check') => toast({ text, iconName });
+  const clean = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const draw = async () => {
+    let styles = [];
+    try { styles = await wb.invoke('styles:list'); } catch { styles = []; }
+    if (!styles.length) { list.replaceChildren(h('p.status-line', null, 'No styles yet. Write one, install one from a link (a .user.css address, from userstyles.world for instance), or bring yours over from Stylus.')); return; }
+    list.replaceChildren(...styles.map((s) => {
+      const sw = switchEl(s.enabled, (on) => wb.invoke('styles:set-enabled', s.id, on).catch((e) => msg(clean(e), 'warn')), { label: s.name });
+      const sites = s.sites.length ? s.sites.slice(0, 4).join(', ') + (s.sites.length > 4 ? ` and ${s.sites.length - 4} more` : '') : 'no pages';
+      const note = !s.editable && s.from === 'stylus' && /^(less|stylus)$/i.test(s.preprocessor) ? ' · built by Stylus (written in LESS: kept as Stylus built it)' : '';
+      return h('div.ustyle', { dataset: { id: s.id } }, sw,
+        h('div.ustyle-text', null, h('b', null, s.name, s.version ? h('small', null, ' ' + s.version) : null), h('small', null, sites + note)),
+        s.editable ? h('button.btn.small', { type: 'button', dataset: { act: 'edit' }, onclick: async () => {
+          const full = await wb.invoke('styles:get', s.id).catch(() => null);
+          if (!full) return;
+          const out = await editStyle({ id: s.id, code: full.code, title: `Edit ${s.name}`, vars: full.vars, values: full.values });
+          if (out) msg(`${out.name} saved`);
+        } }, icon('edit'), 'Edit') : null,
+        h('button.icon-btn', { type: 'button', title: 'Delete', 'aria-label': 'Delete ' + s.name, dataset: { act: 'delete' }, onclick: async () => {
+          if (!(await confirmDialog(`Delete ${s.name}?`, { ok: 'Delete', danger: true }))) return;
+          await wb.invoke('styles:delete', s.id).catch((e) => msg(clean(e), 'warn'));
+        } }, icon('trash')));
+    }));
+  };
+  const host = () => '';
+  const newStyle = async () => { const out = await editStyle({ code: UC.template(host()) }); if (out) msg(`${out.name} added`); };
+  const fromLink = async () => {
+    const url = await promptDialog({ title: 'Install a style from a link', label: 'The address of a userstyle (a .user.css file).', placeholder: 'https://userstyles.world/api/style/1234.user.css', ok: 'Next' });
+    if (!url || !url.trim()) return;
+    let pv;
+    try { pv = await wb.invoke('styles:preview', url.trim()); } catch (e) { msg(clean(e), 'warn'); return; }
+    if (pv.error) { await dialog({ title: pv.name, iconName: 'warn', body: h('p', null, pv.error), buttons: [{ label: 'OK', value: true, primary: true }] }); return; }
+    const ok = await confirmDialog(`${pv.installed ? 'Update' : 'Install'} ${pv.name}${pv.version ? ' ' + pv.version : ''}?`, {
+      ok: pv.installed ? 'Update' : 'Install',
+      detail: [pv.description, pv.author ? `By ${pv.author}.` : '', `For ${pv.sites.length ? pv.sites.join(', ') : 'no pages'}.`, pv.installed ? `You have ${pv.installed}.` : ''].filter(Boolean).join(' '),
+    });
+    if (!ok) return;
+    try { const out = await wb.invoke('styles:install', { code: pv.code, url: url.trim() }); msg(`${out.name} installed`); } catch (e) { msg(clean(e), 'warn'); }
+  };
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files && fileIn.files[0];
+    fileIn.value = '';
+    if (!f) return;
+    try {
+      const r = await wb.invoke('styles:import-stylus', await f.text());
+      msg(`From Stylus: ${r.added} style${r.added === 1 ? '' : 's'} added${r.replaced ? `, ${r.replaced} replaced` : ''}`);
+    } catch (e) { msg(clean(e), 'warn'); }
+  });
+  const updates = async (btn) => {
+    btn.disabled = true;
+    try {
+      const r = await wb.invoke('styles:check-updates');
+      const parts = [r.updated.length ? `Updated: ${r.updated.join(', ')}` : 'Nothing to update', r.failed.length ? `Couldn’t check ${r.failed.length}` : '', r.skipped.length ? `${r.skipped.length} written in LESS can’t be updated yet` : ''].filter(Boolean);
+      msg(parts.join(' · '), r.failed.length ? 'warn' : 'check');
+    } catch (e) { msg(clean(e), 'warn'); }
+    btn.disabled = false;
+  };
+  const upd = h('button.btn.small', { type: 'button', dataset: { act: 'updates' }, onclick: () => updates(upd) }, icon('reload'), 'Check for updates');
+  box.append(h('div.btn-row', null,
+    h('button.btn.small', { type: 'button', dataset: { act: 'new-style' }, onclick: newStyle }, icon('plus'), 'New style'),
+    h('button.btn.small', { type: 'button', dataset: { act: 'install-link' }, onclick: fromLink }, icon('download'), 'Install from a link'),
+    h('button.btn.small', { type: 'button', dataset: { act: 'import-stylus' }, onclick: () => fileIn.click() }, icon('import'), 'Import from Stylus'),
+    upd), list, fileIn);
+  draw();
+  wb.on('styles-changed', () => draw());
+  return { el: box, update: null };
+}
+
 // ------------------------------------------------------------ import & backup
 function importWidget() {
   const box = h('div');
@@ -1692,6 +1844,18 @@ function sections() {
         I.custom('Image', '', wallpaperPicker, { stack: false, keywords: 'wallpaper picture' }),
         I.range('appearance.newTab.imageDim', 'Darken the image', '', { min: 0, max: 0.8, step: 0.05, fmt: pct, when: (st) => st.appearance.newTab.background === 'image' }),
         I.range('appearance.newTab.imageBlur', 'Blur the image', '', { min: 0, max: 30, step: 1, fmt: (v) => v + ' px', when: (st) => st.appearance.newTab.background === 'image' }),
+      ] },
+    ] },
+    { id: 'webstyles', title: 'Website styles', icon: 'moon', desc: 'Dark mode for websites, and your own styles for them (userstyles, as in Stylus).', groups: () => [
+      { title: 'Dark mode', id: 'web-dark', items: [
+        I.toggle('webStyles.dark', 'Dark mode for every website', 'A site with a dark theme of its own uses it; Chromium darkens the rest as it draws them, so nothing runs in the pages. Alt+Shift+D turns it on or off; Alt+Shift+A (or a site’s info popover) for the site you’re on.', { keywords: 'dark reader night invert black theme' }),
+        I.range('webStyles.brightness', 'Brightness', '', { min: 50, max: 150, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode dim' }),
+        I.range('webStyles.contrast', 'Contrast', '', { min: 50, max: 150, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode' }),
+        I.range('webStyles.sepia', 'Sepia', 'Warmer, yellower pages.', { min: 0, max: 100, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode warm night' }),
+        I.custom('Sites of your own', 'Sites where dark mode is on or off whatever the switch above says. A site covers its subdomains.', darkSitesWidget, { stack: true, keywords: 'dark mode exceptions exclude list site' }),
+      ] },
+      { title: 'Your styles', id: 'user-styles', items: [
+        I.custom('Styles', 'Userstyles change how sites look, as Stylus does: each is for the pages it names, and goes over the site’s own styles from the moment the page draws.', userStylesWidget, { stack: true, keywords: 'stylus userstyles usercss css theme custom style install import' }),
       ] },
     ] },
     { id: 'animations', title: 'Animations', icon: 'sparkle', desc: 'Every animation can be turned off on its own.', groups: () => [

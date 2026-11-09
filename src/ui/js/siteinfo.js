@@ -73,7 +73,26 @@ async function siteInfo(anchor) {
   if ((setting('privacy.httpsOnly') && /^http:/i.test(url)) || info.httpAllowed) {
     tools.append(row('lock', 'Allow plain HTTP', toggle(!!info.httpAllowed, (on) => wb.invoke('site:set', host, 'httpAllowed', on || null)), 'Skip the HTTPS-only upgrade for this site'));
   }
+  // Dark mode here (Alt+Shift+A), at once.
+  const darkSub = h('small');
+  const showDark = (on) => { darkSub.textContent = on ? 'Darkened, or in the site’s own dark theme' : 'As the site draws it'; };
+  showDark(info.dark);
+  const darkRow = row('moon', 'Dark mode', toggle(!!info.dark, async (on) => { const now = await wb.invoke('web:dark-site', host, on).catch(() => null); if (now != null) showDark(now); }));
+  darkRow.querySelector('.si-label').append(darkSub);
+  darkRow.dataset.row = 'dark';
+  tools.append(darkRow);
   body.append(tools);
+
+  // Your styles that are for this page, on or off (Settings → Website styles has them all).
+  if (info.styles && info.styles.length) {
+    const st = h('div.si-section', null, h('div.si-title', null, 'Styles'));
+    for (const s of info.styles) {
+      const r = row('palette', s.name, toggle(!!s.enabled, (on) => wb.invoke('styles:set-enabled', s.id, on).catch(() => {})));
+      r.dataset.style = s.id;
+      st.append(r);
+    }
+    body.append(st);
+  }
 
   // Zoom.
   const zoomLabel = h('span.si-zoom-val');
@@ -99,6 +118,7 @@ async function siteInfo(anchor) {
       } }, 'Clear')),
     h('div.si-links', null,
       h('button.link-btn', { type: 'button', onclick: () => { pop.close(); editSiteCss(host, info.siteCss, t); } }, icon('palette'), info.siteCss ? 'Edit site style' : 'Add a style for this site'),
+      h('button.link-btn', { type: 'button', onclick: () => { pop.close(); emit('command', 'openSettings', { section: 'webstyles' }); } }, icon('moon'), 'Dark mode and styles'),
       h('button.link-btn', { type: 'button', onclick: () => { pop.close(); emit('command', 'openSettings', { section: 'sites', host }); } }, icon('sliders'), 'Site settings'))));
   const pop = popover(body, { anchor, side: 'bottom', align: 'start' }, { className: 'si-pop' });
 }
@@ -188,7 +208,25 @@ async function adblockPopover(anchor) {
   const pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'ab-pop' });
 }
 
+// A userstyle opened in a tab (a .user.css link, as userstyles.world's Install button is): offered to install,
+// once for each address (main/web-styles.js downloads it again and reads its header first).
+const offered = new Set();
+async function offerStyle(tab, url) {
+  if (offered.has(url)) return;
+  offered.add(url);
+  let pv;
+  try { pv = await wb.invoke('styles:preview', url); } catch { return; }
+  const name = `${pv.name}${pv.version ? ' ' + pv.version : ''}`;
+  if (pv.error) { toast({ text: `${name}: ${pv.error}`, iconName: 'warn', timeout: 8000 }); return; }
+  const what = pv.installed ? (pv.installed === pv.version ? `${name} is installed` : `${name} is a newer version of a style you have (${pv.installed})`) : `${name} is a userstyle${pv.sites.length ? ' for ' + pv.sites.slice(0, 3).join(', ') : ''}`;
+  if (pv.installed && pv.installed === pv.version) { toast({ text: what, iconName: 'palette', timeout: 3000 }); return; }
+  toast({ text: what, iconName: 'palette', timeout: 15000, actions: [{ label: pv.installed ? 'Update' : 'Install', action: async () => {
+    try { const out = await wb.invoke('styles:install', { code: pv.code, url }); toast({ text: `${out.name} installed`, iconName: 'check' }); } catch (e) { toast({ text: String(e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), iconName: 'warn' }); }
+  } }] });
+}
+
 export function init() {
+  on('navigated', (tab, url) => { if (/^https?:\/\/[^?#]*\.user\.(css|less|styl)([?#]|$)/i.test(String(url || ''))) offerStyle(tab, url); });
   on('site-info', (anchor) => siteInfo(anchor));
   on('site-permissions', (anchor) => sitePermissions(anchor));
   on('adblock-popover', (anchor) => adblockPopover(anchor));

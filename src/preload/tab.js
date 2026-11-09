@@ -257,9 +257,10 @@ if (/^(https?|file):$/.test(location.protocol)) {
   } catch { /* the page sees Chromium's answer */ }
 }
 
-// Your own style for this site (its info popover → Add a style). Applied the way a userstyle is: after the
-// page's own styles, so it wins over them where both say something, and as a constructed stylesheet, which
-// a site's Content-Security-Policy can't block (a <style> element would be). Frames from that site get it too.
+// Your styles for this page (main/web-styles.js: your userstyles, the site's own style from its info popover,
+// dark mode's brightness). Applied the way Stylus applies a userstyle: after the page's own styles, so they win
+// where both say something, and as a constructed stylesheet, which a site's Content-Security-Policy can't block
+// (a <style> element would be). Asked for as the frame starts, so the page is styled from its first paint.
 if (/^(https?|file):$/.test(location.protocol)) setupSiteCss();
 
 function setupSiteCss() {
@@ -282,7 +283,9 @@ function setupSiteCss() {
     try { sheet.replaceSync(css); } catch { /* (an @import line can't be in a constructed sheet; the rest still applies) */ }
     adopt();
   };
-  ipcRenderer.invoke('tab:site-css', location.href).then(apply).catch(() => {});
+  let first = '';
+  try { first = ipcRenderer.sendSync('tab:page-css', location.href); } catch { first = ''; }
+  apply(first);
   ipcRenderer.on('tab-site-css', (_e, css) => apply(css));
   // A page that sets its own constructed stylesheets can replace the whole list; put ours back.
   for (const ev of ['DOMContentLoaded', 'load']) window.addEventListener(ev, adopt);
