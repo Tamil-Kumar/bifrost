@@ -108,6 +108,8 @@ function start() {
     const { Safety } = require('./safety');
     ctx.safety = new Safety();
     ctx.safety.init();
+    const { GoogleAccounts } = require('./google-accounts');
+    ctx.googleAccounts = new GoogleAccounts();
 
     ctx.mainSession = session.fromPartition('persist:main');
     const sessions = require('./sessions');

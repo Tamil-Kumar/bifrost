@@ -320,6 +320,10 @@
     // Touchpad gestures. swipe: two fingers sideways go back (left to right) and forward (right to left);
     // swipeDistance: how far (px) before letting go counts; swipeReverse: the other way round.
     gestures: { swipe: true, swipeDistance: 120, swipeReverse: false },
+    // Which Google account Google's sites open with, when you open one from outside Google (main/google-accounts.js):
+    // default, an email ('' = Google's choice, the first account you signed in to); sites, for particular ones:
+    // [{ site: 'youtube.com', email }] (email '' = Google's choice there).
+    accounts: { google: { default: '', sites: [] } },
     // Translating pages (Google Translate's website translator). target: a Google Translate code, or ''
     // for the language Windows uses; offer: a Translate button in the address bar on pages in another one.
     translate: { offer: true, target: '', neverFor: [] },

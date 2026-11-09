@@ -517,6 +517,9 @@ function register() {
   ctx.db.on('bookmarks-changed', (e) => broadcastAll('bookmarks-changed', e));
   ctx.db.on('history-changed', () => broadcastToPages('history-changed', {}));
   if (ctx.sync) ctx.sync.on('changed', () => broadcastAll('sync-changed', {}));
+  // Settings → Accounts: your Google accounts, as Google lists them (main/google-accounts.js).
+  ipc.handle('google:accounts', ['settings'], (event, opts) => ctx.googleAccounts.accounts(!!(opts && opts.refresh)));
+  if (ctx.googleAccounts) ctx.googleAccounts.on('changed', (s) => broadcastToPages('google-accounts-changed', s, 'settings'));
   require('./icons').onChange((e) => broadcastAll('site-icon', e));
   nativeTheme.on('updated', () => broadcastAll('system-theme', { dark: nativeTheme.shouldUseDarkColors }));
 }

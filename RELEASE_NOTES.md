@@ -1,7 +1,10 @@
-## Bifrost 0.25.10
+## Bifrost 0.26.0
 
-- **A Clear button for My filters** (Settings → Privacy & security). It asks first, saying how many lines will go, then empties the box. With HaGeZi's lists built in since 0.25.9, a copy of them pasted into My filters only slows things down, so if you put one there, clear it.
-- **A huge list in My filters no longer freezes Settings.** A box holding megabytes of text took seconds to open, and Ctrl+A in it stopped the page for minutes. Now a box with more than 300,000 characters in it shows how many lines it holds instead of the text, with **Show it anyway** and **Clear**. Settings with HaGeZi's whole list in My filters opens in about half a second instead of six.
-- The button that deletes or clears something in a confirmation (Clear, Delete, Remove) is now red, as it was meant to be; it showed in the accent color like any other.
+- **Choose which Google account Google's sites open with.** Google opens Gmail, YouTube, Drive, Docs and the rest with the first account you signed in to, and the only way to change that was to sign out of every account and back in, in another order. The new **Settings → Accounts** lists the Google accounts you're signed in to, and lets you choose:
+  - **Default account:** the one every Google site opens with.
+  - **For particular sites:** another account for one site (YouTube with your personal account, Classroom and Docs with your school one…), or Google's own choice there. The most specific site counts: docs.google.com before google.com, www.google.com/maps before www.google.com.
+- It works when you open a Google site from outside Google: the address bar (searches with Google too), a bookmark, Speed Dial, a link on another site or from another app. Inside Google nothing changes: its own links already say which account they're for, and switching accounts there works as usual.
+- Google numbers your accounts in the order you signed in, so Bifrost reads them from Google (with your own sign-in, as Chrome does) when you open Settings → Accounts and again whenever you sign in or out. Your choices keep pointing at the right account when that order changes. An account you're no longer signed in to is left to Google, and Settings marks it "not signed in". Private windows are left alone.
+- Bifrost asks Google for your accounts only once you've chosen one, or opened Settings → Accounts.
 
-**Install:** `Bifrost-Setup-0.25.10-x64.exe` for most PCs, `Bifrost-Setup-0.25.10-arm64.exe` for ARM laptops (Snapdragon). It installs for you only, no administrator rights needed, and keeps your profile. **Portable:** `BifrostPortable-0.25.10.zip`: unzip it over your BifrostPortable folder (its Data folder stays). Bifrost 0.24.0 and later update themselves.
+**Install:** `Bifrost-Setup-0.26.0-x64.exe` for most PCs, `Bifrost-Setup-0.26.0-arm64.exe` for ARM laptops (Snapdragon). It installs for you only, no administrator rights needed, and keeps your profile. **Portable:** `BifrostPortable-0.26.0.zip`: unzip it over your BifrostPortable folder (its Data folder stays). Bifrost 0.24.0 and later update themselves.

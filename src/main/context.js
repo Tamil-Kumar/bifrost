@@ -8,6 +8,7 @@ module.exports = {
   search: null,      // SearchService
   adblock: null,     // AdBlock
   safety: null,      // Safety (dangerous-site warnings)
+  googleAccounts: null, // GoogleAccounts (which Google account Google's sites open with)
   sync: null,        // Sync (main/sync)
   updater: null,     // Updater (main/updater.js)
   extensions: null,  // Extensions

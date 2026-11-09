@@ -44,6 +44,8 @@ function setup(ses, { isPrivate = false } = {}) {
   if (ctx.safety) ctx.safety.attach(ses, hub);
   // After the ad blocker, so blocked requests are never learned; private windows learn nothing.
   if (!isPrivate) require('./predictor').attach(ses, hub);
+  // Which Google account Google's sites open with (a private window's sign-ins are its own).
+  if (ctx.googleAccounts && !isPrivate) ctx.googleAccounts.attach(ses, hub);
   permissions.attach(ses, { isPrivate });
   // (notifications from websites' service workers: Electron would drop them)
   require('./notifications').attach(ses);

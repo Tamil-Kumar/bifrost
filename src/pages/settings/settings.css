@@ -184,3 +184,16 @@
 /* A box of text (I.textarea): with too much in it to show, how much there is; then its buttons */
 .ta-big { margin: 0; padding: 10px 12px; border: 1px dashed var(--s1); border-radius: var(--r-btn); }
 .ta-bar { margin-top: 8px; }
+
+/* Settings → Accounts: your Google accounts, and the sites that open with another */
+.gacc { display: flex; flex-direction: column; gap: 8px; }
+.gacc-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.gacc-badge { width: 30px; height: 30px; flex: none; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .85rem; color: var(--accent-text); }
+.gacc-text { display: flex; flex-direction: column; min-width: 0; }
+.gacc-text b, .gacc-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gacc-text small { color: var(--subtext); }
+.gacc-tag { flex: none; font-size: .75rem; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--text); }
+.gacc-tag.warn { background: color-mix(in srgb, var(--peach) 24%, transparent); }
+.gacc-note { margin: 0; }
+.gacc-warn { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--peach); font-size: .82rem; }
+.gacc-warn svg { width: 14px; height: 14px; }

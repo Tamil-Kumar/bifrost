@@ -1153,6 +1153,116 @@ function siteUAEditor() {
   return { el: box, update: () => { if (!typingIn(box)) draw(); } };
 }
 
+// ------------------------------------------------------------ accounts
+// Settings → Accounts: your Google accounts as Google lists them (main/google-accounts.js), the one Google's
+// sites open with, and particular sites. They're read from Google when the section comes into view (not each
+// time Settings opens), and again when you sign in or out.
+const GA = window.WBGoogle;
+let gAccounts = null;            // { accounts: [{ email, name, index, valid }], known, error }
+let gLoading = null;
+const gListeners = new Set();
+function loadGoogleAccounts(refresh) {
+  if (gLoading && !refresh) return gLoading;
+  gLoading = wb.invoke('google:accounts', { refresh: !!refresh })
+    .then((s) => { gAccounts = s; }, (e) => { gAccounts = { accounts: (gAccounts && gAccounts.accounts) || [], known: false, error: String((e && e.message) || e) }; })
+    .then(() => { gLoading = null; for (const f of gListeners) f(); });
+  return gLoading;
+}
+wb.on('google-accounts-changed', (s) => { gAccounts = s; for (const f of gListeners) f(); });
+function readWhenShown(el) {
+  const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) { io.disconnect(); if (!gAccounts) loadGoogleAccounts(false); } });
+  io.observe(el);
+}
+const accountLabel = (a) => (a.name && a.name !== a.email ? `${a.name} (${a.email})` : a.email);
+// A select's choices: Google's own, the accounts you're signed in to, and the one saved when it isn't one of them.
+function fillAccounts(select, saved, own) {
+  const list = (gAccounts && gAccounts.accounts) || [];
+  const match = saved ? list.find((a) => GA.sameEmail(a.email, saved)) : null;
+  const opts = [['', own], ...list.map((a) => [a.email, accountLabel(a)])];
+  if (saved && !match) opts.push([saved, gAccounts && gAccounts.known ? `${saved} (not signed in)` : saved]);
+  select.replaceChildren(...opts.map(([v, l]) => h('option', { value: v }, l)));
+  select.value = match ? match.email : saved || '';
+}
+const BADGES = ['--blue', '--green', '--peach', '--pink', '--teal', '--yellow', '--lavender', '--red'];
+function badgeColor(email) {
+  let n = 0;
+  for (const c of GA.canonical(email)) n = (n * 31 + c.charCodeAt(0)) >>> 0;
+  return `var(${BADGES[n % BADGES.length]})`;
+}
+
+function googleAccountsWidget() {
+  const box = h('div.gacc');
+  const draw = () => {
+    const s = gAccounts;
+    if (!s) { box.replaceChildren(h('p.status-line', null, 'Reading your Google accounts…')); return; }
+    const list = s.accounts || [];
+    const rows = list.map((a, i) => h('div.gacc-row', { dataset: { email: a.email } },
+      h('span.gacc-badge', { style: { background: badgeColor(a.email) } }, (a.name || a.email).trim().charAt(0).toUpperCase()),
+      h('span.gacc-text', null, h('b', null, a.name || a.email), a.name ? h('small', null, a.email) : null),
+      i === 0 ? h('span.gacc-tag', null, 'Google’s default') : null,
+      a.valid === false ? h('span.gacc-tag.warn', null, 'Sign in again') : null));
+    const note = !s.known ? `Your accounts couldn’t be read from Google${s.error ? ': ' + s.error : ''}.` : !list.length ? 'You’re not signed in to Google in Bifrost.' : '';
+    box.replaceChildren(...rows, ...(note ? [h('p.status-line.gacc-note', null, note)] : []), h('div.btn-row', null,
+      h('button.btn.small', { type: 'button', dataset: { act: 'sign-in' }, onclick: () => openUrl(list.length ? 'https://accounts.google.com/AddSession' : 'https://accounts.google.com/ServiceLogin', { background: false }) },
+        icon(list.length ? 'plus' : 'user'), list.length ? 'Add an account' : 'Sign in to Google'),
+      h('button.btn.small', { type: 'button', dataset: { act: 'refresh' }, onclick: () => loadGoogleAccounts(true) }, icon('reload'), 'Refresh')));
+  };
+  gListeners.add(draw);
+  draw();
+  readWhenShown(box);
+  return { el: box, update: null };
+}
+
+function googleDefaultWidget() {
+  const sel = h('select.field', { dataset: { act: 'default-account' }, 'aria-label': 'Default Google account' });
+  const draw = () => { if (document.activeElement !== sel) fillAccounts(sel, get('accounts.google.default') || '', 'Google’s choice'); };
+  sel.addEventListener('change', () => save('accounts.google.default', sel.value));
+  gListeners.add(draw);
+  draw();
+  readWhenShown(sel);
+  return { el: sel, update: draw };
+}
+
+function googleSitesWidget() {
+  const box = h('div.elist.gsites');
+  const suggestions = h('datalist#google-sites', null, GA.SITES.map(([site, label]) => h('option', { value: site }, label)));
+  let focusLast = false;
+  // What the rows say, changed as you edit them and saved whole: a site typed and then "Add a site" clicked
+  // straight away (the site saved as the box loses focus) both count, whichever's saved first.
+  let cur = [];
+  const change = (next) => { cur = next; save('accounts.google.sites', JSON.parse(JSON.stringify(next))); };
+  const draw = () => {
+    const list = cur = JSON.parse(JSON.stringify(get('accounts.google.sites') || []));
+    const rows = list.map((r, i) => {
+      const site = h('input.field.w-md', { type: 'text', value: r.site || '', placeholder: 'youtube.com', spellcheck: 'false', list: 'google-sites', 'aria-label': 'Site' });
+      const acct = h('select.field.grow', { 'aria-label': 'Account' });
+      fillAccounts(acct, r.email || '', 'Google’s choice');
+      const warn = h('span.gacc-warn', { hidden: true }, icon('warn'), 'Not one of Google’s sites');
+      const check = () => { const s = GA.parseSite(site.value); warn.hidden = !site.value.trim() || !!(s && GA.isGoogleHost(s.host)); };
+      check();
+      const commit = () => {
+        const next = cur.slice();
+        next[i] = { site: site.value.trim(), email: acct.value };
+        change(next);
+      };
+      site.addEventListener('input', check);
+      site.addEventListener('change', commit);
+      site.addEventListener('keydown', (e) => { if (e.key === 'Enter') site.blur(); });
+      acct.addEventListener('change', commit);
+      return h('div.erow', { dataset: { i: String(i) } }, site, acct, warn,
+        h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: () => change(cur.filter((_, j) => j !== i)) }, icon('close')));
+    });
+    // A new site starts with an account that isn't the default (what you'd add one for), when there is one.
+    const other = () => { const d = get('accounts.google.default') || ''; const a = ((gAccounts && gAccounts.accounts) || []).find((x) => !GA.sameEmail(x.email, d)); return a ? a.email : ''; };
+    box.replaceChildren(suggestions, ...rows, h('div', null, h('button.btn.small', { type: 'button', dataset: { act: 'add-site' }, onclick: () => { focusLast = true; change(cur.concat([{ site: '', email: other() }])); } }, icon('plus'), 'Add a site')));
+    if (focusLast && rows.length) { focusLast = false; rows[rows.length - 1].querySelector('input').focus(); }
+  };
+  gListeners.add(() => { if (!typingIn(box)) draw(); });
+  draw();
+  readWhenShown(box);
+  return { el: box, update: () => { if (!typingIn(box)) draw(); } };
+}
+
 // ------------------------------------------------------------ import & backup
 function importWidget() {
   const box = h('div');
@@ -1785,6 +1895,13 @@ function sections() {
       ] },
       { title: 'Site settings', id: 'sites', items: [
         I.custom('Sites', 'Permissions, zoom levels and custom styles you’ve set for sites.', sitesWidget, { keywords: 'permissions camera microphone location notifications zoom css' }),
+      ] },
+    ] },
+    { id: 'accounts', title: 'Accounts', icon: 'user', desc: 'Which of your Google accounts Google’s sites open with.', groups: () => [
+      { title: 'Google accounts', id: 'google-accounts', items: [
+        I.custom('Signed in to Google', 'In Google’s order: Google opens its sites with the first one, unless you choose another below.', googleAccountsWidget, { keywords: 'google account accounts gmail youtube sign in signed default authuser' }),
+        I.custom('Default account', 'The one Gmail, YouTube, Drive, Docs and the rest open with when you open them from the address bar, a bookmark or another site’s link. Inside Google, its own links and account switcher work as usual.', googleDefaultWidget, { stack: false, keywords: 'google default account authuser gmail youtube drive docs calendar classroom' }),
+        I.custom('For particular sites', 'Another account for one of Google’s sites, or Google’s choice there. The most specific one counts: docs.google.com before google.com.', googleSitesWidget, { keywords: 'google account per site youtube docs gmail drive classroom calendar' }),
       ] },
     ] },
     { id: 'downloads', title: 'Downloads', icon: 'download', desc: '', groups: () => [
