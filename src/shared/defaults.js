@@ -328,7 +328,7 @@
     // own, drawn dark with no script in the page; a site with a dark theme of its own is told to use it), sites
     // of your own either way ({ 'example.com': true | false }), and brightness, contrast and sepia over it, in
     // percent. Your userstyles are kept in styles.json in the profile, not here.
-    webStyles: { dark: false, darkSites: {}, brightness: 100, contrast: 100, sepia: 0 },
+    webStyles: { dark: false, darkSites: {}, brightness: 100, contrast: 100, sepia: 0, matchTheme: false },
     // Translating pages (Google Translate's website translator). target: a Google Translate code, or ''
     // for the language Windows uses; offer: a Translate button in the address bar on pages in another one.
     translate: { offer: true, target: '', neverFor: [] },

@@ -1,9 +1,11 @@
 'use strict';
 // Builds userstyles written in LESS off the main thread (see less-builder.js): one at a time, as asked. A file a
-// style @imports is asked of the main process, which downloads it (or has it bundled).
+// style @imports is asked of the main process, which downloads it (or has it bundled). Built in your theme
+// (theme: { flavor, palette }), Catppuccin's library comes with that flavor's colors swapped (shared/catppuccin.js).
 const { parentPort } = require('node:worker_threads');
 const U = require('../shared/usercss');
 const L = require('../shared/less');
+const C = require('../shared/catppuccin');
 
 const waiting = new Map();   // "<job> <url>" -> { resolve, reject }
 
@@ -25,7 +27,13 @@ parentPort.on('message', async (m) => {
   }
   if (m.type !== 'build') return;
   try {
-    const result = await U.buildAsync(m.code, m.values || {}, { less: L, load: (url) => load(m.id, url) });
+    const theme = m.theme && m.theme.palette ? m.theme : null;
+    const loadIt = async (url) => {
+      const text = await load(m.id, url);
+      if (!theme || !/@catppuccin:\s*\{/.test(text)) return text;
+      return C.patchLibrary(text, theme.flavor, theme.palette) || text;
+    };
+    const result = await U.buildAsync(m.code, m.values || {}, { less: L, load: loadIt });
     parentPort.postMessage({ type: 'done', id: m.id, result });
   } catch (e) {
     parentPort.postMessage({ type: 'done', id: m.id, error: String((e && e.message) || e) });

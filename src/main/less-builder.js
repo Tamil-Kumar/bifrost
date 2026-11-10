@@ -33,9 +33,10 @@ class LessBuilder {
   }
 
   // usercss code (with @preprocessor less) -> { meta, vars, sections }; rejects with why it can't be built.
-  build(code, values) {
+  // theme: { flavor, palette } for Catppuccin's styles in your theme (see web-styles.js).
+  build(code, values, theme) {
     return new Promise((resolve, reject) => {
-      this.queue.push({ id: ++this.seq, code: String(code), values: values || {}, resolve, reject });
+      this.queue.push({ id: ++this.seq, code: String(code), values: values || {}, theme: theme || null, resolve, reject });
       this.next();
     });
   }
@@ -48,7 +49,7 @@ class LessBuilder {
     let w;
     try { w = this.ensure(); } catch (e) { this.finish(job, e); return; }
     job.timer = setTimeout(() => this.kill(new Error('Building it took too long (more than 30 seconds).')), TIME_LIMIT);
-    w.postMessage({ type: 'build', id: job.id, code: job.code, values: job.values });
+    w.postMessage({ type: 'build', id: job.id, code: job.code, values: job.values, theme: job.theme });
   }
 
   ensure() {

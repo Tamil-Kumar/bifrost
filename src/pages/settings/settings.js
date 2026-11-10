@@ -1351,6 +1351,28 @@ function editStyle({ id = null, code = '', title = 'New style', vars = [], value
   return p;
 }
 
+// Catppuccin's styles in your theme: how many, how far along a build is, any that couldn't be built.
+function themeMatchStatus() {
+  const box = h('div.theme-match');
+  const draw = (st) => {
+    if (!st) return;
+    const parts = [];
+    if (st.building) parts.push(h('p.status-line', null, `Building Catppuccin’s styles in your theme: ${st.building.done} of ${st.building.total}…`));
+    else if (!st.styles) parts.push(h('p.status-line', null, 'None of your styles are Catppuccin’s yet. Download their import.json and bring it in with Import from Stylus, below.'));
+    else parts.push(h('p.status-line', null, `${st.ready} of Catppuccin’s ${st.styles} style${st.styles === 1 ? '' : 's'} in your theme.`));
+    if (st.failed && st.failed.length) {
+      const n = st.failed.length;
+      const names = st.failed.slice(0, 5).map((f) => f.name).join(', ') + (n > 5 ? ` and ${n - 5} more` : '');
+      parts.push(h('p.status-line', null, `Couldn’t build ${names} in your theme: ${n === 1 ? 'it keeps its' : 'they keep their'} own colors.`));
+    }
+    parts.push(h('div.btn-row', null, h('button.btn.small', { type: 'button', dataset: { act: 'catppuccin-styles' }, onclick: () => openUrl('https://github.com/catppuccin/userstyles/releases/latest', { background: false }) }, icon('download'), 'Catppuccin’s styles')));
+    box.replaceChildren(...parts);
+  };
+  wb.invoke('styles:theme').then(draw, () => {});
+  wb.on('styles-theme', draw);
+  return { el: box, update: () => wb.invoke('styles:theme').then(draw, () => {}) };
+}
+
 function userStylesWidget() {
   const box = h('div.ustyles');
   const list = h('div.ustyle-list');
@@ -1881,6 +1903,10 @@ function sections() {
         I.range('webStyles.contrast', 'Contrast', '', { min: 50, max: 150, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode' }),
         I.range('webStyles.sepia', 'Sepia', 'Warmer, yellower pages.', { min: 0, max: 100, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode warm night' }),
         I.custom('Sites of your own', 'Sites where dark mode is on or off whatever the switch above says. A site covers its subdomains.', darkSitesWidget, { stack: true, keywords: 'dark mode exceptions exclude list site' }),
+      ] },
+      { title: 'Your theme on websites', id: 'web-theme', items: [
+        I.toggle('webStyles.matchTheme', 'Match websites to your theme', 'Catppuccin’s styles for websites take Bifrost’s theme: its flavor when it’s one of Catppuccin’s, or its colors and accent (Frost, Nord, Dracula…). Get their styles by importing their import.json in Your styles below.', { keywords: 'catppuccin theme match browser colors flavor mocha latte frost nord dracula websites sites' }),
+        I.custom('', '', themeMatchStatus, { stack: true, when: (st) => st.webStyles.matchTheme }),
       ] },
       { title: 'Your styles', id: 'user-styles', items: [
         I.custom('Styles', 'Userstyles change how sites look, as Stylus does: each is for the pages it names, and goes over the site’s own styles from the moment the page draws.', userStylesWidget, { stack: true, keywords: 'stylus userstyles usercss css theme custom style install import' }),

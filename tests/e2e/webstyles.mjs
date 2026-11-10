@@ -11,7 +11,10 @@
 //    offering to install it;
 //  · a file made for importing into Stylus (Catppuccin's import.json): its LESS styles built here, Catppuccin's
 //    library from Bifrost's copy when it can't be downloaded, the CSS a style @imports put in it, Settings
-//    saying how far along it is and which couldn't be built; a LESS style's options changed, and it's rebuilt.
+//    saying how far along it is and which couldn't be built; a LESS style's options changed, and it's rebuilt;
+//  · your theme on websites, turned on in Settings: Catppuccin's styles built in Bifrost's theme (Frost: its
+//    colors and filters; Catppuccin Macchiato: that flavor), at once in open tabs; kept for the next start
+//    (styles-themed.json: nothing built again); off, their own options again.
 import http from 'node:http';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
@@ -69,12 +72,13 @@ const server = http.createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
-const t = await launch({
+const OPTS = {
   profile: 'webstyles',
   args: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} 127.0.0.1:${port}`).join(',')},MAP userstyles.catppuccin.com 127.0.0.1:1`],
   env: { HTTP_PROXY: '', http_proxy: '', HTTPS_PROXY: '', https_proxy: '', NO_PROXY: '*', no_proxy: '*' },
   settings: { onboarding: { done: true } },
-});
+};
+let t = await launch(OPTS);
 const x = xinput();
 const until = async (fn, ms, label) => {
   const end = Date.now() + ms;
@@ -319,6 +323,55 @@ try {
     await until(async () => (await looks()) === 'rgb(239, 241, 245) | rgb(1, 2, 3) | #d20f39', 8000, 'Latte with red');
     await until(() => settingsPage(`!document.querySelector('${OPEN}')`), 3000, 'the editor closed');
     await t.shot('webstyles-catppuccin');
+  });
+
+  await R.step('your theme on websites: Catppuccin’s styles in Bifrost’s theme (Frost: its colors; Macchiato: that flavor), at once in open tabs, the style’s own accent kept', async () => {
+    const ctp = await until(() => t.main(({ webContents }) => { const w = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && /^http:\/\/ctp\.test\//.test(w.getURL())); return w ? w.id : null; }), 3000, 'the ctp.test tab');
+    const looks = () => inTab(ctp, "[getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--ctp-accent').trim()].join(' | ')");
+    assert((await looks()) === 'rgb(239, 241, 245) | #d20f39', 'before (its own options, Latte and red): ' + (await looks()));
+    await set('appearance.theme', 'frost');
+    await toSettings();
+    await settingsPage("document.getElementById('web-theme').scrollIntoView({ block: 'start', behavior: 'instant' })");
+    await sleep(300);
+    await clickIn(settingsId, '[data-path="webStyles.matchTheme"] .switch');
+    await until(async () => (await get('webStyles.matchTheme')) === true, 3000, 'on');
+    // Frost's base, and its red for the red accent the style was given.
+    await until(async () => (await looks()) === 'rgb(14, 28, 51) | #ff7a93', 10000, 'Frost on ctp.test');
+    const status = await until(() => settingsPage("(() => { const e = document.querySelector('.theme-match'); return e && /1 of Catppuccin’s 1 style in your theme/.test(e.textContent) ? e.textContent : null; })()"), 5000, 'Settings saying so');
+    assert(/Catppuccin’s styles/.test(status), 'status: ' + status);
+    await t.shot('webstyles-theme-settings');
+    // Catppuccin's own flavor for a Catppuccin theme.
+    await set('appearance.theme', 'macchiato');
+    await until(async () => (await looks()) === 'rgb(36, 39, 58) | #ed8796', 10000, 'Macchiato on ctp.test');
+    const kept = await t.main(() => { const s = global.__bifrost.webStyles.styles.find((x) => x.name === 'ctp.test Catppuccin'); return JSON.stringify([s.values, !!s.themed]); });
+    assert(kept === '[{"darkFlavor":"latte","accentColor":"red"},true]', 'its own options kept: ' + kept);
+    await front(ctp);
+    await sleep(300);
+    await t.shot('webstyles-theme');
+  });
+
+  await R.step('…kept for the next start: pages in your theme from the start, nothing built again; off, the style’s own options again', async () => {
+    await until(() => t.main(() => { const ws = global.__bifrost.webStyles; return !ws.theming && !ws.dirty && !ws.themedDirty && !ws.writing; }), 5000, 'saved');
+    const dir = await t.main(() => global.__bifrost.profile.dir);
+    await t.close();
+    t = await launch({ ...OPTS, fresh: false });
+    const st = await t.main(() => { const ws = global.__bifrost.webStyles; ws.__built = 0; const b = ws.buildThemed.bind(ws); ws.buildThemed = (...a) => { ws.__built++; return b(...a); }; return JSON.stringify([ws.themeStatus().ready, ws.cssFor('http://ctp.test/').includes('#24273a')]); });
+    assert(st === '[1,true]', 'at the start (in your theme, Macchiato): ' + st);
+    const ctp = await open('http://ctp.test/');
+    const looks = () => inTab(ctp, "[getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--ctp-accent').trim()].join(' | ')");
+    assert((await looks()) === 'rgb(36, 39, 58) | #ed8796', 'on the page: ' + (await looks()));
+    await sleep(3500);
+    const built = await t.main(() => global.__bifrost.webStyles.__built);
+    assert(built === 0, 'built again: ' + built);
+    // (your styles' file as it was: their builds in your theme are kept on their own)
+    const fs = await import('node:fs');
+    const kept = JSON.parse(fs.readFileSync(dir + '/styles.json', 'utf8')).styles;
+    const themed = JSON.parse(fs.readFileSync(dir + '/styles-themed.json', 'utf8')).styles;
+    assert(kept.length && !kept.some((s) => s.themed) && Object.keys(themed).length === 1, 'styles.json and styles-themed.json: ' + JSON.stringify([kept.length, kept.some((s) => s.themed), Object.keys(themed).length]));
+    // Off: its own options again.
+    await set('webStyles.matchTheme', false);
+    await until(async () => (await looks()) === 'rgb(239, 241, 245) | #d20f39', 8000, 'its own colors again');
+    await set('appearance.theme', 'mocha');
   });
 
   await R.step('nothing on the pages broke', async () => {

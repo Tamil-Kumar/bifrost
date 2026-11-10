@@ -14,13 +14,20 @@
 // style @imports is put in it when it's built (a stylesheet Bifrost gives a page can't import). Each page and
 // frame gets the parts that are for it, with the site's own style (its info popover → Add a style) after them, as
 // one stylesheet the tab preload adopts before the page draws (preload/tab.js), and again whenever they change.
+//
+// Your theme on websites (webStyles.matchTheme): Catppuccin's styles built again in Bifrost's theme (its flavor
+// when it's one of Catppuccin's, else its colors in Catppuccin's library: src/shared/catppuccin.js), kept as each
+// style's themed: { key, of, sections } (in styles-themed.json: built again if it goes), and given to pages
+// instead while it's on; built again when the theme changes (a theme that follows the system's, when that does).
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { net, webContents } = require('electron');
+const { net, webContents, nativeTheme } = require('electron');
 const { EventEmitter } = require('node:events');
 const ctx = require('./context');
 const U = require('../shared/usercss');
+const C = require('../shared/catppuccin');
+const Themes = require('../shared/themes');
 const { LessBuilder } = require('./less-builder');
 
 const isWeb = (url) => /^(https?|file):/i.test(String(url || ''));
@@ -34,19 +41,38 @@ class WebStyles extends EventEmitter {
     this.styles = [];
     this.pushTimer = null;
     this.builder = new LessBuilder();
+    this.themeKey = '';            // the theme Catppuccin's styles are given in ('' while that's off)
+    this.themeTimer = null;
+    this.theming = null;           // the theme being built for
+    this.themeProgress = null;
   }
 
   init() {
     this.file = path.join(ctx.profile.dir, 'styles.json');
+    this.themedFile = path.join(ctx.profile.dir, 'styles-themed.json');
     try {
       const data = JSON.parse(fs.readFileSync(this.file, 'utf8'));
       if (data && Array.isArray(data.styles)) this.styles = data.styles.filter((s) => s && s.id && Array.isArray(s.sections));
     } catch { this.styles = []; }
+    if (this.config().matchTheme) {
+      try {
+        const data = JSON.parse(fs.readFileSync(this.themedFile, 'utf8'));
+        const byId = (data && data.styles) || {};
+        for (const s of this.styles) if (byId[s.id] && typeof byId[s.id] === 'object') s.themed = byId[s.id];
+      } catch { /* not built yet */ }
+    }
     ctx.settings.on('changed', ({ path: p }) => {
+      if (p && (p === 'appearance' || p.startsWith('appearance.'))) { this.themeSoon(); return; }
       if (p && !p.startsWith('webStyles')) return;
       try { require('./web-theme').apply(); } catch { /* not ready */ }
+      if (!p || p === 'webStyles' || p === 'webStyles.matchTheme') this.themeSoon();
       this.pushSoon();
     });
+    nativeTheme.on('updated', () => { if ((ctx.settings.get('appearance') || {}).theme === 'auto') this.themeSoon(); });
+    if (this.config().matchTheme) {
+      this.themeKey = this.themeNow().key;
+      setTimeout(() => this.retheme(), 3000);
+    }
   }
 
   config() { return ctx.settings.get('webStyles') || {}; }
@@ -102,7 +128,7 @@ class WebStyles extends EventEmitter {
     const parts = [];
     for (const s of this.styles) {
       if (!s.enabled || U.excluded(s.exclusions, url)) continue;
-      const code = s.sections.filter((x) => U.sectionMatches(x, url)).map((x) => x.code).join('\n');
+      const code = (this.themedSections(s) || s.sections).filter((x) => U.sectionMatches(x, url)).map((x) => x.code).join('\n');
       if (code.trim()) parts.push(`/* ${String(s.name).replace(/\*\//g, '')} */\n${code}`);
     }
     const host = hostOf(url);
@@ -136,43 +162,156 @@ class WebStyles extends EventEmitter {
     }
   }
 
+  // ---------------------------------------------------------------- your theme on websites
+  // The theme Catppuccin's styles are built in now: { flavor, palette, key }.
+  themeNow() {
+    const a = ctx.settings.get('appearance') || {};
+    const t = Themes.resolve(a, { systemDark: nativeTheme.shouldUseDarkColors });
+    const own = Themes.THEMES[t.key];
+    t.customAccent = !!(own && a.useCustomAccent && String(t.accent).toLowerCase() !== String(own.accent).toLowerCase());
+    const b = C.themeBuild(t);
+    return { ...b, key: crypto.createHash('sha1').update(JSON.stringify(b)).digest('hex').slice(0, 16) };
+  }
+
+  // What a page gets of a style in your theme: its build for this theme, or (while that's being built, after the
+  // theme changed) the last theme's; null when there's none for its code as it is now.
+  themedSections(s) {
+    return this.themeKey && s.themed && s.themed.of === s.updatedAt && s.themed.sections ? s.themed.sections : null;
+  }
+
+  // Whether a style is built for the theme as it is now (or couldn't be: error).
+  themedNow(s) {
+    return !!(s.themed && s.themed.key === this.themeKey && s.themed.of === s.updatedAt);
+  }
+
+  // A style built in a theme: s.themed's { key, of, sections } (or { …, error }).
+  async buildThemed(s, th) {
+    try {
+      const b = await this.build(s.code, { ...(s.values || {}), lightFlavor: th.flavor, darkFlavor: th.flavor }, { theme: th });
+      return { key: th.key, of: s.updatedAt, sections: b.sections };
+    } catch (e) {
+      return { key: th.key, of: s.updatedAt, sections: null, error: String((e && e.message) || e) };
+    }
+  }
+
+  themeSoon() {
+    clearTimeout(this.themeTimer);
+    this.themeTimer = setTimeout(() => this.retheme(), 300);
+  }
+
+  // Catppuccin's styles built for the theme now, those not built for it yet, one at a time: the ones for the
+  // pages you have open first. A newer theme (or turning it off) stops a run; another starts for what's left.
+  // Off: the builds go.
+  async retheme() {
+    if (!this.config().matchTheme) {
+      const had = this.styles.some((s) => s.themed);
+      for (const s of this.styles) delete s.themed;
+      if (this.themeKey || had) { this.themeKey = ''; if (had) this.save({ rethemed: true }); else this.pushSoon(); this.emit('theme', this.themeStatus()); }
+      return;
+    }
+    const th = this.themeNow();
+    if (th.key !== this.themeKey) { this.themeKey = th.key; this.pushSoon(); }
+    if (this.theming) { this.themeAgain = true; return; }
+    this.theming = th;
+    let built = 0;
+    try {
+      const todo = this.styles.filter((s) => C.isCatppuccin(s.code, s.vars) && !this.themedNow(s));
+      if (!todo.length) return;
+      const open = webContents.getAllWebContents().filter((w) => !w.isDestroyed() && w.getType() === 'webview').map((w) => w.getURL()).filter(isWeb);
+      const forOpen = new Set(todo.filter((s) => open.some((u) => s.sections.some((x) => !U.isGlobal(x) && U.sectionMatches(x, u)))));
+      todo.sort((a, b) => forOpen.has(b) - forOpen.has(a));
+      this.themeProgress = { done: 0, total: todo.length };
+      this.emit('theme', this.themeStatus());
+      for (const s of todo) {
+        if (this.themeKey !== th.key || !this.config().matchTheme) break;
+        if (this.styles.includes(s) && !this.themedNow(s)) {
+          const themed = await this.buildThemed(s, th);
+          // (changed meanwhile: built again next time)
+          if (themed.of === s.updatedAt) s.themed = themed;
+          built++;
+          // An open page gets its style as soon as it's ready (the rest, at the end).
+          if (forOpen.has(s)) this.pushAll();
+        }
+        this.themeProgress.done++;
+        this.emit('theme', this.themeStatus());
+      }
+    } finally {
+      this.themeProgress = null;
+      if (built) this.save({ rethemed: true });
+      this.theming = null;
+      this.emit('theme', this.themeStatus());
+      if (this.themeAgain) { this.themeAgain = false; this.themeSoon(); }
+    }
+  }
+
+  // For Settings: how many of your styles are Catppuccin's, how many are in your theme, how far a build is.
+  themeStatus() {
+    const ctp = this.styles.filter((s) => C.isCatppuccin(s.code, s.vars));
+    return {
+      on: !!this.config().matchTheme, styles: ctp.length, ready: ctp.filter((s) => this.themedNow(s) && s.themed.sections).length,
+      failed: ctp.filter((s) => s.themed && s.themed.key === this.themeKey && s.themed.error).map((s) => ({ name: s.name, error: s.themed.error })),
+      building: this.themeProgress ? { ...this.themeProgress } : null,
+    };
+  }
+
   // ---------------------------------------------------------------- your styles
   // Changed: pages get it at once; the file (several MB with many styles) a moment later, off the main thread's
   // way, or right away when Bifrost quits (saveNow).
-  save() {
-    this.dirty = true;
+  // Your styles changed (themed: their builds in your theme did too; rethemed: only those did, as saving builds in
+  // your theme, so none to start).
+  save({ themed = false, rethemed = false } = {}) {
+    if (!rethemed && this.config().matchTheme) { if (this.theming) this.themeAgain = true; else this.themeSoon(); }
+    if (!rethemed) this.dirty = true;
+    if (themed || rethemed) this.themedDirty = true;
     this.gen = (this.gen || 0) + 1;
     clearTimeout(this.writeTimer);
     this.writeTimer = setTimeout(() => this.write(), 400);
-    this.emit('changed');
+    if (!rethemed) this.emit('changed');
     this.pushSoon();
   }
 
+  // The files to write, as [file, () => text]: styles.json, and the builds in your theme on their own (they'd
+  // double it, and a change to a style doesn't change them).
+  toWrite() {
+    const out = [];
+    if (this.dirty) out.push([this.file, () => JSON.stringify({ version: 1, styles: this.styles.map(({ themed, ...s }) => s) })]);
+    if (this.themedDirty) out.push([this.themedFile, () => JSON.stringify({ version: 1, styles: Object.fromEntries(this.styles.filter((s) => s.themed).map((s) => [s.id, s.themed])) })]);
+    this.dirty = this.themedDirty = false;
+    return out;
+  }
+
   async write() {
-    if (!this.dirty) return;
+    if (!this.dirty && !this.themedDirty) return;
     if (this.writing) { this.writeTimer = setTimeout(() => this.write(), 400); return; }
     const gen = this.gen;
-    this.dirty = false;
     this.writing = true;
-    const tmp = this.file + '.tmp';
-    try {
-      await fs.promises.writeFile(tmp, JSON.stringify({ version: 1, styles: this.styles }));
-      // (written again meanwhile, by saveNow: that one's newer)
-      if (gen === this.gen && this.wroteNow !== gen) await fs.promises.rename(tmp, this.file);
-    } catch (e) { console.error('[styles] save failed', e); this.dirty = true; }
+    for (const [file, text] of this.toWrite()) {
+      const again = () => { if (file === this.file) this.dirty = true; else this.themedDirty = true; };
+      const tmp = file + '.tmp';
+      try {
+        await fs.promises.writeFile(tmp, text());
+        // (written again meanwhile, by saveNow: that one's newer; changed meanwhile: written again, with that)
+        if (this.wroteNow !== undefined && this.wroteNow >= gen) continue;
+        if (gen !== this.gen) { again(); continue; }
+        await fs.promises.rename(tmp, file);
+      } catch (e) { console.error('[styles] save failed', e); again(); }
+    }
     this.writing = false;
   }
 
   saveNow() {
     clearTimeout(this.writeTimer);
-    if (!this.dirty && !this.writing) return;
-    this.dirty = false;
+    if (!this.dirty && !this.themedDirty && !this.writing) return;
+    // (one being written may not be done before Bifrost quits: both, then)
+    if (this.writing) { this.dirty = true; this.themedDirty = true; }
     this.wroteNow = this.gen;
-    try {
-      const tmp = this.file + '.now.tmp';
-      fs.writeFileSync(tmp, JSON.stringify({ version: 1, styles: this.styles }));
-      fs.renameSync(tmp, this.file);
-    } catch (e) { console.error('[styles] save failed', e); }
+    for (const [file, text] of this.toWrite()) {
+      try {
+        const tmp = file + '.now.tmp';
+        fs.writeFileSync(tmp, text());
+        fs.renameSync(tmp, file);
+      } catch (e) { console.error('[styles] save failed', e); }
+    }
   }
 
   summary(s) {
@@ -188,10 +327,10 @@ class WebStyles extends EventEmitter {
   get(id) { const s = this.styles.find((x) => x.id === id); return s ? { ...this.summary(s), code: s.code || '' } : null; }
 
   // A style's code -> { meta, vars, sections }: LESS built in the worker, CSS it imports put in.
-  async build(code, values) {
+  async build(code, values, { theme = null } = {}) {
     const head = U.parseHeader(code);
     const pre = head ? String(head.meta.preprocessor || 'default').toLowerCase() : 'default';
-    const built = pre === 'less' ? await this.builder.build(code, values || {}) : U.build(code, values || {});
+    const built = pre === 'less' ? await this.builder.build(code, values || {}, theme) : U.build(code, values || {});
     built.sections = await this.inlineImports(built.sections);
     return built;
   }
@@ -258,9 +397,12 @@ class WebStyles extends EventEmitter {
       updatedAt: Date.now(),
       error: '',
     };
-    if (same) this.styles[this.styles.indexOf(same)] = style;
+    // In your theme too, while websites match it: open pages go straight to the new one.
+    if (this.themeKey && C.isCatppuccin(style.code, style.vars)) style.themed = await this.buildThemed(style, this.themeNow());
+    const at = this.styles.findIndex((s) => s.id === style.id);
+    if (at >= 0) this.styles[at] = style;
     else this.styles.push(style);
-    this.save();
+    this.save({ themed: !!style.themed });
     return this.summary(style);
   }
 

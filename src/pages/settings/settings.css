@@ -206,6 +206,8 @@
 .ustyle-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .ustyle-text b small { font-weight: 400; color: var(--subtext); }
 .ustyle-text > small { color: var(--subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-match { display: flex; flex-direction: column; gap: 8px; }
+.theme-match .status-line { margin: 0; }
 .import-failures { max-height: 50vh; overflow: auto; }
 .import-failures p { margin: 0 0 10px; }
 .import-failures small { color: var(--subtext); word-break: break-word; }
