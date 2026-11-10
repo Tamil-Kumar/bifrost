@@ -133,24 +133,80 @@
     return u.href;
   }
 
-  // accounts.google.com/ListAccounts?json=standard, where Chrome reads your accounts from (its reading:
-  // google_apis/gaia/gaia_auth_util.cc, ParseListAccountsData): ["gaia.l.a.r", [account…]], each account
-  // ["gaia.l.a", 1, name, email, photo, …, 9: still valid (0: sign in again), 10: id, …, 14: signed out]. The
-  // ones you're signed in to, in Google's order: an account's place in it is its authuser.
+  // accounts.google.com/ListAccounts, where Chrome reads your accounts from. The ones you're signed in to, in
+  // Google's order: an account's place in it is its authuser. Two forms of the same list, with the same places:
+  //  · laf=b64bin, what Chrome asks for now (google_apis/gaia/gaia_auth_util.cc, ParseBinaryListAccountsData):
+  //    base64 of a ListAccountsResponse protobuf (list_accounts_response.proto): account = 1, each with
+  //    2: name, 3: email, 9: still valid (0: sign in again), 10: id, 14: signed out;
+  //  · json=standard, what it read before: ["gaia.l.a.r", [account…]], each ["gaia.l.a", 1, name, email,
+  //    photo, …] with the same numbers as places.
   function parseListAccounts(text) {
-    let data;
-    try { data = JSON.parse(String(text).replace(/^\)\]\}'\s*/, '')); } catch { data = null; }
-    if (!Array.isArray(data) || !Array.isArray(data[1])) throw new Error('Google’s answer couldn’t be read');
+    const s = String(text).replace(/^\)\]\}'\s*/, '').trim();
+    const rows = s.startsWith('[') ? jsonAccounts(s) : binaryAccounts(s);
     const out = [];
-    for (const a of data[1]) {
-      if (!Array.isArray(a) || typeof a[3] !== 'string' || !a[3]) continue;
-      if (a.length > 14 && Number(a[14]) === 1) continue;
-      out.push({
-        email: a[3],
-        name: typeof a[2] === 'string' ? a[2] : '',
-        index: out.length,
-        valid: !(a.length > 9 && typeof a[9] === 'number' && a[9] === 0),
+    for (const a of rows) {
+      if (typeof a[3] !== 'string' || !a[3] || Number(a[14]) === 1) continue;
+      out.push({ email: a[3], name: typeof a[2] === 'string' ? a[2] : '', index: out.length, valid: !(a[9] === 0 || a[9] === false) });
+    }
+    return out;
+  }
+
+  const UNREADABLE = 'Google’s answer couldn’t be read';
+
+  function jsonAccounts(s) {
+    let data;
+    try { data = JSON.parse(s); } catch { data = null; }
+    if (!Array.isArray(data) || !Array.isArray(data[1])) throw new Error(UNREADABLE);
+    return data[1].filter(Array.isArray);
+  }
+
+  // Each account as a sparse array by field number, like the JSON's.
+  function binaryAccounts(s) {
+    const b64 = s.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(b64)) throw new Error(UNREADABLE);
+    const bytes = typeof Buffer !== 'undefined' ? new Uint8Array(Buffer.from(b64, 'base64')) : Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const text = (u8) => { try { return new TextDecoder('utf-8', { fatal: true }).decode(u8); } catch { return null; } };
+    try {
+      return protoFields(bytes).filter((f) => f.n === 1 && f.wire === 2).map((f) => {
+        const a = [];
+        for (const g of protoFields(f.value)) {
+          if (g.wire === 0) a[g.n] = g.value;
+          else if (g.wire === 2) { const t = text(g.value); if (t != null) a[g.n] = t; }
+        }
+        return a;
       });
+    } catch { throw new Error(UNREADABLE); }
+  }
+
+  // A protobuf message's fields: { n, wire, value } (varints as numbers, bytes as Uint8Arrays; fixed-size ones
+  // skipped).
+  function protoFields(u8) {
+    const out = [];
+    let i = 0;
+    const varint = () => {
+      let v = 0, mul = 1;
+      for (let k = 0; k < 10; k++) {
+        if (i >= u8.length) throw new Error('cut short');
+        const b = u8[i++];
+        v += (b & 0x7f) * mul;
+        if (!(b & 0x80)) return v;
+        mul *= 128;
+      }
+      throw new Error('bad varint');
+    };
+    while (i < u8.length) {
+      const key = varint();
+      const n = Math.floor(key / 8), wire = key % 8;
+      if (wire === 0) out.push({ n, wire, value: varint() });
+      else if (wire === 2) {
+        const len = varint();
+        if (i + len > u8.length) throw new Error('cut short');
+        out.push({ n, wire, value: u8.subarray(i, i + len) });
+        i += len;
+      } else if (wire === 1) i += 8;
+      else if (wire === 5) i += 4;
+      else throw new Error('bad field');
+      if (i > u8.length) throw new Error('cut short');
     }
     return out;
   }

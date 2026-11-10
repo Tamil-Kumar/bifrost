@@ -7,7 +7,8 @@
      @name        Example dark
      @namespace   example
      @version     1.0.0
-     @preprocessor default        (or uso; less and stylus need their compilers)
+     @preprocessor default        (or uso, or less: built by the LESS compiler, src/shared/less.js; stylus
+                                   isn't here)
      @var color bg "Background" #1e1e2e
      ==/UserStyle== *\/
      @-moz-document domain("example.com"), url-prefix("https://example.org/docs/") { body { background: var(--bg); } }
@@ -286,7 +287,7 @@
 
   // ------------------------------------------------------------------ a whole style
   // usercss code -> { meta, vars, sections }, the variables given values (values: { name: chosen }).
-  // Throws for what can't be done here: no header, or a preprocessor Bifrost doesn't have.
+  // Throws for what can't be done here: no header, or a preprocessor Bifrost doesn't have. LESS takes buildAsync.
   function build(code, values) {
     const head = parseHeader(code);
     if (!head) throw new Error('This isn’t a userstyle: it has no ==UserStyle== header.');
@@ -297,7 +298,7 @@
     if (pre === 'uso') {
       for (const v of vars) body = body.split(`/*[[${v.name}]]*/`).join(varValue(v, values));
     } else if (pre === 'less' || pre === 'stylus') {
-      const e = new Error(`This style is written in ${pre === 'less' ? 'LESS' : 'Stylus’s own language'}, which Bifrost can’t turn into CSS yet.`);
+      const e = new Error(pre === 'less' ? 'This style is written in LESS: it’s built off the main thread.' : 'This style is written in Stylus’s own language (not LESS), which Bifrost can’t turn into CSS.');
       e.code = 'preprocessor';
       e.preprocessor = pre;
       throw e;
@@ -312,12 +313,47 @@
     return { meta: head.meta, vars, sections: secs };
   }
 
+  // What LESS gets for a style's variables, before its code, as Stylus gives it: @name:value; each.
+  function lessVariables(vars, values) {
+    return (vars || []).filter((v) => v.type !== 'unsupported').map((v) => `@${v.name}:${varValue(v, values)};\n`).join('');
+  }
+
+  // build(), for LESS too: options.less is the compiler (src/shared/less.js), options.load(url) -> the text of a
+  // file its @import names. A LESS error says where it is in the style's own code.
+  async function buildAsync(code, values, options) {
+    const head = parseHeader(code);
+    if (!head) throw new Error('This isn’t a userstyle: it has no ==UserStyle== header.');
+    if (!head.meta.name) throw new Error('The style has no @name.');
+    const pre = String(head.meta.preprocessor || 'default').toLowerCase();
+    if (pre !== 'less') return build(code, values);
+    const less = options && options.less;
+    if (!less) { const e = new Error('There’s no LESS compiler here.'); e.code = 'preprocessor'; throw e; }
+    const vars = head.vars.filter((v) => v.type !== 'unsupported');
+    const defs = lessVariables(vars, values);
+    let css;
+    try {
+      css = await less.render(defs + String(code), { load: options.load, file: '' });
+    } catch (e) {
+      const own = !e.file;
+      const line = e.line != null && own ? e.line - (defs.match(/\n/g) || []).length : e.line;
+      const where = line != null && line > 0 ? ` (line ${line}${e.file ? ' of ' + e.file : ''})` : '';
+      const err = new Error(`LESS: ${String(e.message || e).replace(/\.$/, '')}${where}.`);
+      err.code = 'less';
+      throw err;
+    }
+    return { meta: head.meta, vars, sections: sections(css) };
+  }
+
   // A Stylus backup (Stylus → Backup → Export: a JSON array of its styles, each with the CSS it built) -> styles.
+  // Also the files made for importing into Stylus, like Catppuccin's import.json: styles with their code but no
+  // CSS yet (sections: null, needsBuild: they're built from their code as Stylus does when it imports them).
   function fromStylusBackup(data) {
     const list = Array.isArray(data) ? data : [];
     const out = [];
     for (const s of list) {
-      if (!s || typeof s !== 'object' || !Array.isArray(s.sections)) continue;
+      if (!s || typeof s !== 'object') continue;
+      const built = Array.isArray(s.sections);
+      if (!built && !(typeof s.sourceCode === 'string' && HEADER.test(s.sourceCode))) continue;
       const ud = s.usercssData && typeof s.usercssData === 'object' ? s.usercssData : null;
       const values = {};
       const vars = [];
@@ -329,14 +365,14 @@
           if (v.value != null) values[v.name] = String(v.value);
         }
       }
-      const secs = s.sections.map((x) => ({
+      const secs = !built ? null : s.sections.map((x) => ({
         code: String((x && x.code) || ''),
         urls: Array.isArray(x && x.urls) ? x.urls.map(String) : [],
         urlPrefixes: Array.isArray(x && x.urlPrefixes) ? x.urlPrefixes.map(String) : [],
         domains: Array.isArray(x && x.domains) ? x.domains.map((d) => String(d).toLowerCase()) : [],
         regexps: Array.isArray(x && x.regexps) ? x.regexps.map(String) : [],
       })).filter((x) => x.code.trim());
-      const name = String(s.customName || s.name || (ud && ud.name) || 'A style from Stylus');
+      const name = String(s.customName || s.name || (ud && ud.name) || (!built && (parseHeader(s.sourceCode) || { meta: {} }).meta.name) || 'A style from Stylus');
       out.push({
         name,
         enabled: s.enabled !== false,
@@ -345,6 +381,7 @@
         vars,
         values,
         sections: secs,
+        needsBuild: !built,
         exclusions: Array.isArray(s.exclusions) ? s.exclusions.map(String) : s.exclusions && typeof s.exclusions === 'object' ? Object.keys(s.exclusions) : [],
       });
     }
@@ -366,5 +403,5 @@
     return `/* ==UserStyle==\n@name        ${site} — my style\n@namespace   bifrost\n@version     1.0.0\n==/UserStyle== */\n\n@-moz-document domain("${site}") {\n  body {\n  }\n}\n`;
   }
 
-  return { unescapeCss, parseHeader, varValue, sections, sectionMatches, isGlobal, sitesOf, build, fromStylusBackup, excluded, template };
+  return { unescapeCss, parseHeader, varValue, sections, sectionMatches, isGlobal, sitesOf, build, buildAsync, lessVariables, fromStylusBackup, excluded, template };
 });

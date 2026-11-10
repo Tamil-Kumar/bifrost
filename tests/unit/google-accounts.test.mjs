@@ -29,6 +29,32 @@ check('signed out of all: none', G.parseListAccounts('["gaia.l.a.r",[]]'), []);
 check('Google’s anti-hijacking prefix is taken off', G.parseListAccounts(")]}'\n" + listText).length, 3);
 check('an answer that isn’t the list (a sign-in page, nonsense) is an error', [throws(() => G.parseListAccounts('<html>')), throws(() => G.parseListAccounts('{"a":1}'))], [true, true]);
 
+// ---- …and as Chrome asks for it now (laf=b64bin): base64 of a ListAccountsResponse protobuf (account = 1; each
+// 2: name, 3: email, 4: photo, 9: valid, 10: id, 14: signed out, 15: verified; Google's own fields besides).
+const varint = (n) => { const b = []; do { let x = n % 128; n = Math.floor(n / 128); if (n) x |= 128; b.push(x); } while (n); return b; };
+const pb = {
+  str: (n, s) => { const u = [...Buffer.from(s, 'utf8')]; return [...varint(n * 8 + 2), ...varint(u.length), ...u]; },
+  int: (n, v) => [...varint(n * 8), ...varint(v)],
+  fixed64: (n) => [...varint(n * 8 + 1), 1, 2, 3, 4, 5, 6, 7, 8],
+  fixed32: (n) => [...varint(n * 8 + 5), 1, 2, 3, 4],
+  msg: (n, bytes) => [...varint(n * 8 + 2), ...varint(bytes.length), ...bytes],
+};
+const bin = (name, email, { valid = 1, signedOut = 0, extra = [] } = {}) => [
+  ...pb.int(1, 1), ...pb.str(2, name), ...pb.str(3, email), ...pb.str(4, `https://lh3.googleusercontent.com/${email}`),
+  ...pb.int(5, 1), ...pb.fixed64(6), ...pb.int(9, valid), ...pb.str(10, String(email.length) + '1122334455'),
+  ...(signedOut ? pb.int(14, 1) : []), ...pb.int(15, 1), ...extra];
+const binText = (accounts, wrap = 0) => {
+  const b64 = Buffer.from(accounts.flatMap((a) => pb.msg(1, a))).toString('base64');
+  return wrap ? b64.replace(new RegExp(`(.{${wrap}})`, 'g'), '$1\n') : b64;
+};
+const binList = binText([bin('Tamil குமார்', 'Tamil.Kumar@gmail.com'), bin('Tamil (Purdue)', 'tkumar@purdue.edu', { valid: 0, extra: [...pb.fixed32(21), ...pb.msg(30, pb.str(1, 'x'))] }), bin('Old', 'old@gmail.com', { signedOut: 1 }), bin('Third', 'third@gmail.com')]);
+check('Chrome’s form: the accounts you’re signed in to, in Google’s order, with their places, names and emails (Google’s other fields skipped)',
+  G.parseListAccounts(binList).map((a) => [a.index, a.email, a.name, a.valid]), [[0, 'Tamil.Kumar@gmail.com', 'Tamil குமார்', true], [1, 'tkumar@purdue.edu', 'Tamil (Purdue)', false], [2, 'third@gmail.com', 'Third', true]]);
+check('…in lines, as base64 often comes', G.parseListAccounts(binText([bin('A', 'a@gmail.com'), bin('B', 'b@gmail.com')], 20) + '\n').map((a) => a.email), ['a@gmail.com', 'b@gmail.com']);
+check('…an account without a name: just its email', G.parseListAccounts(binText([[...pb.str(3, 'n@gmail.com'), ...pb.int(9, 1)]])), [{ email: 'n@gmail.com', name: '', index: 0, valid: true }]);
+check('…signed out of all: an empty list', [G.parseListAccounts(''), G.parseListAccounts(binText([]))], [[], []]);
+check('…cut short, or not base64 (Google’s error page): an error', [throws(() => G.parseListAccounts(binList.slice(0, 40))), throws(() => G.parseListAccounts('<!DOCTYPE html><title>Error 400 (Bad Request)!!1</title>'))], [true, true]);
+
 // ---- emails, as Google compares them
 check('case and a Gmail address’s dots don’t count', [G.sameEmail('Tamil.Kumar@gmail.com', 'tamilkumar@GMAIL.com'), G.sameEmail('a.b@googlemail.com', 'ab@gmail.com')], [true, true]);
 check('…a work address’s dots do', G.sameEmail('t.kumar@purdue.edu', 'tkumar@purdue.edu'), false);

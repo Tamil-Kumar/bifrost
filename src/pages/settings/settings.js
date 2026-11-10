@@ -1325,8 +1325,12 @@ function editStyle({ id = null, code = '', title = 'New style', vars = [], value
     ta, err,
     h('p.muted.small', null, 'A userstyle: its ==UserStyle== header (with @name), then CSS. @-moz-document domain("…"), url-prefix("…"), url("…") or regexp("…") says which pages a part is for; what’s outside one is for every page.'));
   let p;
+  const saveBtn = h('button.btn.primary', { type: 'button', dataset: { act: 'save-style' } }, 'Save');
   const saveIt = async () => {
     err.hidden = true;
+    saveBtn.disabled = true;
+    // (a style in LESS is built first: a moment)
+    const slow = setTimeout(() => { saveBtn.textContent = 'Building…'; }, 300);
     try {
       const out = await wb.invoke('styles:save', { id, code: ta.value, values: controls.length ? chosen : null });
       p.close(out);
@@ -1334,10 +1338,14 @@ function editStyle({ id = null, code = '', title = 'New style', vars = [], value
       err.textContent = String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
       err.hidden = false;
     }
+    clearTimeout(slow);
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
   };
+  saveBtn.addEventListener('click', saveIt);
   body.append(h('div.dialog-actions', null,
     h('button.btn', { type: 'button', onclick: () => p.close(null) }, 'Cancel'),
-    h('button.btn.primary', { type: 'button', dataset: { act: 'save-style' }, onclick: saveIt }, 'Save')));
+    saveBtn));
   p = dialog({ title, body, buttons: [], width: 860, className: 'style-dialog' });
   setTimeout(() => ta.focus(), 50);
   return p;
@@ -1356,7 +1364,7 @@ function userStylesWidget() {
     list.replaceChildren(...styles.map((s) => {
       const sw = switchEl(s.enabled, (on) => wb.invoke('styles:set-enabled', s.id, on).catch((e) => msg(clean(e), 'warn')), { label: s.name });
       const sites = s.sites.length ? s.sites.slice(0, 4).join(', ') + (s.sites.length > 4 ? ` and ${s.sites.length - 4} more` : '') : 'no pages';
-      const note = !s.editable && s.from === 'stylus' && /^(less|stylus)$/i.test(s.preprocessor) ? ' · built by Stylus (written in LESS: kept as Stylus built it)' : '';
+      const note = !s.editable && s.from === 'stylus' && /^stylus$/i.test(s.preprocessor) ? ' · built by Stylus (in Stylus’s own language: kept as Stylus built it)' : '';
       return h('div.ustyle', { dataset: { id: s.id } }, sw,
         h('div.ustyle-text', null, h('b', null, s.name, s.version ? h('small', null, ' ' + s.version) : null), h('small', null, sites + note)),
         s.editable ? h('button.btn.small', { type: 'button', dataset: { act: 'edit' }, onclick: async () => {
@@ -1386,20 +1394,40 @@ function userStylesWidget() {
     if (!ok) return;
     try { const out = await wb.invoke('styles:install', { code: pv.code, url: url.trim() }); msg(`${out.name} installed`); } catch (e) { msg(clean(e), 'warn'); }
   };
+  const importBtn = h('button.btn.small', { type: 'button', dataset: { act: 'import-stylus' }, onclick: () => fileIn.click() }, icon('import'), 'Import from Stylus');
+  const importLabel = (text) => importBtn.replaceChildren(icon('import'), text);
   fileIn.addEventListener('change', async () => {
     const f = fileIn.files && fileIn.files[0];
     fileIn.value = '';
     if (!f) return;
+    importBtn.disabled = true;
+    importLabel('Importing…');
+    // (styles that come without CSS, like Catppuccin's, are built first: Settings hears how far along)
+    const progress = (p) => { if (p && p.total) importLabel(`Building styles: ${p.done} of ${p.total}…`); };
+    const unsubscribe = wb.on('styles-progress', progress);
     try {
       const r = await wb.invoke('styles:import-stylus', await f.text());
-      msg(`From Stylus: ${r.added} style${r.added === 1 ? '' : 's'} added${r.replaced ? `, ${r.replaced} replaced` : ''}`);
+      const n = r.added + r.replaced;
+      const text = `From Stylus: ${r.added} style${r.added === 1 ? '' : 's'} added${r.replaced ? `, ${r.replaced} replaced` : ''}${r.failed.length ? ` · ${r.failed.length} couldn’t be built` : ''}`;
+      msg(text, r.failed.length ? 'warn' : 'check');
+      if (r.failed.length) {
+        await dialog({
+          title: n ? `${r.failed.length} of the styles couldn’t be built` : 'None of the styles could be built',
+          iconName: 'warn',
+          body: h('div.import-failures', null, r.failed.map((x) => h('p', null, h('b', null, x.name), h('br'), h('small', null, x.error)))),
+          buttons: [{ label: 'OK', value: true, primary: true }],
+        });
+      }
     } catch (e) { msg(clean(e), 'warn'); }
+    unsubscribe();
+    importBtn.disabled = false;
+    importLabel('Import from Stylus');
   });
   const updates = async (btn) => {
     btn.disabled = true;
     try {
       const r = await wb.invoke('styles:check-updates');
-      const parts = [r.updated.length ? `Updated: ${r.updated.join(', ')}` : 'Nothing to update', r.failed.length ? `Couldn’t check ${r.failed.length}` : '', r.skipped.length ? `${r.skipped.length} written in LESS can’t be updated yet` : ''].filter(Boolean);
+      const parts = [r.updated.length ? `Updated: ${r.updated.join(', ')}` : 'Nothing to update', r.failed.length ? `Couldn’t check ${r.failed.length}` : '', r.skipped.length ? `${r.skipped.length} in Stylus’s own language can’t be updated here` : ''].filter(Boolean);
       msg(parts.join(' · '), r.failed.length ? 'warn' : 'check');
     } catch (e) { msg(clean(e), 'warn'); }
     btn.disabled = false;
@@ -1408,7 +1436,7 @@ function userStylesWidget() {
   box.append(h('div.btn-row', null,
     h('button.btn.small', { type: 'button', dataset: { act: 'new-style' }, onclick: newStyle }, icon('plus'), 'New style'),
     h('button.btn.small', { type: 'button', dataset: { act: 'install-link' }, onclick: fromLink }, icon('download'), 'Install from a link'),
-    h('button.btn.small', { type: 'button', dataset: { act: 'import-stylus' }, onclick: () => fileIn.click() }, icon('import'), 'Import from Stylus'),
+    importBtn,
     upd), list, fileIn);
   draw();
   wb.on('styles-changed', () => draw());

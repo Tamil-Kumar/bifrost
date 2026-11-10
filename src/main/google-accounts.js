@@ -13,7 +13,9 @@ const { EventEmitter } = require('node:events');
 const ctx = require('./context');
 const G = require('../shared/google-accounts');
 
-const LIST_URL = 'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard';
+// Asked for as Chrome asks (google_apis/gaia: GaiaUrls::ListAccountsURLWithSource, GaiaAuthFetcher::
+// StartListAccounts): a POST from https://www.google.com. Google answers a GET with 400.
+const LIST_URL = 'https://accounts.google.com/ListAccounts?gpsia=1&source=ChromiumBrowser&json=standard&laf=b64bin';
 // Google's sign-in cookies: signing in, out, or adding an account changes one of these (not the ones it renews
 // every few minutes, like __Secure-1PSIDTS).
 const SIGN_IN_COOKIES = /^(SID|__Secure-[13]PSID|LSID|__Host-[13]PLSID|__Host-GAPS|ACCOUNT_CHOOSER)$/;
@@ -75,7 +77,11 @@ class GoogleAccounts extends EventEmitter {
     return new Promise((resolve, reject) => {
       if (!this.ses) { reject(new Error('Bifrost isn’t ready')); return; }
       let req;
-      try { req = net.request({ url: LIST_URL, session: this.ses, credentials: 'include', useSessionCookies: true }); } catch (e) { reject(e); return; }
+      try {
+        req = net.request({ method: 'POST', url: LIST_URL, session: this.ses, credentials: 'include', useSessionCookies: true });
+        req.setHeader('Origin', 'https://www.google.com');
+        req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+      } catch (e) { reject(e); return; }
       const timer = setTimeout(() => { try { req.abort(); } catch { /* done */ } reject(new Error('Google didn’t answer')); }, 10000);
       const fail = (e) => { clearTimeout(timer); reject(new Error(/ERR_INTERNET_DISCONNECTED|ERR_NAME_NOT_RESOLVED|ERR_NETWORK/.test(String(e && e.message)) ? 'you’re offline' : String((e && e.message) || e))); };
       req.on('response', (res) => {
@@ -89,7 +95,7 @@ class GoogleAccounts extends EventEmitter {
         res.on('error', fail);
       });
       req.on('error', fail);
-      req.end();
+      req.end(' ');   // (Chrome's body: one space)
     });
   }
 

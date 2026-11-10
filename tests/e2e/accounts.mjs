@@ -1,7 +1,8 @@
 // Which Google account Google's sites open with (src/main/google-accounts.js; the rules in
 // src/shared/google-accounts.js), against local stand-ins for Google (pointed at a local HTTPS server with
-// --host-resolver-rules): accounts.google.com's list of your accounts (ListAccounts, read with your cookies)
-// and pages of Gmail, YouTube, Docs, Drive, Photos and Search that say where they were opened.
+// --host-resolver-rules): accounts.google.com's list of your accounts (ListAccounts, read with your cookies;
+// as Google, it answers only Chrome's request, a POST from www.google.com, and a GET with 400; in Chrome's form,
+// a base64 protobuf) and pages of Gmail, YouTube, Docs, Drive, Photos and Search that say where they were opened.
 //  · Settings → Accounts: not signed in, it says so; signing in (Google's sign-in cookies changing) and the
 //    accounts are read again, with your cookies, and shown in Google's order, its default first;
 //  · the default account: Google's sites opened from outside Google (typed, another site's link) open with it
@@ -30,16 +31,26 @@ let signedIn = [['Tamil', 'tamil.kumar@gmail.com'], ['Tamil (Purdue)', 'tkumar@p
 const reads = [];            // the cookies each ListAccounts request came with
 let hold = null;             // set: ListAccounts answers only when it's called
 let served = [];             // 'METHOD https://host/path?query' of every request that reached the server
-const account = ([name, email]) => ['gaia.l.a', 1, name, email, 'https://lh3.googleusercontent.com/a/x', 1, 1, 0, null, 1, '1' + email.length + '0000', null, null, null, null, 1];
+// Google's list, in the form Chrome asks for (laf=b64bin): base64 of a ListAccountsResponse protobuf, each
+// account a message of 2: name, 3: email, 4: photo, 9: valid, 10: id, 15: verified.
+const varint = (n) => { const b = []; do { let x = n % 128; n = Math.floor(n / 128); if (n) x |= 128; b.push(x); } while (n); return b; };
+const field = (n, v) => typeof v === 'number' ? [...varint(n * 8), ...varint(v)] : (() => { const s = [...Buffer.from(v)]; return [...varint(n * 8 + 2), ...varint(s.length), ...s]; })();
+const account = ([name, email]) => [...field(2, name), ...field(3, email), ...field(4, 'https://lh3.googleusercontent.com/a/x'), ...field(9, 1), ...field(10, '1' + email.length + '0000'), ...field(15, 1)];
+const listBody = (accounts) => Buffer.from(accounts.flatMap((a) => { const m = account(a); return [...varint(1 * 8 + 2), ...varint(m.length), ...m]; })).toString('base64');
 const server = https.createServer({ key: fs.readFileSync(path.join(tls, 'key.pem')), cert: fs.readFileSync(path.join(tls, 'cert.pem')) }, (req, res) => {
   const host = String(req.headers.host || '').replace(/:\d+$/, '');
   const u = new URL(req.url, 'https://' + host);
   served.push(req.method + ' https://' + host + req.url);
   const send = (status, type, body, headers = {}) => { res.writeHead(status, { 'content-type': type, 'cache-control': 'no-store', ...headers }); res.end(body); };
   if (host === 'accounts.google.com' && u.pathname === '/ListAccounts') {
+    // As Google: only Chrome's request (a POST from www.google.com) gets the list; a GET gets 400.
+    if (req.method !== 'POST' || req.headers.origin !== 'https://www.google.com' || u.searchParams.get('laf') !== 'b64bin') {
+      reads.push('refused: ' + req.method + ' origin=' + req.headers.origin + ' ' + req.url);
+      return send(400, 'text/html; charset=utf-8', '<!DOCTYPE html><title>Error 400 (Bad Request)!!1</title><p><b>400.</b> <ins>That’s an error.</ins>');
+    }
     const cookie = String(req.headers.cookie || '');
     reads.push(cookie);
-    const answer = () => send(200, 'application/json; charset=utf-8', JSON.stringify(['gaia.l.a.r', /(^|;\s*)SID=/.test(cookie) ? signedIn.map(account) : []]));
+    const answer = () => send(200, 'text/plain; charset=utf-8', listBody(/(^|;\s*)SID=/.test(cookie) ? signedIn : []));
     if (hold) { hold.push(answer); return; }
     return answer();
   }
@@ -105,7 +116,7 @@ try {
     await t.main((_, url) => global.__bifrost.registry.list().find((c) => !c.isPrivate).send('open-url', { url }), 'bifrost://settings/#accounts');
     const text = await until(() => settingsPage("(() => { const b = document.querySelector('.gacc'); return b && /not signed in/.test(b.textContent) ? b.textContent : null; })()"), 10000, 'the accounts, none');
     assert(/You’re not signed in to Google in Bifrost\./.test(text) && /Sign in to Google/.test(text), 'not signed in: ' + text);
-    assert(reads.length >= 1 && !/SID=/.test(reads[0]), 'read: ' + JSON.stringify(reads));
+    assert(reads.length >= 1 && !/SID=/.test(reads[0]) && !reads.some((r) => r.startsWith('refused')), 'read: ' + JSON.stringify(reads));
     await signIn('one');
     const rows = await until(() => settingsPage("(() => { const r = [...document.querySelectorAll('.gacc-row')]; return r.length === 2 ? r.map((e) => e.textContent) : null; })()"), 8000, 'the accounts, signed in');
     assert(rows[0] === 'TTamiltamil.kumar@gmail.comGoogle’s default' && rows[1] === 'TTamil (Purdue)tkumar@purdue.edu', 'the accounts: ' + JSON.stringify(rows));

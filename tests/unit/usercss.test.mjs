@@ -119,6 +119,21 @@ check('…its variables and what you chose for them, its source and update addre
   [{ darkFlavor: 'macchiato' }, 'mocha', true, 'https://github.com/catppuccin/userstyles/raw/main/styles/github/catppuccin.user.less', 'less', ['https://github.com/settings/*']]);
 check('exclusions: * for anything', [U.excluded(['https://github.com/settings/*'], 'https://github.com/settings/profile'), U.excluded(['https://github.com/settings/*'], 'https://github.com/catppuccin')], [true, false]);
 check('not a backup: nothing', [U.fromStylusBackup({ a: 1 }), U.fromStylusBackup(null)], [[], []]);
+// A file made for importing into Stylus (Catppuccin's import.json): styles with their code and no CSS yet.
+const forStylus = U.fromStylusBackup([
+  { settings: { updateInterval: 24 } },
+  { enabled: true, name: 'GitHub Catppuccin', updateUrl: 'https://github.com/catppuccin/userstyles/raw/main/styles/github/catppuccin.user.less', sourceCode: header,
+    usercssData: { name: 'GitHub Catppuccin', namespace: 'github.com/catppuccin', version: '2026.08.16', preprocessor: 'less', vars: { darkFlavor: { type: 'select', name: 'darkFlavor', label: 'Dark Flavor', default: 'mocha', value: null, options: [{ name: 'mocha', label: 'Mocha', value: 'mocha' }] } } } },
+  { enabled: true, name: 'No header', sourceCode: 'body { color: red }' },
+]);
+check('a file for importing into Stylus: its styles, to be built from their code (no CSS in it), defaults left as they are',
+  forStylus.map((s) => [s.name, s.needsBuild, s.sections, s.values, s.meta.preprocessor, !!s.code]), [['GitHub Catppuccin', true, null, {}, 'less', true]]);
+check('a backup’s styles (with their CSS) aren’t built again', imported.map((s) => s.needsBuild), [false, false]);
+check('LESS gets the variables as Stylus gives them: @name:value; (a select’s value, a number with its unit)',
+  U.lessVariables(h.vars, { accentColor: 'subtext0', size: '16' }).split('\n').filter((l) => /accentColor|size|lightFlavor|font/.test(l)),
+  ['@lightFlavor:latte;', '@accentColor:subtext0;', '@font:Inter, sans-serif;', '@size:16px;']);
+check('buildAsync: a style that isn’t LESS is built as build() does; LESS with no compiler says so',
+  [await U.buildAsync(plain, { bg: '#abcdef' }).then((b) => b.sections.length), await U.buildAsync(header, {}).then(() => 'built', (e) => e.code)], [built.sections.length, 'preprocessor']);
 
 // ---- CSS escapes
 check('CSS string escapes', [U.unescapeCss('a\\.b'), U.unescapeCss('\\41 B'), U.unescapeCss('x\\\ny'), U.unescapeCss('\\\\d')], ['a.b', 'AB', 'xy', '\\d']);

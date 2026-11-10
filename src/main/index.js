@@ -149,6 +149,7 @@ function start() {
     ctx.quitting = true;
     try { ctx.sessionStore && ctx.sessionStore.writeNow(); } catch { /* ignore */ }
     try { ctx.settings && ctx.settings.saveNow(); } catch { /* ignore */ }
+    try { ctx.webStyles && ctx.webStyles.saveNow(); } catch { /* ignore */ }
     try { ctx.sync && ctx.sync.flushSync(); } catch { /* ignore */ }
     const clearData = require('./clear-data');
     const pending = ctx.db && clearData.pendingOnExit();

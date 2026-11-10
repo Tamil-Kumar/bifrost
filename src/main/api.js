@@ -533,7 +533,10 @@ function register() {
   ipc.handle('styles:install', ['settings'], (event, o) => WS().put(String((o && o.code) || ''), { from: 'url', url: String((o && o.url) || '') }));
   ipc.handle('styles:import-stylus', ['settings'], (event, text) => WS().importStylus(String(text || '')));
   ipc.handle('styles:check-updates', ['settings'], () => WS().checkUpdates());
-  if (ctx.webStyles) ctx.webStyles.on('changed', () => broadcastToPages('styles-changed', {}, 'settings'));
+  if (ctx.webStyles) {
+    ctx.webStyles.on('changed', () => broadcastToPages('styles-changed', {}, 'settings'));
+    ctx.webStyles.on('progress', (p) => broadcastToPages('styles-progress', p, 'settings'));
+  }
   // Settings → Accounts: your Google accounts, as Google lists them (main/google-accounts.js).
   ipc.handle('google:accounts', ['settings'], (event, opts) => ctx.googleAccounts.accounts(!!(opts && opts.refresh)));
   if (ctx.googleAccounts) ctx.googleAccounts.on('changed', (s) => broadcastToPages('google-accounts-changed', s, 'settings'));

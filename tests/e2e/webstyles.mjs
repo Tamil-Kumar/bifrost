@@ -8,12 +8,36 @@
 //    only on its site, through a Content-Security-Policy that forbids styles; off and on, edited (a variable),
 //    deleted, all at once in open tabs; listed in the site info popover with a switch;
 //  · a Stylus backup brought in (the CSS Stylus built, LESS ones too); a .user.css link opened in a tab
-//    offering to install it.
+//    offering to install it;
+//  · a file made for importing into Stylus (Catppuccin's import.json): its LESS styles built here, Catppuccin's
+//    library from Bifrost's copy when it can't be downloaded, the CSS a style @imports put in it, Settings
+//    saying how far along it is and which couldn't be built; a LESS style's options changed, and it's rebuilt.
 import http from 'node:http';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'styled.test', 'other.test', 'csp.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test'];
+// A Catppuccin style as Catppuccin writes them (its library @imported from userstyles.catppuccin.com, which these
+// tests send nowhere: Bifrost's copy has to do), with CSS of another site's @imported too.
+const CTP = `/* ==UserStyle==
+@name ctp.test Catppuccin
+@namespace bifrost.test/catppuccin
+@version 2026.11.01
+@preprocessor less
+@var select darkFlavor "Dark Flavor" ["latte:Latte", "frappe:Frappé", "macchiato:Macchiato", "mocha:Mocha*"]
+@var select accentColor "Accent" ["rosewater:Rosewater", "mauve:Mauve*", "red:Red"]
+==/UserStyle== */
+@import "https://userstyles.catppuccin.com/lib/lib.less";
+@-moz-document domain("ctp.test") {
+  @import url("http://ctp.test/extra.css");
+  :root { #catppuccin(@darkFlavor); }
+  #catppuccin(@flavor) {
+    #lib.palette();
+    --ctp-accent: @accent;
+    body { background: @base !important; }
+    a { color: fade(@accent, 80%); }
+  }
+}`;
 // A page that writes down, from a script at the top of its head, what its root looked like before anything
 // of its own was drawn (a style there from the first paint already shows in it).
 const page = (title, extra = '', body = '') => `<!doctype html><html><head><meta charset=utf-8><title>${title}</title>
@@ -39,6 +63,7 @@ const server = http.createServer((req, res) => {
   if (host === 'owndark.test') return send('text/html', page('Own dark theme', '<meta name="color-scheme" content="light dark"><style>@media (prefers-color-scheme: dark){body{background:#202030 !important;color:#eeeeee !important}}</style>'));
   if (host === 'csp.test') return send('text/html', page('Strict CSP'), { 'content-security-policy': "style-src 'none'; script-src 'unsafe-inline'" });
   if (req.url.startsWith('/framed')) return send('text/html', page('With a frame', '', '<iframe id=f src="http://other.test/" style="width:300px;height:150px;border:0"></iframe>'));
+  if (host === 'ctp.test' && req.url.startsWith('/extra.css')) return send('text/css', 'p { color: rgb(1, 2, 3) !important; }');
   send('text/html', page(host));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -46,7 +71,7 @@ const port = server.address().port;
 
 const t = await launch({
   profile: 'webstyles',
-  args: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} 127.0.0.1:${port}`).join(',')}`],
+  args: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} 127.0.0.1:${port}`).join(',')},MAP userstyles.catppuccin.com 127.0.0.1:1`],
   env: { HTTP_PROXY: '', http_proxy: '', HTTPS_PROXY: '', https_proxy: '', NO_PROXY: '*', no_proxy: '*' },
   settings: { onboarding: { done: true } },
 });
@@ -80,6 +105,8 @@ const dark = (c) => c[0] < 60 && c[1] < 60 && c[2] < 70;
 const white = (c) => c[0] > 240 && c[1] > 240 && c[2] > 240;
 const front = (id) => t.main((_, id) => global.__bifrost.registry.list().find((c) => !c.isPrivate).send('focus-wc', id), id);
 const settingsPage = (js) => t.guest('bifrost://settings', js);
+// A dialog that's open (not one on its way out).
+const OPEN = '.dialog-layer:not(.closing)';
 const toSettings = async () => {
   await t.main(({ webContents }) => {
     const wc = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings'));
@@ -203,16 +230,18 @@ try {
     await until(async () => (await bg()) === 'rgb(51, 85, 255)', 3000, 'on');
     // The editor: its variable.
     await settingsPage("document.querySelector('.ustyle [data-act=edit]').click()");
-    await until(() => settingsPage("!!document.querySelector('.style-var[data-var=bg] input')"), 3000, 'the editor');
-    await settingsPage("(() => { const i = document.querySelector('.style-var[data-var=bg] input'); i.value = '#aa2266'; i.dispatchEvent(new Event('change')); document.querySelector('[data-act=save-style]').click(); })()");
+    await until(() => settingsPage(`!!document.querySelector('${OPEN} .style-var[data-var=bg] input')`), 3000, 'the editor');
+    await settingsPage(`(() => { const i = document.querySelector('${OPEN} .style-var[data-var=bg] input'); i.value = '#aa2266'; i.dispatchEvent(new Event('change')); document.querySelector('${OPEN} [data-act=save-style]').click(); })()`);
     await until(async () => (await bg()) === 'rgb(170, 34, 102)', 3000, 'the new color');
+    await until(() => settingsPage(`!document.querySelector('${OPEN}')`), 3000, 'the editor closed');
     // A broken edit says why and keeps the editor open.
     await settingsPage("document.querySelector('.ustyle [data-act=edit]').click()");
-    await until(() => settingsPage("!!document.querySelector('.style-code')"), 3000, 'the editor again');
-    await settingsPage("(() => { const t = document.querySelector('.style-code'); t.value = 'body { color: red }'; document.querySelector('[data-act=save-style]').click(); })()");
-    const err = await until(() => settingsPage("(() => { const e = document.querySelector('.style-error'); return e && !e.hidden ? e.textContent : null; })()"), 3000, 'the error');
+    await until(() => settingsPage(`!!document.querySelector('${OPEN} .style-code')`), 3000, 'the editor again');
+    await settingsPage(`(() => { const t = document.querySelector('${OPEN} .style-code'); t.value = 'body { color: red }'; document.querySelector('${OPEN} [data-act=save-style]').click(); })()`);
+    const err = await until(() => settingsPage(`(() => { const e = document.querySelector('${OPEN} .style-error'); return e && !e.hidden ? e.textContent : null; })()`), 3000, 'the error');
     assert(/no ==UserStyle== header/.test(err), 'error: ' + err);
-    await settingsPage("[...document.querySelectorAll('.style-editor .btn')].find((b) => b.textContent.trim() === 'Cancel').click()");
+    await settingsPage(`[...document.querySelectorAll('${OPEN} .style-editor .btn')].find((b) => b.textContent.trim() === 'Cancel').click()`);
+    await until(() => settingsPage(`!document.querySelector('${OPEN}')`), 3000, 'the editor closed');
     // The site info popover.
     await front(styled);
     await sleep(300);
@@ -243,7 +272,7 @@ try {
     assert(r.added === 2, 'imported: ' + JSON.stringify(r));
     await until(async () => (await inTab(styled, 'getComputedStyle(document.body).backgroundColor')) === 'rgb(30, 30, 46)', 3000, 'the Stylus-built CSS applied');
     const list = await until(() => settingsPage("(() => { const r = [...document.querySelectorAll('.ustyle')]; return r.length === 2 ? r.map((e) => e.textContent) : null; })()"), 3000, 'listed');
-    assert(/built by Stylus/.test(list[0]) && !/Edit/.test(list[0]), 'a LESS one is kept as Stylus built it: ' + list[0]);
+    assert(/Edit/.test(list[0]) && !/built by Stylus/.test(list[0]), 'a LESS one can be edited (and rebuilt) here: ' + list[0]);
     // A .user.css link.
     const tab = await open('http://styled.test/green.user.css');
     const toast = await until(() => t.ui(() => { const e = [...document.querySelectorAll('.toast')].find((x) => /Green test/.test(x.textContent)); return e ? e.textContent : null; }), 6000, 'the offer');
@@ -252,6 +281,44 @@ try {
     await until(() => t.main(() => global.__bifrost.webStyles.styles.some((s) => s.name === 'Green test')), 5000, 'installed');
     assert(tab, 'tab');
     await t.shot('webstyles-styles');
+  });
+
+  await R.step('a file for importing into Stylus (Catppuccin’s): its LESS styles built here (Catppuccin’s library from Bifrost’s copy), the CSS they import put in, how far along and what failed said; a LESS style’s options changed, rebuilt', async () => {
+    const entry = (code, extra = {}) => ({ enabled: true, name: /@name (.*)/.exec(code)[1], updateUrl: '', sourceCode: code, originalDigest: 'x', ...extra });
+    const broken = CTP.replace('@name ctp.test Catppuccin', '@name Broken Catppuccin').replace('@namespace bifrost.test/catppuccin', '@namespace bifrost.test/broken').replace('background: @base', 'background: @nope');
+    const file = JSON.stringify([{ settings: { updateInterval: 24 } }, entry(CTP), entry(broken)]);
+    await toSettings();
+    await settingsPage("document.getElementById('user-styles').scrollIntoView({ block: 'start', behavior: 'instant' })");
+    // Picked in Settings' file box, as you would.
+    await settingsPage(`(() => {
+      window.__progress = [];
+      wb.on('styles-progress', (p) => window.__progress.push(p.done + '/' + p.total));
+      const input = document.querySelector('.ustyles input[type=file]');
+      const dt = new DataTransfer();
+      dt.items.add(new File([${JSON.stringify(file)}], 'import.json', { type: 'application/json' }));
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+    })()`);
+    const failedDialog = `[...document.querySelectorAll('${OPEN} .dialog')].find((d) => /couldn’t be built/.test(d.textContent))`;
+    const failed = await until(() => settingsPage(`(() => { const d = ${failedDialog}; return d ? d.textContent : null; })()`), 20000, 'the styles that couldn’t be built');
+    assert(/1 of the styles couldn’t be built/.test(failed) && /Broken Catppuccin/.test(failed) && /variable @nope is undefined \(line 16\)/.test(failed), 'said: ' + failed);
+    await settingsPage(`[...${failedDialog}.querySelectorAll('.btn')].find((b) => b.textContent.trim() === 'OK').click()`);
+    const progress = await settingsPage('window.__progress');
+    assert(JSON.stringify(progress) === '["0/2","1/2","2/2"]', 'how far along: ' + JSON.stringify(progress));
+    const s = await t.main(() => { const s = global.__bifrost.webStyles.styles.find((x) => x.name === 'ctp.test Catppuccin'); return s && { sections: s.sections.length, code: s.sections[0].code, domains: s.sections[0].domains }; });
+    assert(s && s.sections === 1 && JSON.stringify(s.domains) === '["ctp.test"]' && /p \{ color: rgb\(1, 2, 3\) !important; \}/.test(s.code) && !/@import/.test(s.code), 'built: ' + JSON.stringify(s).slice(0, 400));
+    const ctp = await open('http://ctp.test/');
+    const looks = () => inTab(ctp, "[getComputedStyle(document.body).backgroundColor, getComputedStyle(document.querySelector('p')).color, getComputedStyle(document.documentElement).getPropertyValue('--ctp-accent').trim()].join(' | ')");
+    assert((await looks()) === 'rgb(30, 30, 46) | rgb(1, 2, 3) | #cba6f7', 'on the page (Mocha, mauve; the imported CSS): ' + (await looks()));
+    // Its options, changed in the editor: built again.
+    await toSettings();
+    const row = await until(() => settingsPage("(() => { const r = [...document.querySelectorAll('.ustyle')].find((e) => /ctp\\.test Catppuccin/.test(e.textContent)); if (!r) return null; r.querySelector('[data-act=edit]').click(); return r.textContent; })()"), 3000, 'its row');
+    assert(/ctp\.test Catppuccin/.test(row), 'row: ' + row);
+    await until(() => settingsPage(`!!document.querySelector('${OPEN} .style-var[data-var=darkFlavor] select')`), 3000, 'its options');
+    await settingsPage(`(() => { const f = document.querySelector('${OPEN} .style-var[data-var=darkFlavor] select'); f.value = 'latte'; f.dispatchEvent(new Event('change')); const a = document.querySelector('${OPEN} .style-var[data-var=accentColor] select'); a.value = 'red'; a.dispatchEvent(new Event('change')); document.querySelector('${OPEN} [data-act=save-style]').click(); })()`);
+    await until(async () => (await looks()) === 'rgb(239, 241, 245) | rgb(1, 2, 3) | #d20f39', 8000, 'Latte with red');
+    await until(() => settingsPage(`!document.querySelector('${OPEN}')`), 3000, 'the editor closed');
+    await t.shot('webstyles-catppuccin');
   });
 
   await R.step('nothing on the pages broke', async () => {

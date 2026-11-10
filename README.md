@@ -4,7 +4,7 @@ A keyboard-first browser built on Electron: vertical or horizontal tabs, spaces,
 for bookmarks, history, websites and extensions (with a side bar, as in Firefox), a launcher
 that searches bookmarks, tabs, history and the web, a built-in ad blocker (EasyList, EasyPrivacy, uBlock
 Origin's lists and HaGeZi's DNS blocklists), dark mode for websites and userstyles (as Dark Reader and Stylus
-do), warnings for dangerous sites, your choice of which Google account Google's sites open with, page translation, Chrome extensions (Manifest V2 and V3), sync between
+do, styles written in LESS too), warnings for dangerous sites, your choice of which Google account Google's sites open with, page translation, Chrome extensions (Manifest V2 and V3), sync between
 your computers through a cloud folder, and a lot of settings — every animation can be turned off.
 
 ## Layout
@@ -16,7 +16,9 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
                 the fingers on the touchpad (touchpad.js: when they lift, for swipes), which Google account
                 Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
-                websites and your userstyles; web-theme.js: their color scheme, and Chromium's dark mode, per tab)
+                websites and your userstyles; less-builder.js: userstyles written in LESS, built in a worker,
+                less-worker.js, and the files they import; web-theme.js: their color scheme, and Chromium's dark
+                mode, per tab)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
                 adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
@@ -26,10 +28,12 @@ src/pages       internal pages (bifrost://settings, history, downloads, bookmark
 src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking),
                 launcher-settings.js (the launcher's settings files, Waypoint's included, and its keys),
                 google-accounts.js (which pages get which Google account, and Google's list of your accounts),
-                usercss.js (userstyles: their header and variables, which pages each part is for, Stylus backups)
+                usercss.js (userstyles: their header and variables, which pages each part is for, Stylus backups),
+                less.js (Bifrost's LESS compiler, for userstyles written in LESS)
 src/vendor      electron-chrome-extensions, electron-chrome-web-store, Ghostery's adblocker, Readability
 assets          icons, bundled filter lists (adblock/: domains.txt.gz is HaGeZi's, domains-keep.txt Bifrost's
-                exceptions to it), bin/ (the touchpad watcher for Windows, x64 and ARM64)
+                exceptions to it), bin/ (the touchpad watcher for Windows, x64 and ARM64), userstyles/catppuccin
+                (Catppuccin's userstyle libraries, for building their styles offline)
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
                 installer stubs, and the touchpad watcher, touchpad.c; built with llvm-mingw)
 tests           e2e/ (Playwright + Electron under Xvfb, real pointer and keys through XTest), setup/,
@@ -74,7 +78,8 @@ stand-in sites: what pages load from listed domains blocked, never the site you'
 services on its own sites, its exceptions scoped to it, your own @@ rules and uBlock's stand-ins, the list off
 or a site allowed, pop-up ads, updating from HaGeZi's files and keeping the old list when that goes wrong),
 `accounts` (which Google account Google's sites open with, against local stand-ins for accounts.google.com's
-list of your accounts and for Gmail, YouTube, Docs, Drive, Photos and Search: Settings → Accounts reading them
+list of your accounts (answering only Chrome's request, a POST from www.google.com, in Chrome's form) and for
+Gmail, YouTube, Docs, Drive, Photos and Search: Settings → Accounts reading them
 with your cookies and again when you sign in or out, the default account and particular sites, what's left
 alone (links inside Google, pages that say which account, sign-in, forms, private windows, accounts you're
 signed out of), Google taking authuser out again, the email before the accounts are read), `webstyles`
@@ -82,7 +87,9 @@ signed out of), Google taking authuser out again, the email before the accounts 
 tabs at once, a site's own dark theme, per site with Alt+Shift+A and the info popover, Alt+Shift+D, brightness
 and sepia on the top page only; your styles installed from a link, there from the first paint and through a
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
-link offering to install itself),
+link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
+Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be
+built; a LESS style's options changed and it rebuilt),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
 and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
@@ -93,8 +100,9 @@ and reaching its worker, also after the worker has stopped or the tab has gone t
 getNotifications(), blocked sites). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders, `google-accounts`
-reading Google's list of your accounts and which pages get which account, `usercss` userstyles' headers,
-variables and @-moz-document parts and the pages they match, and Stylus backups, `domain-list` the ad
+reading Google's list of your accounts (both its forms) and which pages get which account, `usercss` userstyles'
+headers, variables and @-moz-document parts and the pages they match, Stylus backups and files for importing into
+Stylus, `less` the LESS compiler against what less.js makes of the same LESS (and Catppuccin's library), `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
 what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you

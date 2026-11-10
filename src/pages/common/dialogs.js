@@ -16,6 +16,7 @@ export function dialog({ title, body, buttons = [{ label: 'OK', value: true, pri
     const finish = (v) => {
       if (done) return;
       done = true;
+      layer.classList.add('closing');   // (on its way out: what's still in the page isn't this dialog any more)
       window.removeEventListener('keydown', onKey, true);
       const out = anim('menus') ? animate(card, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.97)' }], { duration: 110, easing: 'ease-in' }, 'menus') : Promise.resolve();
       animate(back, [{ opacity: 1 }, { opacity: 0 }], { duration: 120 }, 'menus');
