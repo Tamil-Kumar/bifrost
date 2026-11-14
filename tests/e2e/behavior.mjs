@@ -419,6 +419,49 @@ try {
     await until(async () => { const v = await blur(); return !v.blur && !v.frosted ? v : null; }, 3000, 'the plain window again');
   });
 
+  // ---------------------------------------------------------------- Settings' side navigation
+  await R.step('Settings: its side navigation, taller than the window, scrolls on its own (the wheel over it moves it, not the page, to its end and past it), its items as they were, and the section you’re at stays in sight in it', async () => {
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(150); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    const size = (to) => t.main(({ BrowserWindow }, to) => { const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui')); const was = w.getSize(); if (to) w.setSize(to[0], to[1]); return was; }, to);
+    const guest = (js) => t.guest('bifrost://settings', js);
+    const NAV = `(() => { const n = document.getElementById('nav'), items = [...n.querySelectorAll('.nav-item')], box = n.getBoundingClientRect(), last = items[items.length - 1].getBoundingClientRect(), on = n.querySelector('.nav-item.on'), lit = on ? on.getBoundingClientRect() : null;
+      return { n: items.length, top: n.scrollTop, max: n.scrollHeight - n.clientHeight, box: [box.top, box.bottom], vh: innerHeight, page: scrollY, first: items[0].getBoundingClientRect().top, h: items[0].getBoundingClientRect().height, last: [last.top, last.bottom], lit: on ? items.indexOf(on) : -1, litAt: lit ? [lit.top, lit.bottom] : null }; })()`;
+    const seen = (v) => v.litAt && v.litAt[0] >= v.box[0] && v.litAt[1] <= v.box[1];
+    // (a notch of a mouse's wheel at a time, over the navigation)
+    const wheel = (at, notches) => t.main(async ({ webContents }, o) => {
+      const wc = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings'));
+      for (let i = 0; i < o.notches; i++) {
+        wc.sendInputEvent({ type: 'mouseWheel', x: o.x, y: o.y, deltaX: 0, deltaY: -120, wheelTicksX: 0, wheelTicksY: -1, hasPreciseScrollingDeltas: false, canScroll: true });
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      await new Promise((r) => setTimeout(r, 800));
+    }, { ...at, notches });
+    const was = await size([1200, 620]);
+    try {
+      await open('bifrost://settings/', false);
+      let nav = await until(async () => { const v = await guest(NAV); return v.n > 12 && v.vh < 600 && v.max > 0 ? v : null; }, 8000, 'Settings in a short window, its navigation taller than the window');
+      assert(nav.box[1] <= nav.vh && nav.h >= 35 && Math.abs(nav.first - 86) <= 1, 'the navigation goes past the window, or its items moved or were squashed: ' + JSON.stringify(nav));
+      const at = await guest(`(() => { const r = document.getElementById('nav').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round((r.top + r.bottom) / 2) }; })()`);
+      await wheel(at, 20);
+      nav = await guest(NAV);
+      assert(nav.top >= nav.max - 1 && nav.page === 0, 'the wheel over it: ' + JSON.stringify(nav));
+      assert(nav.last[1] <= nav.box[1] && nav.last[1] <= nav.vh, 'its last item out of sight: ' + JSON.stringify(nav));
+      // At its end, more of the wheel leaves the page where it is.
+      await wheel(at, 4);
+      nav = await guest(NAV);
+      assert(nav.page === 0 && nav.top >= nav.max - 1, 'past its end: ' + JSON.stringify(nav));
+      // The page scrolled to its end (the navigation at its top): the last section is lit, and in sight.
+      await guest("document.getElementById('nav').scrollTop = 0, window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' }), 1");
+      nav = await until(async () => { const v = await guest(NAV); return v.lit >= v.n - 3 && seen(v) ? v : null; }, 4000, 'the last section lit and in sight');
+      // …and back at its top: the first.
+      await guest("window.scrollTo({ top: 0, behavior: 'instant' }), 1");
+      nav = await until(async () => { const v = await guest(NAV); return v.lit === 0 && seen(v) ? v : null; }, 4000, 'the first section lit and in sight');
+      await t.shot('behavior-settings-nav');
+    } finally {
+      await size(was);
+    }
+  });
+
   // ---------------------------------------------------------------- Settings → Launcher (from Waypoint)
   const L = (p, v) => set('launcher.' + p, v);
   const tabCount = async () => (await tabs()).length;

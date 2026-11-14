@@ -32,9 +32,16 @@ h1, h2, h3 { letter-spacing: -.015em; }
 .pg-search .field { padding-left: 34px; border-radius: calc(var(--r-btn) + 2px); }
 .pg-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
 .pg-body.single { grid-template-columns: minmax(0, 1fr); }
-@media (max-width: 760px) { .pg-body { grid-template-columns: minmax(0, 1fr); gap: 18px; } .pg-nav { position: static !important; flex-direction: row !important; flex-wrap: wrap; } .pg { padding: 0 18px 48px; } }
+@media (max-width: 760px) { .pg-body { grid-template-columns: minmax(0, 1fr); gap: 18px; } .pg-nav { position: static !important; flex-direction: row !important; flex-wrap: wrap; max-height: none !important; overflow: visible !important; } .pg { padding: 0 18px 48px; } }
 
-.pg-nav { position: sticky; top: 86px; display: flex; flex-direction: column; gap: 2px; }
+/* Taller than the window, it scrolls on its own, and the page stays where it is (the items where they were,
+   with room around them for their focus rings). */
+.pg-nav {
+  position: sticky; top: 82px; display: flex; flex-direction: column; gap: 2px;
+  max-height: calc(100vh - 94px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  margin: -4px; padding: 4px;
+}
+.pg-nav > * { flex: none; }   /* (its items keep their height, and it scrolls) */
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   height: 36px; padding: 0 12px;

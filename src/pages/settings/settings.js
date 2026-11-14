@@ -2384,8 +2384,17 @@ function reveal() {
   for (const c of document.querySelectorAll('.group .card')) io.observe(c);
 }
 
-// Highlights the section you're looking at in the side navigation.
+// Highlights the section you're looking at in the side navigation, and keeps it in sight there (taller than
+// the window, the navigation scrolls on its own).
 function spy() {
+  let lit = '';
+  const inSight = (item) => {
+    const nav = $('nav');
+    if (!item || nav.scrollHeight <= nav.clientHeight + 1) return;
+    const r = item.getBoundingClientRect(), box = nav.getBoundingClientRect(), room = 10;
+    const by = r.top < box.top + room ? r.top - box.top - room : r.bottom > box.bottom - room ? r.bottom - box.bottom + room : 0;
+    if (by) nav.scrollBy({ top: by, behavior: anim('internalPages') ? 'smooth' : 'instant' });
+  };
   const update = () => {
     const secs = [...document.querySelectorAll('.section:not([hidden])')];
     let cur = secs[0];
@@ -2397,7 +2406,9 @@ function spy() {
       const visible = secs.filter((sec) => sec.getBoundingClientRect().top < window.innerHeight - 80);
       if (visible.length) cur = visible[visible.length - 1];
     }
-    if (cur) for (const n of navItems) n.classList.toggle('on', n.dataset.sec === cur.dataset.sec);
+    if (!cur) return;
+    for (const n of navItems) n.classList.toggle('on', n.dataset.sec === cur.dataset.sec);
+    if (cur.dataset.sec !== lit) { lit = cur.dataset.sec; inSight(navItems.find((n) => n.dataset.sec === lit)); }
   };
   window.addEventListener('scroll', update, { passive: true });
   update();
