@@ -5,7 +5,8 @@
 // DevTools protocol (main/web-theme.js does that): pages are darkened as they're drawn, with no script in
 // them, and a site with a dark theme of its own is told to use it instead (prefers-color-scheme: dark), which
 // Chromium then leaves alone. On for every site or for none, with sites of your own either way (darkSites:
-// { 'example.com': true | false }, the most specific one counts), and brightness, contrast and sepia over it.
+// { 'example.com': true | false | 'bifrost' }, the most specific one counts; 'bifrost': dark, by Chromium even
+// where the site has a dark theme of its own), and brightness, contrast and sepia over it.
 //
 // Your styles (Settings → Website styles): usercss styles (src/shared/usercss.js) installed from a link,
 // written here, or brought over from Stylus (a backup, with the CSS Stylus built, or a file made for importing
@@ -78,16 +79,29 @@ class WebStyles extends EventEmitter {
   config() { return ctx.settings.get('webStyles') || {}; }
 
   // ---------------------------------------------------------------- dark mode
-  // The site's own choice (most specific first), else everywhere's.
-  siteDark(host, sites = this.config().darkSites || {}) {
+  // The site's own entry (most specific first): true | false | 'bifrost', or undefined.
+  siteEntry(host, sites = this.config().darkSites || {}) {
     let h = siteKey(host);
     while (h) {
-      if (Object.prototype.hasOwnProperty.call(sites, h)) return !!sites[h];
+      if (Object.prototype.hasOwnProperty.call(sites, h)) return sites[h];
       const dot = h.indexOf('.');
       if (dot < 0) break;
       h = h.slice(dot + 1);
     }
-    return null;
+    return undefined;
+  }
+
+  // The site's own choice, else everywhere's (null).
+  siteDark(host, sites = this.config().darkSites || {}) {
+    const v = this.siteEntry(host, sites);
+    return v === undefined ? null : !!v;
+  }
+
+  // How a page is darkened: null (it isn't), 'own' (its own dark theme where it has one, else Chromium's), or
+  // 'bifrost' (Chromium's, as you chose for the site).
+  darkHow(url) {
+    if (!this.darkFor(url)) return null;
+    return this.siteEntry(hostOf(url)) === 'bifrost' ? 'bifrost' : 'own';
   }
 
   darkFor(url) {

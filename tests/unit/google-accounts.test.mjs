@@ -92,11 +92,30 @@ check('sign-in, consent, the Web Store and Google’s redirects: left alone',
   ['', '', '', '', '', '', '', '', '', '']);
 check('not Google’s, or not https: left alone', ['https://news.example/', 'https://notgoogle.com/', 'https://google.com.evil.example/', 'http://mail.google.com/', 'https://youtube.com.example/'].map((u) => at(u)), ['', '', '', '', '']);
 
+// ---- pages you open yourself: an account named by number is Google's place for it, not yours
+const mine = (url, ref = '') => G.accountFor(url, cfg, ref, true);
+check('opened yourself: Gmail’s address with Google’s first account in it gets yours, and so does one with another number',
+  [mine('https://mail.google.com/mail/u/0/#inbox'), mine('https://mail.google.com/mail/u/2/'), mine('https://drive.google.com/drive/u/0/my-drive'), mine('https://www.youtube.com/?authuser=0'), mine('https://classroom.google.com/u/1/h')],
+  ['third@gmail.com', 'third@gmail.com', 'third@gmail.com', 'Tamil.Kumar@gmail.com', 'third@gmail.com']);
+check('…but not one named by email, a brand or delegated account, a Workspace domain, or Google’s choice for the site',
+  [mine('https://mail.google.com/mail/u/tkumar@purdue.edu/'), mine('https://www.youtube.com/?authuser=a%40b.c'), mine('https://mail.google.com/mail/b/123/'), mine('https://docs.google.com/a/purdue.edu/document/d/1/'), mine('https://www.youtube.com/?pageid=1'), mine('https://photos.google.com/u/0/')],
+  ['', '', '', '', '', '']);
+check('…nor a link inside Google (it says which account it’s for)', [mine('https://mail.google.com/mail/u/0/', 'https://www.google.com/'), mine('https://drive.google.com/drive/u/0/', 'https://mail.google.com/mail/u/0/')], ['', '']);
+check('not opened yourself (a reload, back, a tab put back): a number stays', [at('https://mail.google.com/mail/u/0/'), at('https://www.youtube.com/?authuser=0')], ['', '']);
+check('gmail.com: Gmail’s front page (its other pages are left to it)', [mine('https://gmail.com/'), mine('https://www.gmail.com/'), at('https://gmail.com/'), mine('https://gmail.com/mail/help')], ['third@gmail.com', 'third@gmail.com', 'third@gmail.com', '']);
+
 // ---- the address
 check('authuser added after what’s there, untouched (its encoding too)', G.withAccount('https://www.youtube.com/watch?v=x&t=1s&q=a%20b', 1), 'https://www.youtube.com/watch?v=x&t=1s&q=a%20b&authuser=1');
 check('…or as the only one', G.withAccount('https://docs.google.com/document/d/1/edit', 0), 'https://docs.google.com/document/d/1/edit?authuser=0');
 check('Gmail’s front page: /mail/, where it reads it', [G.withAccount('https://mail.google.com/', 2), G.withAccount('https://mail.google.com/mail', 2)], ['https://mail.google.com/mail/?authuser=2', 'https://mail.google.com/mail/?authuser=2']);
 check('an email (before the accounts are read)', G.withAccount('https://drive.google.com/', 'tkumar@purdue.edu'), 'https://drive.google.com/?authuser=tkumar%40purdue.edu');
+check('a number in the address: yours in its place (the rest as it was)',
+  [G.withAccount('https://mail.google.com/mail/u/0/#inbox', 1), G.withAccount('https://mail.google.com/mail/u/0/?ui=2&ik=x', 2), G.withAccount('https://drive.google.com/drive/u/3/my-drive', 0), G.withAccount('https://www.youtube.com/watch?v=x&authuser=0&t=1', 2)],
+  ['https://mail.google.com/mail/u/1/#inbox', 'https://mail.google.com/mail/u/2/?ui=2&ik=x', 'https://drive.google.com/drive/u/0/my-drive', 'https://www.youtube.com/watch?v=x&t=1&authuser=2']);
+check('…an email: as authuser, the number taken out (the same page for Google’s first account)', [G.withAccount('https://mail.google.com/mail/u/0/#inbox', 'a@b.c'), G.withAccount('https://keep.google.com/u/1', 'e@x.org')], ['https://mail.google.com/mail/?authuser=a%40b.c#inbox', 'https://keep.google.com/?authuser=e%40x.org']);
+check('gmail.com: Gmail’s front page with the account', [G.withAccount('https://gmail.com/', 1), G.withAccount('https://www.gmail.com/?n=1', 'a@b.c')], ['https://mail.google.com/mail/?authuser=1', 'https://mail.google.com/mail/?n=1&authuser=a%40b.c']);
+check('…and the page then names it: as it is after a reload or a link (main gives a page its account once, its redirects keeping it)', [at(G.withAccount('https://mail.google.com/mail/u/0/', 1)), at(G.withAccount('https://gmail.com/', 1))], ['', '']);
+check('what a page you open is known by: its address without the scheme or #… (Google’s only)', [G.openKey('https://mail.google.com/mail/u/0/?a=1#inbox'), G.openKey('https://gmail.com/'), G.openKey('https://news.example/'), G.openKey('bifrost://newtab')], ['mail.google.com/mail/u/0/?a=1', 'gmail.com/', '', '']);
 check('…and the page then says which account (no second time)', at(G.withAccount('https://drive.google.com/', 1)), '');
 
 // ---- sites as typed in Settings

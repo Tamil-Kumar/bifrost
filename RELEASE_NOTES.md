@@ -1,10 +1,10 @@
-## Bifrost 0.29.0
+## Bifrost 0.30.0
 
-- **Websites in your theme:** Settings → Website styles → **Match websites to your theme**. Catppuccin's styles for websites take Bifrost's theme:
-  - With one of Catppuccin's own themes (Mocha, Macchiato, Frappé, Latte), they use that flavor, and your accent if you picked one.
-  - With any other theme (Frost, Nord, Dracula, Gruvbox…), they're built in its colors and accent, and icons get recolored to match.
-  - Pages you have open change as soon as you change the theme. With "Match the system", websites follow your computer's light or dark setting too.
-  - Each style keeps its own options, like its accent, and turning the setting off puts back the colors you had.
-  - To get Catppuccin's styles, download their `import.json` (Settings has a button that opens their releases page) and bring it in with **Import from Stylus**.
+- **Dark mode on Google Classroom and similar sites:** some sites say they have a dark theme of their own, so Chromium's dark mode leaves them alone, but the theme is missing or only covers part of the page. Classroom is one: its bar goes dark and its pages stay white. Bifrost now checks each page that says it has a dark theme once it's drawn. If a quarter or more of it is still light, Bifrost darkens the page itself, and it remembers the site so it's dark from the start next time.
+  - Settings → Website styles → Sites of your own lists those sites, and you can forget one there to have it checked again.
+  - A site's choice there can also be **Dark, Bifrost's**: Bifrost darkens it even when it has a dark theme of its own.
+- **Gmail opens with your default account:** Gmail's addresses always name an account by number (`/mail/u/0/`), so every Gmail address in your history, bookmarks and other sites' links opened Google's first account. Now a Google page you open yourself (from the address bar, a bookmark, the launcher or another app) or from another site's link opens with the account you chose, even if its address has a number in it. `gmail.com` does too.
+  - Links inside Google (in the same tab or a new one), reloads, and back and forward still keep the account they're on.
+- **Change Google's own default account:** Settings → Accounts → **Make Google's default** next to an account. Google makes the first account you sign in to its default, and the only way to change that is to sign out of all of them and sign back in with that one first. Bifrost asks first, then signs you out through Google (only in Bifrost) and opens the sign-in for that account. Settings then shows buttons to sign back in to the others.
 
-**Install:** `Bifrost-Setup-0.29.0-x64.exe` for most PCs, `Bifrost-Setup-0.29.0-arm64.exe` for ARM laptops (Snapdragon). It installs for you only, no administrator rights needed, and keeps your profile. **Portable:** `BifrostPortable-0.29.0.zip`: unzip it over your BifrostPortable folder (its Data folder stays). Bifrost 0.24.0 and later update themselves.
+**Install:** `Bifrost-Setup-0.30.0-x64.exe` for most PCs, `Bifrost-Setup-0.30.0-arm64.exe` for ARM laptops (Snapdragon). It installs for you only, no administrator rights needed, and keeps your profile. **Portable:** `BifrostPortable-0.30.0.zip`: unzip it over your BifrostPortable folder (its Data folder stays). Bifrost 0.24.0 and later update themselves.

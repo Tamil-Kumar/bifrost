@@ -19,7 +19,7 @@ import http from 'node:http';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test'];
 // A Catppuccin style as Catppuccin writes them (its library @imported from userstyles.catppuccin.com, which these
 // tests send nowhere: Bifrost's copy has to do), with CSS of another site's @imported too.
 const CTP = `/* ==UserStyle==
@@ -64,6 +64,8 @@ const server = http.createServer((req, res) => {
   if (req.url.startsWith('/blue.user.css')) return send('text/css', STYLE('#3355ff'));
   if (req.url.startsWith('/green.user.css')) return send('text/css', STYLE('#22aa44').replace('@name Styled test', '@name Green test').replace('@namespace bifrost.test', '@namespace bifrost.green'));
   if (host === 'owndark.test') return send('text/html', page('Own dark theme', '<meta name="color-scheme" content="light dark"><style>@media (prefers-color-scheme: dark){body{background:#202030 !important;color:#eeeeee !important}}</style>'));
+  // Says it has a dark theme, and has only part of one (as Google Classroom: its bar dark, its page white).
+  if (host === 'halfdark.test') return send('text/html', page('Half a dark theme', '<meta name="color-scheme" content="light dark"><style>header{height:64px;background:light-dark(#ffffff,#1f1f1f);color:light-dark(#202124,#e8eaed)}</style>', '<header>Bar</header>'));
   if (host === 'csp.test') return send('text/html', page('Strict CSP'), { 'content-security-policy': "style-src 'none'; script-src 'unsafe-inline'" });
   if (req.url.startsWith('/framed')) return send('text/html', page('With a frame', '', '<iframe id=f src="http://other.test/" style="width:300px;height:150px;border:0"></iframe>'));
   if (host === 'ctp.test' && req.url.startsWith('/extra.css')) return send('text/css', 'p { color: rgb(1, 2, 3) !important; }');
@@ -184,6 +186,49 @@ try {
     await until(async () => white(await pixel(other)), 5000, 'other.test as drawn');
     await keys('Alt_L', 'Shift_L', 'd');
     await until(async () => (await get('webStyles.dark')) === true, 3000, 'and on again');
+  });
+
+  await R.step('a site whose own dark theme is partly white (as Google Classroom’s): Bifrost darkens it itself, from the start next time; listed in Settings, forgotten there; a site you choose Bifrost’s dark mode for', async () => {
+    const half = await open('http://halfdark.test/');
+    await front(half);
+    // (its bar is dark, its page white: until it's looked at)
+    const c = await until(async () => { const c = await pixel(half); return dark(c) ? c : null; }, 9000, 'its page darkened');
+    const bar = await t.main(async ({ webContents }, id) => { const b = (await webContents.fromId(id).capturePage({ x: 400, y: 30, width: 1, height: 1 })).toBitmap(); return [b[2], b[1], b[0]]; }, half);
+    assert(dark(bar), 'its bar: ' + bar);
+    const dir = await t.main(() => global.__bifrost.profile.dir);
+    const fs = await import('node:fs');
+    await until(() => { try { return /halfdark\.test/.test(fs.readFileSync(dir + '/web-dark-learned.json', 'utf8')); } catch { return false; } }, 3000, 'remembered');
+    // Next time: dark from the start.
+    const again = await open('http://halfdark.test/again');
+    assert(dark(await pixel(again)), 'opened again: ' + (await pixel(again)));
+    // Listed in Settings; forgotten there: looked at again (and darkened again).
+    await toSettings();
+    await settingsPage("document.getElementById('web-dark').scrollIntoView({ block: 'start', behavior: 'instant' })");
+    const listed = await until(() => settingsPage("(() => { const l = [...document.querySelectorAll('.dark-learned [data-learned]')].map((e) => e.dataset.learned); return l.length ? l : null; })()"), 3000, 'listed');
+    assert(JSON.stringify(listed) === '["halfdark.test"]', 'listed: ' + JSON.stringify(listed));
+    await t.shot('webstyles-dark-learned');
+    await settingsPage("document.querySelector('.dark-learned [data-learned=\"halfdark.test\"] button').click()");
+    await until(() => settingsPage("!document.querySelector('.dark-learned')"), 3000, 'forgotten');
+    await until(() => settingsPage("!!document.querySelector('.dark-learned [data-learned]')"), 12000, 'looked at again, and listed again');
+    // (a tab is captured only while it's drawn: in front)
+    await front(half);
+    await sleep(300);
+    assert(dark(await pixel(half)), 'darkened again: ' + (await pixel(half)));
+    // Your choice for a site: Bifrost's dark mode, though it has a dark theme of its own.
+    await front(own);
+    await sleep(300);
+    const before = await pixel(own);
+    assert(before[0] === 0x20 && before[1] === 0x20 && before[2] === 0x30, 'its own dark theme: ' + before);
+    await set('webStyles.darkSites', { 'owndark.test': 'bifrost' });
+    const after = await until(async () => { const c = await pixel(own); return dark(c) && !(c[0] === 0x20 && c[1] === 0x20 && c[2] === 0x30) ? c : null; }, 5000, 'darkened by Bifrost');
+    await toSettings();
+    const choice = await until(() => settingsPage("(() => { const r = document.querySelector('.dark-sites .erow[data-site=\"owndark.test\"] select'); return r ? r.value : null; })()"), 3000, 'its choice');
+    assert(choice === 'bifrost', 'in Settings: ' + choice);
+    await set('webStyles.darkSites', {});
+    await front(own);
+    await sleep(300);
+    await until(async () => { const c = await pixel(own); return c[0] === 0x20 && c[1] === 0x20 && c[2] === 0x30; }, 5000, 'its own again');
+    assert(dark(c) && dark(after), JSON.stringify({ c, after }));
   });
 
   await R.step('brightness, contrast and sepia over dark mode, on the top page only', async () => {

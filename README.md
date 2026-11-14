@@ -18,7 +18,7 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
                 websites, your userstyles, Catppuccin's in your theme; less-builder.js: userstyles written in
                 LESS, built in a worker, less-worker.js, and the files they import; web-theme.js: their color
-                scheme, and Chromium's dark mode, per tab)
+                scheme, and Chromium's dark mode, per tab, and the sites whose own dark theme is partly white)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
                 adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
@@ -81,12 +81,16 @@ or a site allowed, pop-up ads, updating from HaGeZi's files and keeping the old 
 `accounts` (which Google account Google's sites open with, against local stand-ins for accounts.google.com's
 list of your accounts (answering only Chrome's request, a POST from www.google.com, in Chrome's form) and for
 Gmail, YouTube, Docs, Drive, Photos and Search: Settings → Accounts reading them
-with your cookies and again when you sign in or out, the default account and particular sites, what's left
-alone (links inside Google, pages that say which account, sign-in, forms, private windows, accounts you're
-signed out of), Google taking authuser out again, the email before the accounts are read), `webstyles`
+with your cookies and again when you sign in or out, the default account and particular sites, Gmail's
+addresses with an account number in them (and gmail.com) opened yourself or from another site's link, what's
+left alone (links inside Google in the tab or a new one, a reload, back and forward, pages that name an account
+by email, sign-in, forms, private windows, accounts you're signed out of), Google taking authuser out again,
+the email before the accounts are read, making an account Google's own default: signing out through Google,
+its sign-in, the others signed in to again), `webstyles`
 (dark mode for websites against local stand-in sites, read off the screen: turned on in Settings and in open
-tabs at once, a site's own dark theme, per site with Alt+Shift+A and the info popover, Alt+Shift+D, brightness
-and sepia on the top page only; your styles installed from a link, there from the first paint and through a
+tabs at once, a site's own dark theme, per site with Alt+Shift+A and the info popover, Alt+Shift+D, a site
+whose own dark theme is partly white darkened by Bifrost (remembered, listed in Settings, forgotten there), a
+site you choose Bifrost's dark mode for, brightness and sepia on the top page only; your styles installed from a link, there from the first paint and through a
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
 link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
 Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be

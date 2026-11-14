@@ -7,7 +7,12 @@
    choice there): a page of Google's opened from outside Google — the address bar, a bookmark, another site's
    link, another app — gets ?authuser= for that account, as the links in Google's own app menu carry. Inside
    Google nothing changes: its links already say which account they're for, and its account switcher works as
-   usual. */
+   usual.
+   A page you open yourself, or another site's link to one, gets your account even when its address names one
+   by number (/mail/u/0/, ?authuser=0): Gmail's addresses always do, so every one you've saved, been sent or
+   have in your history names Google's first account, not one you chose. One named by email, a brand or
+   delegated account (/b/), a Workspace domain (/a/) are kept, as is the account of a page that's reloaded, gone
+   back to or reopened. Gmail's own address (gmail.com) is Gmail's front page. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.WBGoogle = factory();
@@ -23,6 +28,10 @@
   const NEVER_PATH = /^\/(url|sorry|recaptcha|accounts|signin|logout|ServiceLogin|AddSession|imgres|aclk|pagead|gen_204|setprefs|redirect|attribution_link)(\/|$)/i;
   // A page that already says which account: /mail/u/1/, /u/0/, /b/…/ (a delegated or brand account), /a/<domain>/.
   const PICKED_PATH = /\/(u|b)\/[^/]+(\/|$)|^\/a\/[^/]+\//;
+  // …by number: its place among your accounts (Gmail, Drive, Calendar, Classroom, Photos…: /u/0/).
+  const U_NUMBER = /\/u\/\d+(?=\/|$)/;
+  // Gmail's own address: its front page is Gmail's.
+  const GMAIL_HOST = /^(www\.)?(gmail|googlemail)\.com$/;
 
   // Suggestions for Settings: the sites you'd choose an account for, and what's on them.
   const SITES = [
@@ -111,26 +120,78 @@
     } catch { return false; }
   }
 
+  // Whether the only account a page names is a number (/u/0/, authuser=0), which a page you open yourself gets
+  // yours in place of.
+  function byNumberOnly(u) {
+    if (u.searchParams.has('pageid') || /\/b\/[^/]+(\/|$)|^\/a\/[^/]+\//.test(u.pathname)) return false;
+    const au = u.searchParams.getAll('authuser');
+    if (au.some((v) => !/^\d+$/.test(v))) return false;
+    if (/\/u\/(?!\d+(\/|$))[^/]+/.test(u.pathname)) return false;
+    return au.length > 0 || U_NUMBER.test(u.pathname);
+  }
+
   // The account a top-level page (url, opened from referrer) should open with: an email, or '' to leave it.
-  function accountFor(url, cfg, referrer) {
+  // opened: you opened it yourself (the address bar, a bookmark, the launcher, another app), or a link on a site
+  // that isn't Google's did — not a reload, a page gone back to or put back, nor one a page of Google's opened.
+  function accountFor(url, cfg, referrer, opened) {
     if (!cfg || (!cfg.default && !((cfg.sites || []).length))) return '';
     let u;
     try { u = url instanceof URL ? url : new URL(url); } catch { return ''; }
     if (u.protocol !== 'https:') return '';
+    if (GMAIL_HOST.test(u.hostname.toLowerCase())) {
+      // (gmail.com's other pages are left to it)
+      if (u.pathname !== '/') return '';
+      u = new URL('https://mail.google.com/mail/');
+    }
     const host = u.hostname.toLowerCase();
     if (!isGoogleHost(host) || NEVER_HOST.test(host) || NEVER_PATH.test(u.pathname)) return '';
-    if (picksAccount(u) || fromGoogle(referrer)) return '';
+    if (fromGoogle(referrer)) return '';
+    if (picksAccount(u) && !(opened && byNumberOnly(u))) return '';
     return siteAccount(u, cfg);
   }
 
-  // The page's address with the account in it (which: its place among your accounts, or its email). Gmail's
-  // front page becomes /mail/, where it reads it.
+  // A query without authuser, as it was written (its encoding untouched).
+  function withoutAuthuser(search) {
+    const parts = String(search || '').replace(/^\?/, '').split('&').filter((x) => x && !/^authuser(=|$)/.test(x));
+    return parts.length ? '?' + parts.join('&') : '';
+  }
+
+  // The page's address with the account in it (which: its place among your accounts, or its email), in place of
+  // any it named by number. Gmail's front page (and gmail.com) becomes /mail/, where it reads it; a page with
+  // /u/<number>/ gets yours there (an email: as authuser, the /u/ taken out, which is the same page for
+  // Google's first account).
   function withAccount(url, which) {
-    const u = new URL(String(url));
+    let u = new URL(String(url));
+    if (GMAIL_HOST.test(u.hostname.toLowerCase())) {
+      const g = new URL('https://mail.google.com/mail/');
+      g.search = u.search;
+      g.hash = u.hash;
+      u = g;
+    }
     if (u.hostname === 'mail.google.com' && /^\/(mail\/?)?$/.test(u.pathname)) u.pathname = '/mail/';
+    const search = withoutAuthuser(u.search);
+    if (U_NUMBER.test(u.pathname)) {
+      if (typeof which === 'number') {
+        u.pathname = u.pathname.replace(U_NUMBER, '/u/' + which);
+        u.search = search;
+        return u.href;
+      }
+      u.pathname = u.pathname.replace(U_NUMBER, '') || '/';
+    }
     const add = 'authuser=' + encodeURIComponent(String(which));
-    u.search = u.search && u.search !== '?' ? u.search + '&' + add : '?' + add;
+    u.search = search ? search + '&' + add : '?' + add;
     return u.href;
+  }
+
+  // What a page of Google's you open is known by until its request comes (main/google-accounts.js): its address
+  // without http(s):// or #…, the way the request has it; '' for any other page.
+  function openKey(url) {
+    let u;
+    try { u = new URL(String(url)); } catch { return ''; }
+    if (!/^https?:$/.test(u.protocol)) return '';
+    const host = u.hostname.toLowerCase();
+    if (!isGoogleHost(host) && !GMAIL_HOST.test(host)) return '';
+    return host + u.pathname + u.search;
   }
 
   // accounts.google.com/ListAccounts, where Chrome reads your accounts from. The ones you're signed in to, in
@@ -211,5 +272,5 @@
     return out;
   }
 
-  return { SITES, isGoogleHost, canonical, sameEmail, parseSite, siteAccount, picksAccount, fromGoogle, accountFor, withAccount, parseListAccounts };
+  return { SITES, isGoogleHost, canonical, sameEmail, parseSite, siteAccount, picksAccount, byNumberOnly, fromGoogle, accountFor, withAccount, openKey, parseListAccounts };
 });

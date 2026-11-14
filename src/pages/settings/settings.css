@@ -206,6 +206,12 @@
 .ustyle-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .ustyle-text b small { font-weight: 400; color: var(--subtext); }
 .ustyle-text > small { color: var(--subtext); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gacc-make { margin-left: auto; }
+.gacc-steps { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 2px; padding: 12px 14px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.gacc-steps p { margin: 0; }
+.dark-learned { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.dark-learned p { margin: 0; }
+.kb-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .theme-match { display: flex; flex-direction: column; gap: 8px; }
 .theme-match .status-line { margin: 0; }
 .import-failures { max-height: 50vh; overflow: auto; }

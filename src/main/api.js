@@ -534,6 +534,10 @@ function register() {
   ipc.handle('styles:import-stylus', ['settings'], (event, text) => WS().importStylus(String(text || '')));
   ipc.handle('styles:check-updates', ['settings'], () => WS().checkUpdates());
   ipc.handle('styles:theme', ['settings'], () => WS().themeStatus());
+  // Sites whose own dark theme is partly white, which dark mode darkens itself (main/web-theme.js).
+  ipc.handle('dark:learned', ['settings'], () => require('./web-theme').learnedList());
+  ipc.handle('dark:forget', ['settings'], (event, host) => require('./web-theme').forget(String(host || '')));
+  require('./web-theme').events.on('learned', (list) => broadcastToPages('dark-learned', list, 'settings'));
   if (ctx.webStyles) {
     ctx.webStyles.on('changed', () => broadcastToPages('styles-changed', {}, 'settings'));
     ctx.webStyles.on('progress', (p) => broadcastToPages('styles-progress', p, 'settings'));
@@ -541,6 +545,9 @@ function register() {
   }
   // Settings → Accounts: your Google accounts, as Google lists them (main/google-accounts.js).
   ipc.handle('google:accounts', ['settings'], (event, opts) => ctx.googleAccounts.accounts(!!(opts && opts.refresh)));
+  // Making one of them Google's own default: signing out of them all and in again, that one first.
+  ipc.handle('google:make-default', ['settings'], (event, email) => ctx.googleAccounts.makeDefault(String(email || '')));
+  ipc.handle('google:reorder-done', ['settings'], () => ctx.googleAccounts.endReorder());
   if (ctx.googleAccounts) ctx.googleAccounts.on('changed', (s) => broadcastToPages('google-accounts-changed', s, 'settings'));
   require('./icons').onChange((e) => broadcastAll('site-icon', e));
   nativeTheme.on('updated', () => broadcastAll('system-theme', { dark: nativeTheme.shouldUseDarkColors }));

@@ -1196,13 +1196,22 @@ function googleAccountsWidget() {
     const s = gAccounts;
     if (!s) { box.replaceChildren(h('p.status-line', null, 'Reading your Google accounts…')); return; }
     const list = s.accounts || [];
+    const r = s.reorder;
     const rows = list.map((a, i) => h('div.gacc-row', { dataset: { email: a.email } },
       h('span.gacc-badge', { style: { background: badgeColor(a.email) } }, (a.name || a.email).trim().charAt(0).toUpperCase()),
       h('span.gacc-text', null, h('b', null, a.name || a.email), a.name ? h('small', null, a.email) : null),
       i === 0 ? h('span.gacc-tag', null, 'Google’s default') : null,
-      a.valid === false ? h('span.gacc-tag.warn', null, 'Sign in again') : null));
-    const note = !s.known ? `Your accounts couldn’t be read from Google${s.error ? ': ' + s.error : ''}.` : !list.length ? 'You’re not signed in to Google in Bifrost.' : '';
-    box.replaceChildren(...rows, ...(note ? [h('p.status-line.gacc-note', null, note)] : []), h('div.btn-row', null,
+      a.valid === false ? h('span.gacc-tag.warn', null, 'Sign in again') : null,
+      i > 0 && !r ? h('button.btn.small.gacc-make', { type: 'button', dataset: { act: 'make-default' }, title: 'Google makes the first account you sign in to its default', onclick: () => makeGoogleDefault(a, list.length) }, 'Make Google’s default') : null));
+    const note = !s.known ? `Your accounts couldn’t be read from Google${s.error ? ': ' + s.error : ''}.` : !list.length && !r ? 'You’re not signed in to Google in Bifrost.' : '';
+    // Making one Google's default: what's left to do (its sign-in first, then the others again).
+    const steps = r ? h('div.gacc-steps', null,
+      h('p', null, r.firstIn ? `${r.first} is Google’s default now. Sign in to your other account${r.others.length === 1 ? '' : 's'} again:` : `Sign in to ${r.first} first, and it becomes Google’s default.`),
+      h('div.btn-row', null,
+        r.firstIn ? r.others.map((o) => h('button.btn.small.primary', { type: 'button', dataset: { act: 'sign-in-again', email: o.email }, onclick: () => openUrl(o.url, { background: false }) }, icon('plus'), o.email))
+          : h('button.btn.small.primary', { type: 'button', dataset: { act: 'sign-in-first' }, onclick: () => openUrl(r.signIn, { background: false }) }, icon('user'), list.length ? 'Sign out, then sign in to ' + r.first : 'Sign in to ' + r.first),
+        h('button.btn.small', { type: 'button', dataset: { act: 'reorder-done' }, onclick: () => wb.invoke('google:reorder-done').then((st) => { gAccounts = st; for (const f of gListeners) f(); }, () => {}) }, r.firstIn ? 'Done' : 'Stop'))) : null;
+    box.replaceChildren(...rows, ...(note ? [h('p.status-line.gacc-note', null, note)] : []), ...(steps ? [steps] : []), h('div.btn-row', null,
       h('button.btn.small', { type: 'button', dataset: { act: 'sign-in' }, onclick: () => openUrl(list.length ? 'https://accounts.google.com/AddSession' : 'https://accounts.google.com/ServiceLogin', { background: false }) },
         icon(list.length ? 'plus' : 'user'), list.length ? 'Add an account' : 'Sign in to Google'),
       h('button.btn.small', { type: 'button', dataset: { act: 'refresh' }, onclick: () => loadGoogleAccounts(true) }, icon('reload'), 'Refresh')));
@@ -1211,6 +1220,20 @@ function googleAccountsWidget() {
   draw();
   readWhenShown(box);
   return { el: box, update: null };
+}
+
+// Google's own default: it's the first account you sign in to, so this signs you out of them all (Google's
+// sign-out, in Bifrost only) and opens the sign-in for this one; Settings then lists the others to add again.
+async function makeGoogleDefault(a, n) {
+  const ok = await confirmDialog(`Make ${a.email} Google’s default?`, {
+    detail: `Google makes the first account you sign in to its default, and the only way to change that is to sign out of all your accounts and sign in again, this one first. Bifrost signs you out of ${n === 2 ? 'both' : 'all ' + n} accounts here (your other browsers and devices stay signed in) and opens Google’s sign-in for ${a.email}; then sign in to the others again (with their passwords). Settings shows you what’s left to do.`,
+    ok: 'Sign out and sign in again',
+  });
+  if (!ok) return;
+  try {
+    const { url } = await wb.invoke('google:make-default', a.email);
+    openUrl(url, { background: false });
+  } catch (e) { toast({ text: String((e && e.message) || e), iconName: 'warn' }); }
 }
 
 function googleDefaultWidget() {
@@ -1264,34 +1287,51 @@ function googleSitesWidget() {
 }
 
 // ------------------------------------------------------------ website styles
-// Dark mode's own sites (webStyles.darkSites: { site: true | false }), and your userstyles (main/web-styles.js,
-// kept in styles.json: read and changed through styles:*).
+// Dark mode's own sites (webStyles.darkSites: { site: true | false | 'bifrost' }), the sites it darkens itself
+// (main/web-theme.js, through dark:*), and your userstyles (main/web-styles.js, kept in styles.json: read and
+// changed through styles:*).
 const UC = window.WBUsercss;
+
+// A site's choice: Dark (its own dark theme where it has one), Bifrost's dark mode, or as it's drawn.
+const DARK_CHOICES = [['on', 'Dark'], ['bifrost', 'Dark, Bifrost’s'], ['off', 'As drawn']];
+const darkChoice = (v) => (v === 'bifrost' ? 'bifrost' : v ? 'on' : 'off');
+const darkValue = (c) => (c === 'bifrost' ? 'bifrost' : c === 'on');
 
 function darkSitesWidget() {
   const box = h('div.elist.dark-sites');
+  let learned = [];
   const draw = () => {
     const map = get('webStyles.darkSites') || {};
     const change = (next) => save('webStyles.darkSites', next);
+    const choices = (label) => h('select.field', { 'aria-label': label }, DARK_CHOICES.map(([v, t]) => h('option', { value: v }, t)));
     const rows = Object.keys(map).sort().map((site) => {
-      const sel = h('select.field', { 'aria-label': 'Dark mode on ' + site }, h('option', { value: 'on' }, 'Dark'), h('option', { value: 'off' }, 'As drawn'));
-      sel.value = map[site] ? 'on' : 'off';
-      sel.addEventListener('change', () => change({ ...map, [site]: sel.value === 'on' }));
+      const sel = choices('Dark mode on ' + site);
+      sel.value = darkChoice(map[site]);
+      sel.addEventListener('change', () => change({ ...map, [site]: darkValue(sel.value) }));
       return h('div.erow', { dataset: { site } }, h('span.grow.mono', null, site), sel,
         h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: () => { const next = { ...map }; delete next[site]; change(next); } }, icon('close')));
     });
     const input = h('input.field.w-md', { type: 'text', placeholder: 'example.com', spellcheck: 'false', 'aria-label': 'Site' });
-    const sel = h('select.field', null, h('option', { value: 'on' }, 'Dark'), h('option', { value: 'off' }, 'As drawn'));
+    const sel = choices('Dark mode there');
     sel.value = get('webStyles.dark') ? 'off' : 'on';
     const add = () => {
       const site = String(input.value || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^www\./, '');
       if (!site) return;
-      change({ ...map, [site]: sel.value === 'on' });
+      change({ ...map, [site]: darkValue(sel.value) });
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
-    box.replaceChildren(...rows, h('div.erow', null, input, sel, h('button.btn.small', { type: 'button', dataset: { act: 'add-dark-site' }, onclick: add }, icon('plus'), 'Add')));
+    // The sites dark mode darkens itself, as their own dark themes are partly white: forgetting one has it
+    // looked at again.
+    const own = learned.length ? h('div.dark-learned', null,
+      h('p.muted.small', null, 'Darkened by Bifrost, as their own dark themes are partly white:'),
+      h('div.kb-chips', null, learned.map((site) => h('span.kb-chip', { dataset: { learned: site } }, site,
+        h('button', { type: 'button', title: 'Forget (looked at again next time)', 'aria-label': 'Forget ' + site, onclick: () => wb.invoke('dark:forget', site).then((l) => { learned = l || []; draw(); }, () => {}) }, icon('close')))))) : null;
+    box.replaceChildren(...rows, h('div.erow', null, input, sel, h('button.btn.small', { type: 'button', dataset: { act: 'add-dark-site' }, onclick: add }, icon('plus'), 'Add')), own || '');
   };
   draw();
+  const got = (l) => { learned = Array.isArray(l) ? l : []; if (!typingIn(box)) draw(); };
+  wb.invoke('dark:learned').then(got, () => {});
+  wb.on('dark-learned', got);
   return { el: box, update: () => { if (!typingIn(box)) draw(); } };
 }
 
@@ -1898,11 +1938,11 @@ function sections() {
     ] },
     { id: 'webstyles', title: 'Website styles', icon: 'moon', desc: 'Dark mode for websites, and your own styles for them (userstyles, as in Stylus).', groups: () => [
       { title: 'Dark mode', id: 'web-dark', items: [
-        I.toggle('webStyles.dark', 'Dark mode for every website', 'A site with a dark theme of its own uses it; Chromium darkens the rest as it draws them, so nothing runs in the pages. Alt+Shift+D turns it on or off; Alt+Shift+A (or a site’s info popover) for the site you’re on.', { keywords: 'dark reader night invert black theme' }),
+        I.toggle('webStyles.dark', 'Dark mode for every website', 'A site with a dark theme of its own uses it (unless that’s partly white); Chromium darkens the rest as it draws them, so nothing runs in the pages. Alt+Shift+D turns it on or off; Alt+Shift+A (or a site’s info popover) for the site you’re on.', { keywords: 'dark reader night invert black theme' }),
         I.range('webStyles.brightness', 'Brightness', '', { min: 50, max: 150, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode dim' }),
         I.range('webStyles.contrast', 'Contrast', '', { min: 50, max: 150, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode' }),
         I.range('webStyles.sepia', 'Sepia', 'Warmer, yellower pages.', { min: 0, max: 100, step: 5, fmt: (v) => v + '%', when: (st) => st.webStyles.dark || Object.values(st.webStyles.darkSites || {}).some(Boolean), keywords: 'dark mode warm night' }),
-        I.custom('Sites of your own', 'Sites where dark mode is on or off whatever the switch above says. A site covers its subdomains.', darkSitesWidget, { stack: true, keywords: 'dark mode exceptions exclude list site' }),
+        I.custom('Sites of your own', 'Sites where dark mode is on or off whatever the switch above says. A site covers its subdomains. Dark uses a site’s own dark theme when it has one; Dark, Bifrost’s darkens it as Bifrost darkens other sites.', darkSitesWidget, { stack: true, keywords: 'dark mode exceptions exclude list site own theme bifrost classroom white' }),
       ] },
       { title: 'Your theme on websites', id: 'web-theme', items: [
         I.toggle('webStyles.matchTheme', 'Match websites to your theme', 'Catppuccin’s styles for websites take Bifrost’s theme: its flavor when it’s one of Catppuccin’s, or its colors and accent (Frost, Nord, Dracula…). Get their styles by importing their import.json in Your styles below.', { keywords: 'catppuccin theme match browser colors flavor mocha latte frost nord dracula websites sites' }),

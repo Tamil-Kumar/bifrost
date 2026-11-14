@@ -499,6 +499,7 @@ function onWindowOpen(guest, { url, disposition, features, frameName }) {
   if (ctl) {
     // foreground-tab: target=_blank or Ctrl+Shift+click · background-tab: Ctrl/middle click · new-window: Shift+click
     // (Settings → Tabs → Switch to links you open in a new tab turns the clicks round: the UI, openFromMain)
+    if (ctx.googleAccounts) ctx.googleAccounts.noteOpen(url, guest.getURL());
     ctl.send('open-url', { url, background: disposition === 'background-tab', foreground: disposition === 'foreground-tab', newWindow: disposition === 'new-window' && !wantsPopup, openerWcId: guest.id });
   }
   return { action: 'deny' };
@@ -543,7 +544,10 @@ function setupPopup(child) {
     if (details.disposition === 'new-window' && /(width|height)/i.test(details.features || '')) {
       return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 680, autoHideMenuBar: true, webPreferences: { sandbox: true, contextIsolation: true, preload: PRELOAD_TAB } } };
     }
-    if (ctl) ctl.send('open-url', { url: details.url, background: false });
+    if (ctl) {
+      if (ctx.googleAccounts) ctx.googleAccounts.noteOpen(details.url, child.getURL());
+      ctl.send('open-url', { url: details.url, background: false });
+    }
     return { action: 'deny' };
   });
   child.on('will-navigate', (e) => { if (protocol.isInternal(e.url)) e.preventDefault(); });
@@ -593,6 +597,8 @@ function setZoom(guest, level) {
 
 // ------------------------------------------------------------------ context menus
 function onContextMenu(guest, ctl, params) {
+  // (a link it may open in a new tab: the page's own)
+  if (params.linkURL && ctx.googleAccounts) ctx.googleAccounts.noteOpen(params.linkURL, params.pageURL);
   let extItems = [];
   if (ctx.extensions && !ctl.isPrivate) {
     try { extItems = ctx.extensions.getContextMenuItems(guest, params) || []; } catch (e) { extItems = []; }
@@ -675,8 +681,9 @@ function guestAction(wcId, action, args = {}) {
       const h = guest.navigationHistory;
       return { index: h.getActiveIndex(), entries: h.getAllEntries().map((e) => ({ url: e.url, title: e.title })), zoom: guest.getZoomLevel() };
     }
-    case 'goToIndex': guest.navigationHistory.goToIndex(Number(args.index)); return true;
+    case 'goToIndex': if (ctx.googleAccounts) ctx.googleAccounts.noteHistory(guest); guest.navigationHistory.goToIndex(Number(args.index)); return true;
     case 'restoreHistory': {
+      if (ctx.googleAccounts) ctx.googleAccounts.noteHistory(guest);
       const entries = (args.entries || []).filter((e) => e && typeof e.url === 'string' && !/^javascript:/i.test(e.url)).slice(-50);
       if (!entries.length) return false;
       const want = Number(args.index);
