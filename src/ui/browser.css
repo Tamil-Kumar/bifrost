@@ -1082,7 +1082,8 @@ webview.js-dialog-hide { visibility: hidden !important; }
 .star-ico svg.i { fill: currentColor; }
 .star-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .dl-pop { width: 360px; margin: -4px; }
-.dl-head { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 8px 6px; }
+.dl-head { display: flex; align-items: center; gap: 2px; padding: 2px 4px 8px 6px; }
+.dl-head > b { flex: 1; }
 .dl-list { display: flex; flex-direction: column; gap: 2px; }
 .dl-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 9px; }
 .dl-item.done:hover { background: var(--hover); }

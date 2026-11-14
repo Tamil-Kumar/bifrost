@@ -7,7 +7,7 @@ import * as TB from './toolbar.js';
 
 const wb = window.wb;
 const recs = new Map();
-let pop = null, listEl = null, autoTimer = null;
+let pop = null, listEl = null, autoTimer = null, autoPoll = null;
 let autoAgain = null;   // the box opened by itself: starts its time over
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -74,22 +74,38 @@ function openPopover(anchor, { auto = false } = {}) {
   renderList();
   const body = h('div.dl-pop', null,
     h('div.dl-head', null, h('b', null, 'Downloads'),
-      h('button.icon-btn', { type: 'button', title: 'Open the downloads folder', onclick: () => act(0, 'show') }, icon('folderOpen'))),
+      h('button.icon-btn', { type: 'button', title: 'Open the downloads folder', onclick: () => act(0, 'show') }, icon('folderOpen')),
+      h('button.icon-btn.dl-close', { type: 'button', title: 'Close', 'aria-label': 'Close', onclick: () => { if (pop) pop.close('button'); } }, icon('close'))),
     listEl,
     h('button.dl-all', { type: 'button', onclick: () => { pop.close(); emit('command', 'openDownloads'); } }, 'Show all downloads', icon('chevronRight')));
-  pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'dl-popover', modal: !auto, focus: !auto, exclusive: !auto, onClose: () => { pop = null; listEl = null; autoAgain = null; clearTimeout(autoTimer); } });
+  pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'dl-popover', modal: !auto, focus: !auto, exclusive: !auto, onClose: () => { pop = null; listEl = null; autoAgain = null; clearTimeout(autoTimer); clearInterval(autoPoll); } });
   if (auto) {
-    // As long as Settings → Downloads says (the pointer over it holds it open), or until you close it.
+    // As long as Settings → Downloads says, or until you close it. The pointer on it holds it open, and its
+    // time starts over when the pointer leaves. Where the pointer is, the main process says: over a page this
+    // window hears nothing of it (it would never hear the pointer leave for the page), and a box that opens
+    // under a pointer resting there isn't held until the pointer moves.
+    const el = pop.el;
+    let on = false, from = null, moved = false;
     const start = () => {
       clearTimeout(autoTimer);
       const secs = Number(setting('downloads.showOnStartFor'));
-      if (secs > 0 && secs <= 60) autoTimer = setTimeout(() => pop && pop.close(), secs * 1000);
+      if (secs > 0 && secs <= 60) autoTimer = setTimeout(() => { if (pop && pop.el === el) pop.close('timeout'); }, secs * 1000);
     };
-    const el = pop.el;
-    el.addEventListener('mouseenter', () => clearTimeout(autoTimer));
-    el.addEventListener('mouseleave', start);
-    autoAgain = () => { if (!el.matches(':hover')) start(); };
+    const check = async () => {
+      const p = await wb.invoke('window:pointer').catch(() => null);
+      if (!p || !pop || pop.el !== el) return;
+      if (!from) from = p;
+      if (Math.abs(p.x - from.x) > 2 || Math.abs(p.y - from.y) > 2) moved = true;
+      const r = el.getBoundingClientRect();
+      const inside = moved && p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+      if (inside && !on) { on = true; clearTimeout(autoTimer); }
+      else if (!inside && on) { on = false; start(); }
+    };
+    clearInterval(autoPoll);
+    autoPoll = setInterval(check, 200);
+    autoAgain = () => { if (!on) start(); };
     start();
+    check();
   }
 }
 

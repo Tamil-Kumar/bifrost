@@ -289,6 +289,73 @@ try {
     } finally { await set('downloads.showOnStartFor', 5); await esc(); }
   });
 
+  await R.step('the downloads box: its close button closes it (opened by itself, kept until closed, or from its button); one that opens under a resting pointer goes on time, even when the pointer then goes back to the page; the pointer moved onto it holds it, and its time starts over when it leaves', async () => {
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(100); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    const box = () => t.ui(() => { const p = document.querySelector('.dl-popover'); if (!p) return null; const r = p.getBoundingClientRect(), c = p.querySelector('.dl-close').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, close: { x: Math.round(c.x + c.width / 2), y: Math.round(c.y + c.height / 2) } }; });
+    // (the window's content is at the screen's top left)
+    const screenOf = () => t.main(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui')); const b = w.getContentBounds(); return { x: b.x, y: b.y }; });
+    const shownFor = async (ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (!(await box())) return false; await sleep(100); } return true; };
+    const gone = async (ms) => { const end = Date.now() + ms; while (Date.now() < end) { if (!(await box())) return true; await sleep(100); } return false; };
+    // (the tab on screen: other tabs have the same page)
+    let shown = null;
+    const inPage = (code) => t.main(({ webContents }, [id, code]) => webContents.fromId(id).executeJavaScript(code, true), [shown, code]);
+    const download = (tag) => inPage(`(() => { const a = document.createElement('a'); a.href = '/dl/file.zip?${tag}'; a.download = ''; document.body.append(a); a.click(); a.remove(); return 1; })()`);
+    try {
+      await set('downloads.askWhereToSave', false);
+      await set('downloads.showOnStart', true);
+      await clickTab('/b.html');
+      shown = await t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); return S.tabs.find((y) => y.id === ws.activeTabId).wcId; });
+      const win = await screenOf();
+      // Kept until closed: its close button.
+      await set('downloads.showOnStartFor', 61);
+      await x.move(30, 700);
+      await download('close');
+      let b = await until(box, 4000, 'the downloads box');
+      assert(await shownFor(1500), 'set to stay until closed, it closed by itself');
+      await x.click(win.x + b.close.x, win.y + b.close.y);
+      assert(await gone(800), 'its close button didn’t close it');
+      // Opened from its button: the same.
+      await x.move(30, 700);
+      const btn = await t.ui(() => { const el = [...document.querySelectorAll('[data-tb="downloads"]')].find((e) => e.offsetParent); const r = el.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
+      await x.click(win.x + btn.x, win.y + btn.y);
+      b = await until(box, 3000, 'the downloads box, from its button');
+      await x.click(win.x + b.close.x, win.y + b.close.y);
+      assert(await gone(800), 'its close button didn’t close it (opened from its button)');
+      // A link in the page under where the box opens (its middle, a little below its top).
+      await set('downloads.showOnStartFor', 2);
+      const view = await t.ui((id) => { const v = [...document.querySelectorAll('webview')].find((w) => { try { return w.getWebContentsId() === id; } catch { return false; } }); const r = v.getBoundingClientRect(); return { x: r.x, y: r.y }; }, shown);
+      const spot = { x: Math.round(b.x + b.w / 2), y: Math.round(b.y + 40) };
+      await inPage(`(() => { const a = document.createElement('a'); a.id = 'under-box'; a.href = '/dl/file.zip?under'; a.download = ''; a.textContent = 'Download'; Object.assign(a.style, { position: 'fixed', left: '${spot.x - view.x - 40}px', top: '${spot.y - view.y - 15}px', width: '80px', height: '30px', zIndex: 9, background: '#ccc' }); document.body.append(a); return 1; })()`);
+      // The pointer comes in from outside the window, clicks it, and rests: the box opens under it and goes
+      // on time; and going back to the page after doesn't hold it either.
+      await x.move(1700, 1000);
+      await sleep(300);
+      await x.click(win.x + spot.x, win.y + spot.y);
+      const opened = Date.now();
+      await until(box, 4000, 'the downloads box, under the pointer');
+      await sleep(1000);
+      await x.move(win.x + 500, win.y + 650);
+      assert(await gone(2600 - (Date.now() - opened)), 'opened under the pointer, it was held open (' + (Date.now() - opened) + ' ms)');
+      // The pointer moved onto it: held past its time; to the page: it goes its time after that.
+      await x.move(win.x + 500, win.y + 650);
+      await download('held');
+      b = await until(box, 4000, 'the downloads box');
+      await sleep(300);
+      await x.move(win.x + b.x + b.w / 2, win.y + b.y + b.h / 2);
+      await sleep(150);
+      await x.move(win.x + b.x + b.w / 2 + 10, win.y + b.y + b.h / 2 + 10);
+      assert(await shownFor(3000), 'with the pointer on it, it closed');
+      await x.move(win.x + 500, win.y + 650);
+      const left = Date.now();
+      assert(await shownFor(1200), 'it closed as soon as the pointer left');
+      assert(await gone(2200), 'it stayed after the pointer left (' + (Date.now() - left) + ' ms)');
+    } finally {
+      if (shown) await inPage("(() => { const a = document.getElementById('under-box'); if (a) a.remove(); return 1; })()").catch(() => {});
+      await set('downloads.showOnStartFor', 5);
+      await esc();
+    }
+  });
+
   await R.step('Vim keys: off by default; on, j scrolls; on an excluded site (YouTube), keys go to the page', async () => {
     const trace = [];
     const scrollAfterJ = async () => {

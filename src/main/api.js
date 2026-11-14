@@ -109,6 +109,12 @@ function register() {
   // Auto-hiding bars: follow the pointer for this window, and hide Windows' caption buttons with the top bar.
   ipc.on('window:edges', 'ui', (event, on) => { const ctl = ctlOf(event); if (ctl) require('./edges').set(ctl, !!on); });
   ipc.on('window:caption-hidden', 'ui', (event, hidden) => { const ctl = ctlOf(event); if (ctl) windows.setCaptionHidden(ctl, !!hidden); });
+  // Where the pointer really is, in the window (over a page, the window's UI hears nothing of it).
+  ipc.handle('window:pointer', 'ui', (event) => {
+    const ctl = ctlOf(event);
+    if (!ctl || !ctl.win || ctl.win.isDestroyed()) return null;
+    try { const p = require('electron').screen.getCursorScreenPoint(), b = ctl.win.getContentBounds(); return { x: p.x - b.x, y: p.y - b.y }; } catch { return null; }
+  });
   ipc.on('window:open', 'ui', (event, opts) => {
     const urls = (Array.isArray(opts && opts.urls) ? opts.urls : []).map(String).filter((u) => /^(https?|ftp|file|bifrost):/i.test(u)).slice(0, 50);
     windows.create({ urls, isPrivate: !!(opts && opts.isPrivate) });
