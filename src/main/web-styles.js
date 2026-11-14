@@ -74,9 +74,34 @@ class WebStyles extends EventEmitter {
       this.themeKey = this.themeNow().key;
       setTimeout(() => this.retheme(), 3000);
     }
+    if (this.styles.some((s) => this.cameEmpty(s))) setTimeout(() => this.buildEmpty().catch(() => {}), 2500);
   }
 
   config() { return ctx.settings.get('webStyles') || {}; }
+
+  // A style brought in from Stylus 2's backup before Bifrost built the ones it saves without their CSS: it came
+  // in empty (its code, but no CSS). Built now, from its code, with the options it came with.
+  cameEmpty(s) {
+    return s.origin === 'stylus' && (!s.sections || !s.sections.length) && /==UserStyle==/.test(String(s.code || ''));
+  }
+
+  async buildEmpty() {
+    let built = 0;
+    for (const s of this.styles.filter((x) => this.cameEmpty(x))) {
+      try {
+        const b = await this.build(s.code, s.values || {});
+        if (!this.styles.includes(s) || !this.cameEmpty(s)) continue;
+        s.sections = b.sections;
+        s.vars = b.vars;
+        s.error = '';
+        s.updatedAt = Date.now();
+        built++;
+      } catch (e) {
+        s.error = String((e && e.message) || e);
+      }
+    }
+    if (built) this.save();
+  }
 
   // ---------------------------------------------------------------- dark mode
   // The site's own entry (most specific first): true | false | 'bifrost', or undefined.
@@ -456,6 +481,8 @@ class WebStyles extends EventEmitter {
         } else f.sections = await this.inlineImports(f.sections);
       } catch (e) {
         f.failed = String((e && e.message) || e);
+        // (one Stylus built from its own language: its backup has the CSS when it's saved with Shift+click)
+        if (e && e.code === 'preprocessor' && e.preprocessor === 'stylus') f.failed += ' In Stylus, Shift+click Export to save a backup with the CSS Stylus built, and bring that in.';
         failed.push({ name: f.name, error: f.failed });
       }
       if (f.needsBuild) { done++; this.emit('progress', { done, total }); }

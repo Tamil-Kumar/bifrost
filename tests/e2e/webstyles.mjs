@@ -19,7 +19,7 @@ import http from 'node:http';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test'];
 // A Catppuccin style as Catppuccin writes them (its library @imported from userstyles.catppuccin.com, which these
 // tests send nowhere: Bifrost's copy has to do), with CSS of another site's @imported too.
 const CTP = `/* ==UserStyle==
@@ -57,6 +57,18 @@ const STYLE = (color) => `/* ==UserStyle==
 @-moz-document domain("styled.test"), domain("csp.test") {
   :root { --styled: yes; background: var(--bg) !important; }
   body { background: var(--bg) !important; }
+}`;
+// A LESS style with an option (for Stylus 2's backup, which saves such a style without the CSS it built).
+const STYLUS2 = `/* ==UserStyle==
+@name Stylus 2 test
+@namespace bifrost.test/stylus2
+@version 1.0.0
+@preprocessor less
+@var select tone "Tone" ["dark:Dark*", "light:Light"]
+==/UserStyle== */
+@-moz-document domain("stylus2.test") {
+  body when (@tone = dark) { background: #101820 !important; }
+  body when (@tone = light) { background: #f0f4f8 !important; }
 }`;
 const server = http.createServer((req, res) => {
   const host = String(req.headers.host || '').replace(/:\d+$/, '');
@@ -370,6 +382,38 @@ try {
     await t.shot('webstyles-catppuccin');
   });
 
+  await R.step('Stylus 2’s backup (its Export): a usercss style it saved without the CSS it built is built here, with the options you chose in Stylus; a style of the old kind with its CSS; one in Stylus’s own language said plainly', async () => {
+    const less = STYLUS2;
+    const styl = less.replace('@name Stylus 2 test', '@name Stylus language test').replace('@namespace bifrost.test/stylus2', '@namespace bifrost.test/styl').replace('@preprocessor less', '@preprocessor stylus');
+    // As Stylus 2 saves them: its settings first; a usercss style's CSS left out (sections: [{ code: '' }]).
+    const file = JSON.stringify([
+      { settings: { updateInterval: 24 }, order: { main: ['a1', 'a2', 'a3'] } },
+      { _id: 'a1', _rev: 1731500000000, id: 1, enabled: true, name: 'Stylus 2 test', sourceCode: less, originalDigest: 'x',
+        usercssData: { name: 'Stylus 2 test', namespace: 'bifrost.test/stylus2', version: '1.0.0', preprocessor: 'less', vars: { tone: { type: 'select', name: 'tone', label: 'Tone', default: 'dark', value: 'light', options: [{ name: 'dark', label: 'Dark', value: 'dark' }, { name: 'light', label: 'Light', value: 'light' }] } } },
+        sections: [{ code: '' }] },
+      { _id: 'a2', _rev: 1731500000000, id: 2, enabled: true, name: 'Old kind', sections: [{ code: 'p { color: rgb(9, 8, 7) !important; }', domains: ['stylus2.test'] }] },
+      { _id: 'a3', _rev: 1731500000000, id: 3, enabled: true, name: 'Stylus language test', sourceCode: styl, usercssData: { name: 'Stylus language test', namespace: 'bifrost.test/styl', preprocessor: 'stylus', vars: {} }, sections: [{ code: '' }] },
+    ]);
+    await toSettings();
+    await settingsPage("document.getElementById('user-styles').scrollIntoView({ block: 'start', behavior: 'instant' })");
+    await settingsPage(`(() => {
+      const input = document.querySelector('.ustyles input[type=file]');
+      const dt = new DataTransfer();
+      dt.items.add(new File([${JSON.stringify(file)}], 'stylus-2026-11-14-10-00.json', { type: 'application/json' }));
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change'));
+    })()`);
+    const failedDialog = `[...document.querySelectorAll('${OPEN} .dialog')].find((d) => /couldn’t be built/.test(d.textContent))`;
+    const failed = await until(() => settingsPage(`(() => { const d = ${failedDialog}; return d ? d.textContent : null; })()`), 20000, 'the style that couldn’t be built');
+    assert(/1 of the styles couldn’t be built/.test(failed) && /Stylus language test/.test(failed) && /Shift\+click Export/.test(failed), 'said: ' + failed);
+    await settingsPage(`[...${failedDialog}.querySelectorAll('.btn')].find((b) => b.textContent.trim() === 'OK').click()`);
+    const st = await t.main(() => global.__bifrost.webStyles.styles.filter((x) => /Stylus 2 test|Old kind/.test(x.name)).map((x) => x.name + ':' + x.sections.length + ':' + JSON.stringify(x.values || {})));
+    assert(JSON.stringify(st.sort()) === JSON.stringify(['Old kind:1:{}', 'Stylus 2 test:1:{"tone":"light"}']), 'brought in: ' + JSON.stringify(st));
+    const page2 = await open('http://stylus2.test/');
+    const looks = await inTab(page2, "[getComputedStyle(document.body).backgroundColor, getComputedStyle(document.querySelector('p')).color].join(' | ')");
+    assert(looks === 'rgb(240, 244, 248) | rgb(9, 8, 7)', 'on the page (Light, as chosen in Stylus; the old kind’s CSS): ' + looks);
+  });
+
   await R.step('your theme on websites: Catppuccin’s styles in Bifrost’s theme (Frost: its colors; Macchiato: that flavor), at once in open tabs, the style’s own accent kept', async () => {
     const ctp = await until(() => t.main(({ webContents }) => { const w = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && /^http:\/\/ctp\.test\//.test(w.getURL())); return w ? w.id : null; }), 3000, 'the ctp.test tab');
     const looks = () => inTab(ctp, "[getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--ctp-accent').trim()].join(' | ')");
@@ -395,13 +439,18 @@ try {
     await t.shot('webstyles-theme');
   });
 
-  await R.step('…kept for the next start: pages in your theme from the start, nothing built again; off, the style’s own options again', async () => {
+  await R.step('…kept for the next start: pages in your theme from the start, nothing built again; off, the style’s own options again (and a style an older Bifrost brought in empty from Stylus 2’s backup, built at the start)', async () => {
+    // (as Bifrost 0.30.0 and before brought one in: its code and options, no CSS)
+    const empty = STYLUS2.replace('@name Stylus 2 test', '@name Came empty').replace('@namespace bifrost.test/stylus2', '@namespace bifrost.test/empty').replace(/#f0f4f8/g, '#e1e2e3');
+    await t.main((_, code) => { const ws = global.__bifrost.webStyles; ws.styles.push({ id: 'st-cameempty', name: 'Came empty', enabled: true, code, meta: { name: 'Came empty', namespace: 'bifrost.test/empty', preprocessor: 'less' }, vars: [], values: { tone: 'light' }, sections: [], exclusions: [], origin: 'stylus', installedFrom: '', installedAt: Date.now(), updatedAt: Date.now(), error: '' }); ws.save(); }, empty);
     await until(() => t.main(() => { const ws = global.__bifrost.webStyles; return !ws.theming && !ws.dirty && !ws.themedDirty && !ws.writing; }), 5000, 'saved');
     const dir = await t.main(() => global.__bifrost.profile.dir);
     await t.close();
     t = await launch({ ...OPTS, fresh: false });
     const st = await t.main(() => { const ws = global.__bifrost.webStyles; ws.__built = 0; const b = ws.buildThemed.bind(ws); ws.buildThemed = (...a) => { ws.__built++; return b(...a); }; return JSON.stringify([ws.themeStatus().ready, ws.cssFor('http://ctp.test/').includes('#24273a')]); });
     assert(st === '[1,true]', 'at the start (in your theme, Macchiato): ' + st);
+    const came = await until(() => t.main(() => { const s = global.__bifrost.webStyles.styles.find((x) => x.id === 'st-cameempty'); return s && s.sections.length ? s.sections[0].code.replace(/\s+/g, ' ') : null; }), 8000, 'the empty one built');
+    assert(/background: #e1e2e3 !important/.test(came) && !/#101820/.test(came), 'built with its options: ' + came);
     const ctp = await open('http://ctp.test/');
     const looks = () => inTab(ctp, "[getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--ctp-accent').trim()].join(' | ')");
     assert((await looks()) === 'rgb(36, 39, 58) | #ed8796', 'on the page: ' + (await looks()));

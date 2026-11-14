@@ -348,11 +348,16 @@
   // Also the files made for importing into Stylus, like Catppuccin's import.json: styles with their code but no
   // CSS yet (sections: null, needsBuild: they're built from their code as Stylus does when it imports them).
   function fromStylusBackup(data) {
+    // (one style, as Stylus's cloud sync keeps it: { _rev, doc })
+    if (data && !Array.isArray(data) && typeof data === 'object' && data.doc && data._rev && data._rev === data.doc._rev) data = [data.doc];
     const list = Array.isArray(data) ? data : [];
     const out = [];
     for (const s of list) {
       if (!s || typeof s !== 'object') continue;
-      const built = Array.isArray(s.sections);
+      // The CSS Stylus built, when the file has it. Stylus 2 leaves it out of its backups for a usercss style
+      // (sections: [{ code: '' }], for older Stylus's sake; Shift+click on Export keeps it), as a file made for
+      // importing into Stylus has none: such a style is built from its code here, with the options you chose.
+      const built = Array.isArray(s.sections) && s.sections.some((x) => x && typeof x.code === 'string' && x.code.trim());
       if (!built && !(typeof s.sourceCode === 'string' && HEADER.test(s.sourceCode))) continue;
       const ud = s.usercssData && typeof s.usercssData === 'object' ? s.usercssData : null;
       const values = {};

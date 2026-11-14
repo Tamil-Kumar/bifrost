@@ -94,7 +94,9 @@ site you choose Bifrost's dark mode for, brightness and sepia on the top page on
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
 link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
 Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be
-built; a LESS style's options changed and it rebuilt; your theme on websites, Catppuccin's styles in Frost's
+built; Stylus 2's backup, its usercss styles saved without the CSS Stylus built (built here with the options
+chosen in Stylus), one in Stylus's own language said plainly, one brought in empty by an older Bifrost built at
+the start; a LESS style's options changed and it rebuilt; your theme on websites, Catppuccin's styles in Frost's
 colors and in Catppuccin Macchiato, in open tabs at once, kept for the next start, off again),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages

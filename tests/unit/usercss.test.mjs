@@ -129,6 +129,22 @@ const forStylus = U.fromStylusBackup([
 check('a file for importing into Stylus: its styles, to be built from their code (no CSS in it), defaults left as they are',
   forStylus.map((s) => [s.name, s.needsBuild, s.sections, s.values, s.meta.preprocessor, !!s.code]), [['GitHub Catppuccin', true, null, {}, 'less', true]]);
 check('a backup’s styles (with their CSS) aren’t built again', imported.map((s) => s.needsBuild), [false, false]);
+// Stylus 2's backup (Export): a usercss style without the CSS Stylus built (sections: [{ code: '' }]), a style
+// of the old kind with its CSS, one kept with its CSS (Shift+click on Export), one in Stylus's own language.
+const stylus2 = U.fromStylusBackup([
+  { settings: { updateInterval: 24 }, order: { main: ['a'] } },
+  { _id: 'uuid-1', _rev: 1731000000000, id: 1, enabled: true, name: 'GitHub Catppuccin', originalDigest: 'x', updateUrl: 'https://github.com/catppuccin/userstyles/raw/main/styles/github/catppuccin.user.less', sourceCode: header,
+    usercssData: { name: 'GitHub Catppuccin', namespace: 'github.com/catppuccin', version: '2026.08.16', preprocessor: 'less', vars: { darkFlavor: { type: 'select', name: 'darkFlavor', label: 'Dark Flavor', default: 'mocha', value: 'macchiato', options: [{ name: 'mocha', label: 'Mocha', value: 'mocha' }, { name: 'macchiato', label: 'Macchiato', value: 'macchiato' }] } } },
+    sections: [{ code: '' }] },
+  { _id: 'uuid-2', id: 2, enabled: true, name: 'Classic', sections: [{ code: 'body { color: red }', domains: ['old.example'] }] },
+  { _id: 'uuid-3', id: 3, enabled: true, name: 'Kept', sourceCode: header.replace('@name', '@name Kept'), usercssData: { name: 'Kept', preprocessor: 'less', vars: {} }, sections: [{ code: ':root { --kept: 1 }', domains: ['github.com'] }] },
+  { _id: 'uuid-4', id: 4, enabled: true, name: 'Stylus language', sourceCode: header.replace('@preprocessor less', '@preprocessor stylus'), usercssData: { name: 'Stylus language', preprocessor: 'stylus', vars: {} }, sections: [{ code: '' }] },
+  { _id: 'uuid-5', id: 5, enabled: true, name: 'Empty', sections: [{ code: '' }] },
+]);
+check('Stylus 2’s backup: a usercss style without its CSS is built from its code, with what you chose; the CSS kept where there is some; an empty one left out',
+  stylus2.map((s) => [s.name, s.needsBuild, s.sections && s.sections.length, s.values]),
+  [['GitHub Catppuccin', true, null, { darkFlavor: 'macchiato' }], ['Classic', false, 1, {}], ['Kept', false, 1, {}], ['Stylus language', true, null, {}]]);
+check('…one style as Stylus’s sync keeps it ({ _rev, doc })', U.fromStylusBackup({ _rev: 5, doc: { _rev: 5, name: 'One', sections: [{ code: 'a{b:c}' }] } }).map((s) => s.name), ['One']);
 check('LESS gets the variables as Stylus gives them: @name:value; (a select’s value, a number with its unit)',
   U.lessVariables(h.vars, { accentColor: 'subtext0', size: '16' }).split('\n').filter((l) => /accentColor|size|lightFlavor|font/.test(l)),
   ['@lightFlavor:latte;', '@accentColor:subtext0;', '@font:Inter, sans-serif;', '@size:16px;']);

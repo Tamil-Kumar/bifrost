@@ -305,8 +305,9 @@ try {
     // Google's sign-out (which goes on to its front page here), then that tab on to the sign-in for that account.
     await until(() => served.find((x) => /^GET https:\/\/accounts\.google\.com\/AccountChooser\?Email=tkumar%40purdue\.edu&continue=/.test(x)), 10000, 'Google’s sign-in for it');
     assert(/^GET https:\/\/accounts\.google\.com\/Logout\?continue=/.test(served[0] || ''), 'signed out through Google first: ' + JSON.stringify(served));
-    const tabs = await t.main(({ webContents }) => webContents.getAllWebContents().filter((w) => w.getType() === 'webview' && /accounts\.google\.com\/(Logout|AccountChooser)|signed-out/.test(w.getURL())).map((w) => w.getURL().replace(/\?.*/, '')));
-    assert(JSON.stringify(tabs) === '["https://accounts.google.com/AccountChooser"]', 'one tab, at the sign-in: ' + JSON.stringify(tabs));
+    // (the request comes before the tab has the page)
+    const tabs = await until(async () => { const l = await t.main(({ webContents }) => webContents.getAllWebContents().filter((w) => w.getType() === 'webview' && /accounts\.google\.com\/(Logout|AccountChooser)|signed-out/.test(w.getURL())).map((w) => w.getURL().replace(/\?.*/, ''))); return JSON.stringify(l) === '["https://accounts.google.com/AccountChooser"]' ? l : null; }, 5000, 'one tab, at the sign-in');
+    assert(tabs.length === 1, 'tabs: ' + JSON.stringify(tabs));
     await until(() => t.main(() => { const g = global.__bifrost.googleAccounts; return !!g.list && g.list.length === 0; }), 8000, 'signed out of them all');
     await toSettings();
     const first = await until(() => settingsPage("(() => { const s = document.querySelector('.gacc-steps'); return s ? s.textContent : null; })()"), 5000, 'what’s left to do');
