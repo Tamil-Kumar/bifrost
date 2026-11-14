@@ -199,10 +199,10 @@ async function adblockPopover(anchor) {
       h('div', null, h('strong', null, String(on ? n : 0)), h('span', null, 'on this page')),
       h('div', null, h('strong', null, Number(status.total || 0).toLocaleString()), h('span', null, 'in total'))),
     web && status.enabled ? row('globe', host, toggle(on, async (v) => { await wb.invoke('adblock:set-site', host, !v); V.reload(t); pop.close(); }), on ? 'Blocking on this site' : 'Allowed on this site') : null,
-    // On YouTube: how its video ads are handled (privacy.adblock.youtubeFilters).
+    // On YouTube: its ads blocked or not (privacy.adblock.youtubeSkip).
     web && on && info && info.youtube
-      ? row('video', 'Remove ads before they play', toggle(!!setting('privacy.adblock.youtubeFilters'), async (v) => { await wb.invoke('settings:set', 'privacy.adblock.youtubeFilters', v); V.reload(t); pop.close(); }),
-        setting('privacy.adblock.youtubeFilters') ? 'Experimental: YouTube can get stuck loading' : 'Off: video ads are covered and skipped as they start')
+      ? row('video', 'Block YouTube ads', toggle(setting('privacy.adblock.youtubeSkip') !== false, async (v) => { await wb.invoke('settings:set', 'privacy.adblock.youtubeSkip', v); V.reload(t); pop.close(); }),
+        setting('privacy.adblock.youtubeSkip') !== false ? 'Taken out before they load' : 'Off: YouTube as it is, with its ads')
       : null,
     h('div.si-links', null, h('button.link-btn', { type: 'button', onclick: () => { pop.close(); emit('command', 'openSettings', { section: 'privacy' }); } }, icon('sliders'), 'Filter lists and settings')));
   const pop = popover(body, { anchor, side: 'bottom', align: 'end' }, { className: 'ab-pop' });

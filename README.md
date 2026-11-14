@@ -12,7 +12,9 @@ your computers through a cloud folder, and a lot of settings — every animation
 ```
 src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads,
                 ad blocker (adblock.js; domain-list.js: HaGeZi's lists and what keeps them from breaking
-                sites), dangerous-site warnings (safety.js), extensions (extensions/), imports from
+                sites; youtube-ads.js: YouTube's ads taken out of what it sends, each tab's answers held
+                through its DevTools protocol session, tab-debugger.js, and youtube-edit.js: what becomes of
+                them), dangerous-site warnings (safety.js), extensions (extensions/), imports from
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
                 the fingers on the touchpad (touchpad.js: when they lift, for swipes), which Google account
                 Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
@@ -72,8 +74,12 @@ tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; c
 don't count; settings), `hidpi` (a 150% display:
 menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),
 `passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),
-`youtube` (YouTube's ads against a local stand-in for youtube.com: video ads covered and skipped, whatever
-kind; the ads in its pages hidden; ads taken out of Shorts; embedded players; the settings that turn it off),
+`youtube` (YouTube's ads against a local stand-in for youtube.com: taken out of what it sends (a watch page's
+player data, the player's answers, a watch page asked for) with nothing else changed and its cookies set, the
+player's check for a video without ads passing, nothing it asks for blocked (Google's ad status script) while
+other sites still are, its "abnormality" callback and 17-second wait quiet and looking untouched, its service
+worker gone past; video ads that get through covered and skipped, whatever kind; the ads in its pages hidden;
+ads taken out of Shorts; embedded players; the settings that turn it off),
 `blocking` (the ad blocker's domain list, HaGeZi's, here tests/fixtures/domains-test.txt, against local
 stand-in sites: what pages load from listed domains blocked, never the site you're on nor a company's own
 services on its own sites, its exceptions scoped to it, your own @@ rules and uBlock's stand-ins, the list off
@@ -111,7 +117,8 @@ getNotifications(), blocked sites). The Windows setup, end to end with PowerShel
 reading Google's list of your accounts (both its forms) and which pages get which account, `usercss` userstyles'
 headers, variables and @-moz-document parts and the pages they match, Stylus backups and files for importing into
 Stylus, `less` the LESS compiler against what less.js makes of the same LESS (and Catppuccin's library),
-`catppuccin` a theme as Catppuccin's colors, the filters for them (as close as Catppuccin's own) and
+`youtube-edit` YouTube's answers without their ads (its player data, a watch page's, Shorts' reels, the
+player's check), and which answers those are, `catppuccin` a theme as Catppuccin's colors, the filters for them (as close as Catppuccin's own) and
 Catppuccin's library with them in it, `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`

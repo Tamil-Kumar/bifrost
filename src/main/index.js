@@ -109,6 +109,8 @@ function start() {
     const { AdBlock } = require('./adblock');
     ctx.adblock = new AdBlock();
     ctx.adblock.init();
+    // YouTube's ads, out of what it sends before its pages see it.
+    require('./youtube-ads').init();
     const { Safety } = require('./safety');
     ctx.safety = new Safety();
     ctx.safety.init();

@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Player data stand-in</title><link rel="icon" href="data:,">
+<!-- A stand-in for a YouTube watch page's data (tests/e2e/youtube.mjs): the player's data it starts with (with
+     ads, as YouTube sends it to a viewer without Premium), the player's script (its check for a video that came
+     without ads), Google's ad status script, the player's answers it asks for (with ads too), a callback for
+     YouTube's "abnormality" (what tells it you block ads), and its 17-second wait. What the page saw is in
+     window.__seen. -->
+<script>var ytInitialPlayerResponse = {"responseContext":{"serviceTrackingParams":[]},"playabilityStatus":{"status":"OK"},"adPlacements":[{"adPlacementRenderer":{"config":{"adPlacementConfig":{"kind":"AD_PLACEMENT_KIND_START"}}}}],"playerAds":[{"playerLegacyDesktopWatchAdsRenderer":{}}],"adSlots":[{"adSlotRenderer":{}}],"videoDetails":{"videoId":"data","title":"Player data"}};var ytInitialData = {"contents":{"adSlots":"kept"}};</script>
+<script src="/s/player/abc123/player_ias.vflset/en_US/base.js"></script>
+<script src="https://static.doubleclick.net/instream/ad_status.js"></script>
+</head>
+<body>
+<p>Player data</p>
+<script>
+  const t0 = performance.now();
+  window.__seen = {
+    inline: Object.keys(ytInitialPlayerResponse).sort(),
+    data: ytInitialData.contents.adSlots,
+    check: window.__check || 'not run',
+    adStatus: window.__adStatusFrom || (window.google_ad_status ? 'a copy' : 'none'),
+    abnormal: 'quiet',
+    waited: null,
+    native: [Function.prototype.toString.toString(), Promise.prototype.then.toString(), setTimeout.toString()],
+    got: null,
+  };
+  // What YouTube hands a promise when a video came without ads.
+  Promise.resolve().then(function () { /* onAbnormalityDetected */ window.__seen.abnormal = 'told'; });
+  // …and the wait it starts then (with a bound function, as YouTube's).
+  setTimeout(function () { window.__seen.waited = Math.round(performance.now() - t0); }.bind(null), 17000);
+  const xhr = (url) => new Promise((resolve, reject) => { const x = new XMLHttpRequest(); x.open('GET', url); x.onload = () => resolve(x.responseText); x.onerror = () => reject(new Error('xhr failed')); x.send(); });
+  Promise.all([
+    fetch('/youtubei/v1/player?prettyPrint=false', { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } }).then((r) => r.json()),
+    xhr('/watch?v=data&pbj=1').then((t) => JSON.parse(t.replace(/^\)\]\}'\n?/, ''))),
+    fetch('/youtubei/v1/next?prettyPrint=false', { method: 'POST', body: '{}' }).then((r) => r.json()),
+  ]).then(([player, pbj, next]) => {
+    window.__seen.got = { player: Object.keys(player).sort(), pbj: Object.keys(pbj[0].playerResponse).sort(), next: Object.keys(next).sort() };
+  }, (e) => { window.__seen.got = { error: String(e) }; });
+</script>
+</body></html>

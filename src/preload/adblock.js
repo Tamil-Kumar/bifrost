@@ -236,9 +236,10 @@ function apply(first, href, isTop) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// YouTube. Nothing of YouTube's own is changed for its video ads (taken out of its data, YouTube can stop
-// loading at its grey placeholders or tell you off for blocking ads; that's privacy.adblock.youtubeFilters),
-// so they're dealt with as they come, and you don't see or hear them:
+// YouTube. Its video ads are taken out of what it sends before the page sees it (main/youtube-ads.js), and
+// what would tell it you block them is quieted here (quietDetection, below). One that gets through anyway (in a
+// player embedded in another site, or a tab with DevTools open) is dealt with as it comes, and you don't see or
+// hear it:
 //  · A video ad is covered, picture and buttons, from the moment the player switches to it (a style, so
 //    before any script here runs), muted and sped up, and skipped: "Skip" is pressed as soon as it's there,
 //    an ad that's a stream of its own is run to its end, and one stitched into the video's own stream
@@ -246,9 +247,8 @@ function apply(first, href, isTop) {
 //    can't tell which kind it is, the position is left alone (running the video's own stream to its end would
 //    skip the video). Your sound and speed come back with the video.
 //  · The ads in YouTube's pages are hidden: the home feed, search, next to the video, the masthead.
-//  · Shorts: the reels marked as ads are taken out of the reels YouTube fetches, before it shows them (what
-//    uBlock Origin's Shorts filters do); an ad reel that gets through anyway is hidden and passed, and an
-//    ad's own video is muted and paused.
+//  · Shorts: the reels marked as ads are taken out of the reels YouTube fetches (main/youtube-edit.js); an ad
+//    reel that's in the page anyway is hidden and passed, and an ad's own video is muted and paused.
 
 // The player while it shows an ad: a black cover over all of it. (Not when the player has said "ad" for so long
 // that it's surely stuck saying it: data-bifrost-ad-stuck, below.)
@@ -286,7 +286,7 @@ const AD_REEL = ':scope > :is(:has(> ytd-ad-slot-renderer), .ytd-shorts:has(> .y
 
 function youtubeAds(opts) {
   try { webFrame.insertCSS(YT_COVER + (opts && opts.hide === false ? '' : YT_PAGE_ADS), { cssOrigin: 'user' }); } catch { /* frame gone */ }
-  shortsData();
+  quietDetection();
   const SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, button[id^="skip-button"], .ytp-ad-skip-button-container button, .ytp-skip-ad button';
   const PLAYERS = '#movie_player, .html5-video-player';
   const isAd = (p) => p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting');
@@ -402,61 +402,41 @@ function youtubeAds(opts) {
   else tick();
 }
 
-// Shorts: the reels marked as ads are taken out of the reels YouTube fetches (reel_watch_sequence), whether it
-// reads them as JSON or as text it parses, and out of any list of reels it parses from elsewhere, before it
-// shows them. In the page's own world, where its fetch and JSON.parse are.
-function shortsData() {
+// What tells YouTube you block its ads, in the page's own world (before its scripts), as AdGuard and uBlock
+// Origin both do it: a callback YouTube hands a promise when it finds a video came without ads (one that
+// mentions onAbnormalityDetected) does nothing, and the 17-second wait it starts then is cut short. Functions
+// changed here still say they're the browser's own when a page asks (toString).
+function quietDetection() {
   try {
     contextBridge.executeInMainWorld({
       func: () => {
-        const parse = JSON.parse, stringify = JSON.stringify;
-        const MARK = 'adClientParams';
-        const isAdReel = (e) => {
-          try { const ep = e && e.command && e.command.reelWatchEndpoint; return !!(ep && ep.adClientParams && ep.adClientParams.isAd); } catch { return false; }
+        const fnToString = Function.prototype.toString;
+        const own = new WeakMap();   // what's changed here -> the browser's own
+        const change = (obj, key, apply) => {
+          const was = obj[key];
+          if (typeof was !== 'function') return;
+          const now = new Proxy(was, { apply });
+          own.set(now, was);
+          try { obj[key] = now; } catch { /* left as it is */ }
         };
-        // Takes the ad reels out of every list of "entries" in o; how many it took out.
-        const prune = (o, depth) => {
-          if (!o || typeof o !== 'object' || depth > 10) return 0;
-          let n = 0;
-          if (Array.isArray(o)) { for (const x of o) n += prune(x, depth + 1); return n; }
-          for (const k of Object.keys(o)) {
-            const v = o[k];
-            if (!v || typeof v !== 'object') continue;
-            if (k === 'entries' && Array.isArray(v) && v.some(isAdReel)) { o[k] = v.filter((e) => !isAdReel(e)); n += v.length - o[k].length; }
-            n += prune(o[k], depth + 1);
+        change(Function.prototype, 'toString', (target, self, args) => Reflect.apply(target, own.get(self) || self, args));
+        const told = new WeakMap();
+        const tells = (fn) => {
+          if (typeof fn !== 'function') return false;
+          let v = told.get(fn);
+          if (v === undefined) {
+            try { v = Reflect.apply(fnToString, fn, []).includes('onAbnormalityDetected'); } catch { v = false; }
+            told.set(fn, v);
           }
-          return n;
+          return v;
         };
-        JSON.parse = new Proxy(parse, {
-          apply(target, self, args) {
-            const out = Reflect.apply(target, self, args);
-            try { if (out && typeof out === 'object' && typeof args[0] === 'string' && args[0].includes(MARK)) prune(out, 0); } catch { /* left as it was */ }
-            return out;
-          },
+        change(Promise.prototype, 'then', (target, self, args) => {
+          if (tells(args[0])) args[0] = function () {};
+          return Reflect.apply(target, self, args);
         });
-        const fetch0 = window.fetch;
-        if (typeof fetch0 !== 'function') return;
-        window.fetch = new Proxy(fetch0, {
-          apply(target, self, args) {
-            const pending = Reflect.apply(target, self, args);
-            let url = '';
-            try { const a = args[0]; url = typeof a === 'string' ? a : (a && typeof a.url === 'string' ? a.url : String(a)); } catch { return pending; }
-            if (!/\/youtubei\/v1\/reel\/|\/reel_watch_sequence/.test(url)) return pending;
-            return pending.then((res) => {
-              if (!res || !res.ok || res.type === 'opaque' || res.bodyUsed) return res;
-              return res.clone().text().then((text) => {
-                if (!text.includes(MARK)) return res;
-                // (an answer can start with )]}' to keep other sites from reading it as a script)
-                let pre = '';
-                if (text.startsWith(")]}'")) { const nl = text.indexOf('\n'); pre = nl >= 0 ? text.slice(0, nl + 1) : ")]}'"; }
-                const obj = parse(text.slice(pre.length));
-                if (!prune(obj, 0)) return res;
-                const out = new Response(pre + stringify(obj), { status: res.status, statusText: res.statusText, headers: res.headers });
-                Object.defineProperties(out, { url: { value: res.url }, redirected: { value: res.redirected }, type: { value: res.type } });
-                return out;
-              }).catch(() => res);
-            });
-          },
+        change(window, 'setTimeout', (target, self, args) => {
+          try { if (args[1] === 17000 && typeof args[0] === 'function' && Reflect.apply(fnToString, args[0], []).includes('[native code]')) args[1] = 17; } catch { /* as it was */ }
+          return Reflect.apply(target, self, args);
         });
       },
       args: [],

@@ -25,6 +25,7 @@ const { EventEmitter } = require('node:events');
 const { nativeTheme, webContents } = require('electron');
 const ctx = require('./context');
 const themes = require('../shared/themes');
+const TD = require('./tab-debugger');
 
 const LEARNED_FILE = 'web-dark-learned.json';
 const LEARN_FOR = 30 * 24 * 3600 * 1000;
@@ -175,13 +176,13 @@ async function emulate(wc, url) {
   const dbg = wc.debugger;
   try {
     if (want.scheme || want.dark) {
-      if (!dbg.isAttached()) dbg.attach('1.3');
+      TD.use(wc, 'theme');
       if (want.scheme !== was.scheme) await dbg.sendCommand('Emulation.setEmulatedMedia', { features: want.scheme ? [{ name: 'prefers-color-scheme', value: want.scheme }] : [] });
       if (want.dark !== was.dark) await dbg.sendCommand('Emulation.setAutoDarkModeOverride', want.dark ? { enabled: true } : {});
     } else if (dbg.isAttached() && (was.scheme || was.dark)) {
       await dbg.sendCommand('Emulation.setEmulatedMedia', { features: [] });
       if (was.dark) await dbg.sendCommand('Emulation.setAutoDarkModeOverride', {});
-      try { dbg.detach(); } catch { /* already gone */ }
+      TD.release(wc, 'theme');
     }
   } catch (e) {
     // (Someone else's debugging session, or the page went away: leave it be.)

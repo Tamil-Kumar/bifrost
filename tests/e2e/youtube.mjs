@@ -1,12 +1,18 @@
 // YouTube's ads, against a local stand-in for YouTube (www.youtube.com and the rest pointed at it with
 // --host-resolver-rules, over HTTPS with a certificate made for this run; tests/fixtures/yt):
+//  · its ads taken out of what it sends before the page sees it (the player data a watch page starts with, the
+//    player's answers, a watch page the page asks for), nothing else in them changed, its cookies still set; the
+//    player's check for a video without ads passes; nothing it asks for is blocked (Google's ad status script
+//    loads there, and is blocked elsewhere); what would tell it you block ads is quiet (the callback it hands a
+//    promise does nothing, its 17-second wait is cut short), and what's changed in the page looks untouched;
 //  · a video ad is covered and muted from the moment it starts and skipped, whatever kind it is (a stream of
 //    its own, stitched into the video's stream, one the player can't tell), and the video comes back with its
 //    sound and speed; one whose stream turns out to be the video's own isn't run to its end;
 //  · the ads in YouTube's pages are hidden and nothing else is;
-//  · Shorts: the reels marked as ads are taken out of what YouTube fetches and parses; an ad reel that's in the
-//    page anyway is hidden, silenced and passed;
-//  · a YouTube player embedded in another site gets the same; other sites are left alone;
+//  · Shorts: the reels marked as ads are taken out of what YouTube sends; an ad reel that's in the page anyway is
+//    hidden, silenced and passed;
+//  · a YouTube player embedded in another site gets the same (Google's ad servers blocked there as on the site
+//    it's in); other sites are left alone;
 //  · with element hiding off the pages' ads stay, and with the setting off YouTube is left as it is.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,11 +23,15 @@ import { launch, startSite, reporter, assert, sleep, ROOT } from './lib.mjs';
 
 const R = reporter('youtube');
 const FIX = path.join(ROOT, 'tests', 'fixtures', 'yt');
-const HOSTS = ['www.youtube.com', 'youtube.com', 'm.youtube.com', 'www.youtube-nocookie.com'];
+const HOSTS = ['www.youtube.com', 'youtube.com', 'm.youtube.com', 'www.youtube-nocookie.com', 'static.doubleclick.net'];
 
 const tls = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-yt-'));
 execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', path.join(tls, 'key.pem'), '-out', path.join(tls, 'cert.pem'), '-days', '2', '-subj', '/CN=www.youtube.com', '-addext', 'subjectAltName=' + HOSTS.map((h) => 'DNS:' + h).join(',')], { stdio: 'ignore' });
 
+// The player's data, as YouTube sends it to a viewer without Premium: ads and all.
+const PLAYER_DATA = { responseContext: {}, playabilityStatus: { status: 'OK' }, streamingData: { formats: [] },
+  adPlacements: [{ adPlacementRenderer: { config: { adPlacementConfig: { kind: 'AD_PLACEMENT_KIND_START' } } } }],
+  playerAds: [{ playerLegacyDesktopWatchAdsRenderer: {} }], adSlots: [{ adSlotRenderer: {} }], videoDetails: { videoId: 'data' } };
 // The reels YouTube fetches for Shorts: one of them an ad.
 const reel = (id, ad) => ({ command: { reelWatchEndpoint: Object.assign({ videoId: id }, ad ? { adClientParams: { isAd: true, adSlotId: 'slot-1' } } : {}) } });
 const SEQUENCE = { entries: [reel('r1'), reel('r-ad', true), reel('r2')], continuationEndpoint: { token: 'next' } };
@@ -33,6 +43,28 @@ const yt = https.createServer({ key: fs.readFileSync(path.join(tls, 'key.pem')),
     return json(SEQUENCE, u.searchParams.get('xssi') ? ")]}'\n" : '');
   }
   if (u.pathname === '/youtubei/v1/next') return json(SEQUENCE);
+  // The player's data, with ads (as YouTube answers a viewer without Premium).
+  if (u.pathname === '/youtubei/v1/player') return json(PLAYER_DATA);
+  // A service worker that fetches everything for the pages it controls (as YouTube's may).
+  if (u.pathname === '/sw.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' });
+    return res.end("self.addEventListener('install', () => self.skipWaiting()); self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim())); self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request)));");
+  }
+  if (u.pathname === '/watch' && /^(data|sw)$/.test(u.searchParams.get('v') || '')) {
+    if (u.searchParams.get('pbj')) return json([{ page: 'watch', playerResponse: PLAYER_DATA }], ")]}'\n");
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': ['YSC=stand-in; Path=/; Secure; SameSite=None', 'VISITOR_INFO1_LIVE=two; Path=/; Secure; SameSite=None'] });
+    return res.end(fs.readFileSync(path.join(FIX, 'data.html')));
+  }
+  // The player's script: its check for a video that came without ads.
+  if (/^\/s\/player\/[^/]+\/player_ias\.vflset\/[^/]+\/base\.js$/.test(u.pathname)) {
+    res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' });
+    return res.end("window.__check = (function (U) { if(!U||!U.adPlacements&&!U.adSlots)return 'told on'; return 'passed'; })({ videoDetails: {} });");
+  }
+  // Google's ad status script (what ad blockers are spotted with).
+  if (req.headers.host && req.headers.host.startsWith('static.doubleclick.net') && u.pathname === '/instream/ad_status.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store', 'access-control-allow-origin': '*' });
+    return res.end("window.google_ad_status = 1; window.__adStatusFrom = 'Google';");
+  }
   const page = u.pathname === '/watch' || u.pathname.startsWith('/embed/') ? 'watch.html'
     : u.pathname.startsWith('/shorts/') ? 'shorts.html'
       : u.pathname === '/' || u.pathname === '/results' ? 'feed.html' : null;
@@ -80,6 +112,49 @@ const display = (match, ids) => t.guest(match, `(${JSON.stringify(ids)}).map((id
 try {
   await R.step('the ad blocker is ready', async () => {
     await until(() => t.main(() => !!(global.__bifrost.adblock && global.__bifrost.adblock.engine)), 90000, 'the ad blocker’s lists');
+  });
+
+  await R.step('its ads taken out of what YouTube sends before the page sees it (a watch page’s player data, the player’s answers, a watch page asked for by the page), nothing else in them changed, its cookies still set; the player’s check for a video without ads passes', async () => {
+    await open('https://www.youtube.com/watch?v=data');
+    const seen = await until(() => t.guest('v=data', 'window.__seen && window.__seen.got && window.__seen'), 10000, 'the page’s data');
+    assert(!seen.got.error, seen.got.error);
+    const NO_ADS = ['no_ads', 'playabilityStatus', 'responseContext', 'videoDetails'];
+    assert(JSON.stringify(seen.inline) === JSON.stringify(NO_ADS), 'the data it starts with: ' + seen.inline.join());
+    assert(JSON.stringify(seen.got.player) === JSON.stringify(['no_ads', 'playabilityStatus', 'responseContext', 'streamingData', 'videoDetails']), 'the player’s answer: ' + seen.got.player.join());
+    assert(JSON.stringify(seen.got.pbj) === JSON.stringify(['no_ads', 'playabilityStatus', 'responseContext', 'streamingData', 'videoDetails']), 'a watch page asked for: ' + seen.got.pbj.join());
+    assert(seen.data === 'kept' && JSON.stringify(seen.got.next) === '["continuationEndpoint","entries"]', 'something else changed: ' + JSON.stringify([seen.data, seen.got.next]));
+    assert(seen.check === 'passed', 'the player’s check: ' + seen.check);
+    const cookie = await t.guest('v=data', 'document.cookie');
+    assert(/(^|; )YSC=stand-in(;|$)/.test(cookie) && /(^|; )VISITOR_INFO1_LIVE=two(;|$)/.test(cookie), 'its cookies: ' + cookie);
+  });
+
+  await R.step('nothing YouTube asks for is blocked (Google’s own ad status script loads there), and elsewhere it still is (or the lists’ harmless copy of it is loaded instead, as before)', async () => {
+    const there = await t.guest('v=data', 'window.__seen.adStatus');
+    assert(there === 'Google', 'on YouTube: ' + there);
+    await open(site.url + '/plain.html?ad-status');
+    await until(() => t.guest('ad-status', 'document.readyState === "complete"'), 5000, 'the page');
+    const elsewhere = await t.guest('ad-status', `new Promise((resolve) => { const s = document.createElement('script'); s.src = 'https://static.doubleclick.net/instream/ad_status.js'; s.onload = () => resolve(window.__adStatusFrom || (window.google_ad_status ? 'a copy' : 'none')); s.onerror = () => resolve('blocked'); document.head.append(s); })`);
+    assert(elsewhere === 'a copy' || elsewhere === 'blocked', 'elsewhere: ' + elsewhere);
+  });
+
+  await R.step('what would tell YouTube you block its ads is quiet: the callback it hands a promise does nothing, its 17-second wait is cut short; what’s changed in the page looks untouched', async () => {
+    const seen = await until(() => t.guest('v=data', 'window.__seen.waited !== null && window.__seen'), 5000, 'the wait');
+    assert(seen.abnormal === 'quiet', 'the callback ran: ' + seen.abnormal);
+    assert(seen.waited < 2000, 'waited ' + seen.waited + ' ms');
+    assert(JSON.stringify(seen.native) === JSON.stringify(['function toString() { [native code] }', 'function then() { [native code] }', 'function setTimeout() { [native code] }']), 'they look changed: ' + JSON.stringify(seen.native));
+  });
+
+  await R.step('…and the same where YouTube’s service worker would fetch them for the page: the tab goes past it, and it stays registered', async () => {
+    const reg = await t.guest('v=data', `navigator.serviceWorker.register('/sw.js', { scope: '/watch?v=sw' }).then((r) => new Promise((resolve) => { const w = r.installing || r.waiting || r.active; if (w.state === 'activated') return resolve(w.state); w.addEventListener('statechange', () => { if (w.state === 'activated') resolve(w.state); }); setTimeout(() => resolve(w.state), 5000); }), (e) => String(e))`);
+    assert(reg === 'activated', 'the service worker: ' + reg);
+    await open('https://www.youtube.com/watch?v=sw');
+    const seen = await until(() => t.guest('v=sw', 'window.__seen && window.__seen.got && window.__seen'), 10000, 'the page’s data');
+    const via = await t.guest('v=sw', `navigator.serviceWorker.getRegistration('/watch?v=sw').then((r) => ({ registered: !!(r && r.active), controlled: !!navigator.serviceWorker.controller, page: performance.getEntriesByType('navigation')[0].workerStart > 0, player: performance.getEntriesByType('resource').filter((e) => e.name.includes('/youtubei/v1/player') || e.name.includes('/base.js')).map((e) => e.workerStart > 0) }))`);
+    assert(via.registered && !via.controlled && !via.page && via.player.length === 2 && !via.player.some(Boolean), 'the service worker: ' + JSON.stringify(via));
+    assert(!seen.got.error, seen.got.error);
+    assert(seen.inline.join() === 'no_ads,playabilityStatus,responseContext,videoDetails', 'the data it starts with: ' + seen.inline.join());
+    assert(seen.got.player.join() === 'no_ads,playabilityStatus,responseContext,streamingData,videoDetails' && seen.got.pbj.includes('no_ads') && !seen.got.pbj.includes('adSlots'), 'the player’s answers: ' + JSON.stringify(seen.got));
+    assert(seen.check === 'passed' && seen.adStatus === 'Google', 'the check, the ad status: ' + JSON.stringify([seen.check, seen.adStatus]));
   });
 
   await R.step('a video ad is covered and silent from the moment it starts, and run to its end (a stream of its own)', async () => {
@@ -156,7 +231,7 @@ try {
     assert(x[1] - x[0] === 216, 'a gap in the feed: ' + x.join(', '));
   });
 
-  await R.step('Shorts: the reels marked as ads are taken out of what YouTube fetches, read as JSON or as text', async () => {
+  await R.step('Shorts: the reels marked as ads are taken out of what YouTube sends, read as JSON or as text', async () => {
     await open('https://www.youtube.com/shorts/abc');
     const got = await until(() => t.guest('/shorts/abc', 'window.__got'), 8000, 'the reels');
     assert(!got.error, got.error);
@@ -165,8 +240,9 @@ try {
     assert(got.text.join() === 'r1,r2', 'as text: ' + got.text.join());
     assert(got.xssi.prefixed && got.xssi.ids.join() === 'r1,r2', 'with )]}\': ' + JSON.stringify(got.xssi));
     assert(got.other.join() === 'r1,r-ad,r2', 'another answer was changed: ' + got.other.join());
+    // (nothing of the page's own is changed for it: what it parses is as it was)
     const parsed = await t.guest('/shorts/abc', 'window.__parsed');
-    assert(parsed.join() === 'p1,p2', 'parsed: ' + parsed.join());
+    assert(parsed.join() === 'p1,p-ad,p2', 'parsed: ' + parsed.join());
   });
 
   await R.step('…and an ad reel that’s in the page anyway is hidden, silenced and passed', async () => {
@@ -191,6 +267,9 @@ try {
     const log = await until(() => inFrame('window.__log').then((l) => l && l.some((e) => e.ended) && l), 10000, 'the embedded player’s ad to end');
     const seen = log.find((e) => e.why);
     assert(seen && seen.why === 'ran to its end' && covered(seen), JSON.stringify(log));
+    // (Google's ad servers stay blocked there, as on the site it's in)
+    const adStatus = await inFrame(`new Promise((resolve) => { const s = document.createElement('script'); s.src = 'https://static.doubleclick.net/instream/ad_status.js'; s.onload = () => resolve(window.__adStatusFrom || (window.google_ad_status ? 'a copy' : 'none')); s.onerror = () => resolve('blocked'); document.head.append(s); })`);
+    assert(adStatus === 'a copy' || adStatus === 'blocked', 'Google’s ad status script in the embedded player: ' + adStatus);
   });
 
   await R.step('other sites are left alone', async () => {
@@ -218,10 +297,17 @@ try {
     } finally { await setSetting('privacy.adblock.cosmetic', true); }
   });
 
-  await R.step('with “Hide and skip YouTube ads” off, YouTube is left as it is', async () => {
+  await R.step('with “Block YouTube ads” off, YouTube is left as it is', async () => {
     await setSetting('privacy.adblock.youtubeSkip', false);
     try {
       await sleep(300);
+      await open('https://www.youtube.com/watch?v=data&off=1');
+      const seen = await until(() => t.guest('off=1', 'window.__seen && window.__seen.got && window.__seen'), 10000, 'the page’s data');
+      assert(seen.inline.includes('adPlacements') && seen.got.player.includes('adSlots') && seen.check === 'told on' && seen.abnormal === 'told', 'changed: ' + JSON.stringify(seen));
+      // (and YouTube's service worker answers for its pages again)
+      await open('https://www.youtube.com/watch?v=sw&off=2');
+      const sw = await until(() => t.guest('off=2', 'window.__seen && window.__seen.got && ({ inline: window.__seen.inline, controlled: !!navigator.serviceWorker.controller })'), 10000, 'the page’s data');
+      assert(sw.controlled && sw.inline.includes('adPlacements'), 'past the service worker: ' + JSON.stringify(sw));
       await open('https://www.youtube.com/watch?v=f6&mode=stitched&skip=0');
       await until(() => t.guest('v=f6&', 'document.getElementById("v").duration > 0'), 5000, 'the stream');
       await sleep(1000);

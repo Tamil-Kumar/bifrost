@@ -14,13 +14,17 @@ const { EventEmitter } = require('node:events');
 const ctx = require('./context');
 const DomainList = require('./domain-list');
 
-// YouTube. Its pages get no page scripts from the lists unless you ask for them (privacy.adblock.youtubeFilters):
-// with them YouTube can stop loading at its grey placeholders, so by default its own requests are left alone,
-// only other sites' ads and trackers on it are blocked, and its ads are dealt with in the page instead
-// (preload/adblock.js: video ads covered and skipped, the ads in its pages hidden, ads taken out of Shorts).
+// YouTube. Nothing it asks for is blocked on YouTube (its own requests, and those to Google's ad servers its ads
+// use): a request of its that fails tells it you block its ads. Its ads are taken out of what it sends instead,
+// before its page sees it (youtube-ads.js, privacy.adblock.youtubeSkip), and its pages get none of the lists'
+// page scripts (only some of uBlock Origin's for YouTube work in this engine, and half of them gives you away;
+// see adblock-worker.js); the ads in its pages are hidden, and one that gets through is skipped in the page
+// (preload/adblock.js). Other sites' ads and trackers on it are blocked as anywhere else. A YouTube player
+// embedded in another site has its own requests left alone, and Google's ad servers blocked as on that site.
 // The tests point www.youtube.com at a local stand-in (tests/e2e/youtube.mjs).
 const YT_SITE = /(^|\.)(youtube\.com|youtube-nocookie\.com|youtubekids\.com)$/i;
 const YT_OWN_URL = /^(https?|wss?):\/\/([^/?#@]*\.)?(youtube\.com|youtube-nocookie\.com|youtubekids\.com|googlevideo\.com|ytimg\.com|ggpht\.com)(:\d+)?([/?#]|$)/i;
+const YT_ADS_URL = /^(https?|wss?):\/\/([^/?#@]*\.)?(doubleclick\.net|googlesyndication\.com|googleadservices\.com|googletagservices\.com|google\.com|imasdk\.googleapis\.com)(:\d+)?([/?#]|$)/i;
 const isYouTube = (host) => !!host && YT_SITE.test(host);
 // (the tests make "a player stuck saying it's showing an ad" seconds instead of minutes)
 const YT_STUCK_MS = process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_YT_STUCK_MS) || 0 : 0;
@@ -332,10 +336,10 @@ class AdBlock extends EventEmitter {
     let host = '';
     try { host = new URL(pageUrl).hostname; } catch { /* no page */ }
     if (this.allowlisted(host)) return;
-    // YouTube's own requests, on YouTube or from a YouTube player embedded in another page, unless you
-    // turned its filters on: its player expects its ads to load (they're skipped as they play).
-    if (YT_OWN_URL.test(d.url) && !this.settings.youtubeFilters) {
-      if (isYouTube(host)) return;
+    // YouTube's own requests, on YouTube or from a YouTube player embedded in another page, and on YouTube its
+    // ads' to Google: left alone (see the top).
+    if (isYouTube(host) && (YT_OWN_URL.test(d.url) || YT_ADS_URL.test(d.url))) return;
+    if (YT_OWN_URL.test(d.url)) {
       let frameHost = '';
       try { frameHost = d.frame ? hostOf(d.frame.url) : ''; } catch { /* frame gone */ }
       if (isYouTube(frameHost)) return;
@@ -465,8 +469,8 @@ class AdBlock extends EventEmitter {
     const { Request } = blockerModule();
     const req = Request.fromRawDetails({ url, type: 'mainFrame' });
     const hostname = req.hostname || '', domain = req.domain || hostname;
-    // On YouTube scriptlets only if you turned them on.
-    const scriptlets = first && (!(ytHere || isYouTube(host)) || !!s.youtubeFilters);
+    // None of the lists' page scripts on YouTube.
+    const scriptlets = first && !(ytHere || isYouTube(host));
     // The first answer for a site (its own rules and scriptlets) is the same every time: keep it a minute.
     const cacheKey = first ? [isTop ? 'T' : 'F', hostname, s.cosmetic ? 1 : 0, scriptlets ? 1 : 0, youtube ? 1 : 0].join('|') : null;
     if (cacheKey) {

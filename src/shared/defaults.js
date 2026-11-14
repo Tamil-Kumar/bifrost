@@ -274,8 +274,7 @@
       adblock: {
         enabled: true,
         cosmetic: true,
-        youtubeSkip: true,           // YouTube's ads: video ads covered and skipped, its pages' ads hidden, ads out of Shorts
-        youtubeFilters: false,       // on YouTube, the lists' page scripts and blocking of YouTube's own ad requests (can stop YouTube loading)
+        youtubeSkip: true,           // YouTube's ads: taken out of what it sends (main/youtube-ads.js), any that get through skipped, its pages' ads hidden
         // domains: HaGeZi's DNS blocklists (Ultimate and the rest), whole domains (main/domain-list.js)
         lists: { ads: true, tracking: true, annoyances: false, cookieNotices: false, domains: true },
         customFilters: '',
