@@ -161,18 +161,20 @@ const OVER_FULLSCREEN = new Set(['muteTab', 'zoomIn', 'zoomOut', 'zoomReset', 'p
 // it was handled, which Electron never does), and as a key, the Back key itself or the Alt+Left a mouse's own
 // software sends for its button (from the page when it didn't use it, or from Bifrost when it has the
 // keyboard). One press, one step: back (or forward) again by these within moments of the first is the same
-// press. (A key held down repeats, a step each time; the toolbar's buttons, a swipe and the launcher don't come
-// through here.)
+// press. Moments by when each happened (args.at, where it came from), not by when this window got to it: just
+// after going back it can be busy with the page that's coming for longer than that. A key's repeats are no
+// different (a mouse's software can hold Alt+Left down as long as the button is). (The toolbar's buttons, a
+// swipe and the launcher don't come through here: each of those is a step.)
 const PRESS_MS = 400;
 let press = { id: '', at: -Infinity };
 function duplicateNav(id, args) {
   if (id !== 'back' && id !== 'forward') return false;
   const viaSys = !!(args && args.source === 'mouse');
   const viaKey = !!(args && (args.key || args.source === 'key'));
-  if ((!viaSys && !viaKey) || (args && args.repeat)) return false;
-  const now = performance.now();
-  if (press.id === id && now - press.at < PRESS_MS) return true;
-  press = { id, at: now };
+  if (!viaSys && !viaKey) return false;
+  const at = args && typeof args.at === 'number' && Number.isFinite(args.at) ? args.at : Date.now();
+  if (press.id === id && Math.abs(at - press.at) < PRESS_MS) return true;
+  press = { id, at };
   return false;
 }
 

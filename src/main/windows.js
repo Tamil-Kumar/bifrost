@@ -205,8 +205,9 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
   win.on('leave-html-full-screen', () => ctl.send('html-fullscreen', false));
   // The mouse's back and forward buttons (and the Back/Forward keys some keyboards have), as in any browser.
   win.on('app-command', (e, command) => {
-    if (command === 'browser-backward') { e.preventDefault(); ctl.send('command', 'back', { source: 'mouse' }); }
-    else if (command === 'browser-forward') { e.preventDefault(); ctl.send('command', 'forward', { source: 'mouse' }); }
+    // (when it happened: the window may only get to it a while later, see commands.js's duplicateNav)
+    if (command === 'browser-backward') { e.preventDefault(); ctl.send('command', 'back', { source: 'mouse', at: Date.now() }); }
+    else if (command === 'browser-forward') { e.preventDefault(); ctl.send('command', 'forward', { source: 'mouse', at: Date.now() }); }
   });
 
   const saveBounds = debounce(() => {

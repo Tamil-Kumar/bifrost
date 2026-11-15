@@ -356,7 +356,7 @@ try {
     }
   });
 
-  await R.step('one press of the mouse’s Back button goes back one page, however many ways it reaches Bifrost (the system’s command twice, with the Back key, with Alt+Left from a mouse’s software); presses apart, and the toolbar’s button clicked twice, go a page each', async () => {
+  await R.step('one press of the mouse’s Back button goes back one page, however many ways it reaches Bifrost (the system’s command twice, with the Back key, with Alt+Left from a mouse’s software, with the window busy in between); presses apart, and the toolbar’s button clicked twice, go a page each', async () => {
     const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(100); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
     // (what Windows hands the window for the mouse's Back and Forward buttons)
     const system = (c) => t.main(({ BrowserWindow }, c) => { const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui')); w.emit('app-command', { preventDefault() {} }, c); return 1; }, c);
@@ -377,13 +377,24 @@ try {
     await settled(6, 'the command, the Back key, the command again');
     await x.keyDown('Alt_L'); await x.key('Left'); await x.keyUp('Alt_L'); await system('browser-backward');
     await settled(5, 'Alt+Left (a mouse’s software), and the command');
+    // The window busy (with the page that's coming, say) between the two: it gets to the second much later.
+    await t.main(async ({ BrowserWindow }) => {
+      const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui'));
+      w.emit('app-command', { preventDefault() {} }, 'browser-backward');
+      w.webContents.executeJavaScript('(() => { const end = performance.now() + 800; while (performance.now() < end); return 1; })()').catch(() => {});
+      await new Promise((r) => setTimeout(r, 60));
+      w.emit('app-command', { preventDefault() {} }, 'browser-backward');
+      return 1;
+    });
+    await sleep(900);
+    await settled(4, 'the command twice, the window busy in between');
     await system('browser-backward'); await sleep(700); await system('browser-backward');
-    await settled(3, 'two presses apart');
+    await settled(2, 'two presses apart');
     const back = await t.ui(() => { const el = [...document.querySelectorAll('[data-tb="back"]')].find((e) => e.offsetParent); const r = el.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
     await x.click(back.x, back.y); await sleep(150); await x.click(back.x, back.y);
-    await settled(1, 'the toolbar’s back button clicked twice');
+    await settled(0, 'the toolbar’s back button clicked twice');
     await system('browser-forward'); await system('browser-forward');
-    await settled(2, 'the system’s forward command twice at once');
+    await settled(1, 'the system’s forward command twice at once');
     await t.ui(() => window.__wbTest.command('closeTab'));
     await sleep(300);
   });

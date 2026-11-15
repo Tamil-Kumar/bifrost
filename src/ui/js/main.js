@@ -152,7 +152,7 @@ function onGuestMessage(tab, channel, args) {
     const k = args[1] && typeof args[1] === 'object' ? args[1] : {};
     if (tab !== activeTab()) T.selectTab(tab, { focus: false });
     // (the key it came from: see commands.js's duplicateNav)
-    Cmd.run(id, { wcId: tab.wcId, source: 'page', key: typeof k.key === 'string' ? k.key : undefined, repeat: !!k.repeat });
+    Cmd.run(id, { wcId: tab.wcId, source: 'page', key: typeof k.key === 'string' ? k.key : undefined, at: typeof k.at === 'number' ? k.at : undefined });
   } else if (channel === 'wb-open') {
     const o = args[0] || {};
     const url = String(o.url || '');
@@ -211,7 +211,7 @@ function onKey(e) {
   if (isEditable(e.target) && isEditingChord(e)) return;
   e.preventDefault();
   e.stopPropagation();
-  Cmd.run(id, { source: 'key', key: e.key, repeat: e.repeat, mods: { control: e.ctrlKey, alt: e.altKey, meta: e.metaKey, shift: e.shiftKey } });
+  Cmd.run(id, { source: 'key', key: e.key, at: Date.now(), mods: { control: e.ctrlKey, alt: e.altKey, meta: e.metaKey, shift: e.shiftKey } });
 }
 
 // ------------------------------------------------------------------ layout
