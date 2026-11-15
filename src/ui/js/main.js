@@ -149,8 +149,10 @@ async function handleRequest(method, args) {
 function onGuestMessage(tab, channel, args) {
   if (channel === 'wb-command') {
     const id = String(args[0] || '');
+    const k = args[1] && typeof args[1] === 'object' ? args[1] : {};
     if (tab !== activeTab()) T.selectTab(tab, { focus: false });
-    Cmd.run(id, { wcId: tab.wcId, source: 'page' });
+    // (the key it came from: see commands.js's duplicateNav)
+    Cmd.run(id, { wcId: tab.wcId, source: 'page', key: typeof k.key === 'string' ? k.key : undefined, repeat: !!k.repeat });
   } else if (channel === 'wb-open') {
     const o = args[0] || {};
     const url = String(o.url || '');
@@ -209,7 +211,7 @@ function onKey(e) {
   if (isEditable(e.target) && isEditingChord(e)) return;
   e.preventDefault();
   e.stopPropagation();
-  Cmd.run(id, { source: 'key', key: e.key, mods: { control: e.ctrlKey, alt: e.altKey, meta: e.metaKey, shift: e.shiftKey } });
+  Cmd.run(id, { source: 'key', key: e.key, repeat: e.repeat, mods: { control: e.ctrlKey, alt: e.altKey, meta: e.metaKey, shift: e.shiftKey } });
 }
 
 // ------------------------------------------------------------------ layout

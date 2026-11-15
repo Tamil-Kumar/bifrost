@@ -156,17 +156,23 @@ function runVim(a) {
 // (Switching tabs takes the page out of full screen by itself, see views.js.)
 const OVER_FULLSCREEN = new Set(['muteTab', 'zoomIn', 'zoomOut', 'zoomReset', 'pictureInPicture', 'toggleAnimations', 'toggleVim', 'copyUrl', 'cycleTheme', 'sleepBackgroundTabs', 'nextTab', 'prevTab', 'lastTab']);
 
-// A keyboard's Back and Forward keys reach Bifrost twice on Windows: as keys, and as the system's "browser
-// back/forward" command (which is also how the mouse's side buttons arrive). One press, one step.
-let lastNav = { id: '', sys: false, at: 0 };
+// One press of the mouse's Back or Forward button (or a keyboard's Back key) can reach Bifrost several times:
+// as the system's "browser back/forward" command, sometimes twice (Windows sends it on when a window doesn't say
+// it was handled, which Electron never does), and as a key, the Back key itself or the Alt+Left a mouse's own
+// software sends for its button (from the page when it didn't use it, or from Bifrost when it has the
+// keyboard). One press, one step: back (or forward) again by these within moments of the first is the same
+// press. (A key held down repeats, a step each time; the toolbar's buttons, a swipe and the launcher don't come
+// through here.)
+const PRESS_MS = 400;
+let press = { id: '', at: -Infinity };
 function duplicateNav(id, args) {
   if (id !== 'back' && id !== 'forward') return false;
-  const viaKey = /^Browser(Back|Forward)$/.test((args && args.key) || '');
   const viaSys = !!(args && args.source === 'mouse');
-  if (!viaKey && !viaSys) return false;
+  const viaKey = !!(args && (args.key || args.source === 'key'));
+  if ((!viaSys && !viaKey) || (args && args.repeat)) return false;
   const now = performance.now();
-  if (lastNav.id === id && lastNav.sys !== viaSys && now - lastNav.at < 400) { lastNav = { id: '', sys: false, at: 0 }; return true; }
-  lastNav = { id, sys: viaSys, at: now };
+  if (press.id === id && now - press.at < PRESS_MS) return true;
+  press = { id, at: now };
   return false;
 }
 

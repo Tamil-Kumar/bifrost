@@ -356,6 +356,38 @@ try {
     }
   });
 
+  await R.step('one press of the mouse’s Back button goes back one page, however many ways it reaches Bifrost (the system’s command twice, with the Back key, with Alt+Left from a mouse’s software); presses apart, and the toolbar’s button clicked twice, go a page each', async () => {
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(100); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
+    // (what Windows hands the window for the mouse's Back and Forward buttons)
+    const system = (c) => t.main(({ BrowserWindow }, c) => { const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui')); w.emit('app-command', { preventDefault() {} }, c); return 1; }, c);
+    await open(site.url + '/b.html?h=0', false);
+    const wcId = await until(() => t.ui(() => { const S = window.__wbTest.state; const ws = S.workspaces.find((w) => w.id === S.activeWorkspaceId); const tb = S.tabs.find((y) => y.id === ws.activeTabId); return tb && tb.url.includes('h=0') && tb.wcId; }), 6000, 'the tab');
+    for (let i = 1; i <= 8; i++) {
+      await sleep(150);
+      await until(() => t.main(({ webContents }, [id, u]) => webContents.fromId(id).loadURL(u).then(() => true, () => false), [wcId, site.url + '/b.html?h=' + i]), 6000, 'page ' + i);
+    }
+    const at = () => t.main(({ webContents }, id) => webContents.fromId(id).navigationHistory.getActiveIndex(), wcId);
+    const settled = async (want, what) => { await sleep(700); const i = await at(); assert(i === want, what + ': page ' + i + ', not ' + want); };
+    assert(await at() === 8, 'the tab’s history isn’t as set up: ' + await at());
+    await x.click(900, 600);   // (the keyboard on the page)
+    await sleep(200);
+    await system('browser-backward'); await system('browser-backward');
+    await settled(7, 'the system’s command twice at once');
+    await system('browser-backward'); await x.key('XF86Back'); await system('browser-backward');
+    await settled(6, 'the command, the Back key, the command again');
+    await x.keyDown('Alt_L'); await x.key('Left'); await x.keyUp('Alt_L'); await system('browser-backward');
+    await settled(5, 'Alt+Left (a mouse’s software), and the command');
+    await system('browser-backward'); await sleep(700); await system('browser-backward');
+    await settled(3, 'two presses apart');
+    const back = await t.ui(() => { const el = [...document.querySelectorAll('[data-tb="back"]')].find((e) => e.offsetParent); const r = el.getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }; });
+    await x.click(back.x, back.y); await sleep(150); await x.click(back.x, back.y);
+    await settled(1, 'the toolbar’s back button clicked twice');
+    await system('browser-forward'); await system('browser-forward');
+    await settled(2, 'the system’s forward command twice at once');
+    await t.ui(() => window.__wbTest.command('closeTab'));
+    await sleep(300);
+  });
+
   await R.step('Vim keys: off by default; on, j scrolls; on an excluded site (YouTube), keys go to the page', async () => {
     const trace = [];
     const scrollAfterJ = async () => {

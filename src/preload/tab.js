@@ -455,7 +455,7 @@ function setupKeys() {
     if (!e.isTrusted || !cfg || e.isComposing) return;
     const hit = (cfg.shortcuts || []).find((s) => sameChord(s.chord, chordOf(e)));
     if (!hit) return;
-    setTimeout(() => { if (!e.defaultPrevented) toHost('wb-command', hit.id); }, 0);
+    setTimeout(() => { if (!e.defaultPrevented) toHost('wb-command', hit.id, { key: e.key, repeat: e.repeat }); }, 0);
   }, false);
 
   // ------------------------------------------------------------------ vim

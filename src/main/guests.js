@@ -26,7 +26,7 @@ function forwardModifier(ctl, input) {
   if (!MODIFIERS.has(input.key) || input.isAutoRepeat || (input.type !== 'keyDown' && input.type !== 'keyUp')) return;
   ctl.send('modifier-key', { key: input.key, down: input.type === 'keyDown' });
 }
-const keyInfo = (input) => ({ key: input.key, mods: { control: !!input.control, alt: !!input.alt, meta: !!input.meta, shift: !!input.shift } });
+const keyInfo = (input) => ({ key: input.key, repeat: !!input.isAutoRepeat, mods: { control: !!input.control, alt: !!input.alt, meta: !!input.meta, shift: !!input.shift } });
 // Ctrl+Tab with its list of tabs (tabs.ctrlTabMenu) stays on this page until Ctrl comes up, which it has to hear:
 // Chromium ignores a page's key-ups until its next key-down once a shortcut was taken from it, so a repeat
 // key-down of the keys still held (what holding a key sends anyway) goes in right after (the UI does the same,
