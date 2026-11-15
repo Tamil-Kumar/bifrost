@@ -18,6 +18,9 @@ const site = await startSite(undefined, { routes: logged({
   '/frame.html': html('<p>frame</p>', { title: 'Frame' }),
   '/opener.html': html('<button id=b style="font-size:30px;padding:30px" onclick="window.open(\'http://phish.example.net/login.html\', \'w\', \'width=480,height=520\')">Sign in</button>', { title: 'Opener' }),
   '/dl.html': html('<a id=d href="http://files.example.org/payload.exe" download style="font-size:28px">Get the file</a>', { title: 'Downloads' }),
+  // What a page reports as its browser, what its own request said, and what a request it makes says.
+  '/ua.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>User agent</title><script>window.__ua = { nav: navigator.userAgent, doc: ${JSON.stringify(req.headers['user-agent'] || '')} }; fetch('/ua-echo').then((r) => r.text()).then((t) => { window.__ua.sub = t; });</script><p>User agent</p>`); },
+  '/ua-echo': (req, res) => { res.writeHead(200, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(req.headers['user-agent'] || ''); },
   '/payload.exe': (req, res) => { res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename=payload.exe' }); res.end('MZ not really'); },
   match: (req) => { seen.push(String(req.headers.host || '').replace(/:\d+$/, '') + req.url); return false; },
 }) });
@@ -94,6 +97,21 @@ try {
   });
 
   // ------------------------------------------------------------------------------------ dangerous sites
+  await R.step('a site with a user agent of its own (Settings → Advanced): its page reports it from its first script, its own request and the requests it makes carry it; the next site in the same tab is back to Bifrost’s', async () => {
+    const were = await t.main(() => global.__bifrost.settings.get('advanced.siteUserAgents'));
+    await t.main((_, r) => global.__bifrost.settings.set('advanced.siteUserAgents', r), [...(were || []), { host: 'fr.example.com', ua: 'firefox' }]);
+    try {
+      await open('http://fr.example.com/ua.html');
+      const own = await until(() => t.guest('fr.example.com/ua.html', 'window.__ua && window.__ua.sub && window.__ua'), 6000, 'the site’s page');
+      assert(/Firefox\//.test(own.nav) && own.doc === own.nav && own.sub === own.nav, 'its own user agent: ' + JSON.stringify(own));
+      await t.main(({ webContents }) => { webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().includes('fr.example.com/ua.html')).loadURL('http://en.example.com/ua.html'); });
+      const next = await until(() => t.guest('en.example.com/ua.html', 'window.__ua && window.__ua.sub && window.__ua'), 6000, 'the next site’s page');
+      assert(/Chrome\//.test(next.nav) && !/Firefox/.test(next.nav) && next.doc === next.nav && next.sub === next.nav, 'the next site: ' + JSON.stringify(next));
+    } finally {
+      await t.main((_, r) => global.__bifrost.settings.set('advanced.siteUserAgents', r), were);
+    }
+  });
+
   await R.step('a phishing page never loads: the tab warns instead, and Back to safety goes back', async () => {
     await go(site.url + '/a.html');
     await until(async () => (await active()).url.endsWith('/a.html'), 5000, 'the first page');

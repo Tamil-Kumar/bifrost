@@ -12,7 +12,7 @@ your computers through a cloud folder, and a lot of settings — every animation
 ```
 src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads,
                 ad blocker (adblock.js; domain-list.js: HaGeZi's lists and what keeps them from breaking
-                sites; youtube-ads.js: YouTube's ads taken out of what it sends, each tab's answers held
+                sites; youtube-ads.js: YouTube's ads taken out of what it sends, a YouTube tab's answers held
                 through its DevTools protocol session, tab-debugger.js, and youtube-edit.js: what becomes of
                 them), dangerous-site warnings (safety.js), extensions (extensions/), imports from
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
@@ -20,14 +20,16 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
                 websites, your userstyles, Catppuccin's in your theme; less-builder.js: userstyles written in
                 LESS, built in a worker, less-worker.js, and the files they import; web-theme.js: their color
-                scheme, and Chromium's dark mode, per tab, and the sites whose own dark theme is partly white)
+                scheme, and Chromium's dark mode, per tab, and the sites whose own dark theme is partly white),
+                timing.js (when each part of starting up happened, for tests/bench)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
                 adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
 src/ui          the browser window (bifrost://ui): browser.html, browser.css, js/
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
-src/shared      defaults.js (every setting and command), themes.js, engine.js (launcher ranking),
+src/shared      defaults.js (every setting and command), themes.js (the themes, and the sidebar's and
+                toolbar's colors with "Match the page"), engine.js (launcher ranking),
                 launcher-settings.js (the launcher's settings files, Waypoint's included, and its keys),
                 google-accounts.js (which pages get which Google account, and Google's list of your accounts),
                 usercss.js (userstyles: their header and variables, which pages each part is for, Stylus backups),
@@ -40,7 +42,8 @@ assets          icons, bundled filter lists (adblock/: domains.txt.gz is HaGeZi'
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
                 installer stubs, and the touchpad watcher, touchpad.c; built with llvm-mingw)
 tests           e2e/ (Playwright + Electron under Xvfb, real pointer and keys through XTest), setup/,
-                unit/, site/ (local test pages), fixtures/
+                unit/, site/ (local test pages), fixtures/, bench/ (how long starting up and loading a
+                page take)
 ```
 
 ## Running
@@ -61,7 +64,7 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
 task manager), `behavior` (settings that change behavior, the Launcher section's included, how long the downloads box stays (with the real pointer: what holds it open, and its close button), one press of the mouse's Back button one page back however many ways it arrives (and with the window busy in between), links opened in a new tab in front or behind; the settings page opening with what
-you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button), `everyday` (video, full screen and what shows
+you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button; "Match the page": a dark page's color taken as it is, a bright one softened next to a dark theme, exactly the page's, or the theme's shade tinted, with text that reads on each), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
 questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar; its buttons and
@@ -72,9 +75,11 @@ usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures` (tw
 either side, and turning back taking it out at once; going only once the fingers lift, said by the touchpad watcher, played here by
 tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; coasting; the swipes that
 don't count; settings), `hidpi` (a 150% display:
-menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings),
+menus open at the pointer, things are where they're drawn), `web` (translation, dangerous-site warnings, a
+site's own user agent in what's sent and what its pages read),
 `passwords` (Bitwarden against a local stand-in server; needs the extension in ~/cache/exts/bitwarden),
-`youtube` (YouTube's ads against a local stand-in for youtube.com: taken out of what it sends (a watch page's
+`youtube` (YouTube's ads against a local stand-in for youtube.com: only YouTube's tabs held (a tab sent on to
+YouTube by another site too), taken out of what it sends (a watch page's
 player data, the player's answers, a watch page asked for) with nothing else changed and its cookies set, the
 player's check for a video without ads passing, nothing it asks for blocked (Google's ad status script) while
 other sites still are, its "abnormality" callback and 17-second wait quiet and looking untouched, its service
@@ -96,7 +101,7 @@ its sign-in, the others signed in to again), `webstyles`
 (dark mode for websites against local stand-in sites, read off the screen: turned on in Settings and in open
 tabs at once, a site's own dark theme, per site with Alt+Shift+A and the info popover, Alt+Shift+D, a site
 whose own dark theme is partly white darkened by Bifrost (remembered, listed in Settings, forgotten there), a
-site you choose Bifrost's dark mode for, brightness and sepia on the top page only; your styles installed from a link, there from the first paint and through a
+site you choose Bifrost's dark mode for, brightness and sepia on the top page only; your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
 link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
 Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be
@@ -111,7 +116,7 @@ side panel's website; a page's own notifications, and the ones a site shows thro
 the page or the worker, really shown: Bifrost runs on a stand-in for libnotify, tests/fixtures/fake-libnotify.c,
 built with gcc, that writes them down and clicks or closes them; clicks bringing the site's tab to the front
 and reaching its worker, also after the worker has stopped or the tab has gone to sleep; tags,
-getNotifications(), blocked sites). The Windows setup, end to end with PowerShell and Wine:
+getNotifications(), blocked sites, the permission as a page and a frame in it read it). The Windows setup, end to end with PowerShell and Wine:
 `sh tests/setup/setup-test.sh`. Unit tests: `node tests/unit/<name>.test.mjs` (`sync-merge` and
 `sync-engine` cover sync's merging and its handling of broken files and missing folders, `google-accounts`
 reading Google's list of your accounts (both its forms) and which pages get which account, `usercss` userstyles'
@@ -122,12 +127,28 @@ player's check), and which answers those are, `catppuccin` a theme as Catppuccin
 Catppuccin's library with them in it, `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
-what local pages may load, `blend` the colors of "Match the page", `ranking` the launcher's ranking (what you
+what local pages may load, `blend` the colors of "Match the page" (on every page color with every theme: text
+that reads on the bars, a bright or vivid color calmed, "Tint my theme" and "Exactly the page's"), `ui-preload`
+that browser.html preloads every script the window's UI imports, `ranking` the launcher's ranking (what you
 use and open comes first), `launcher-settings` that every setting
 of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and
 what Enter and the launcher's other keys do; `side-bar` the side bar's order, yours or the usual one;
 `touchpad` the touchpad watcher, counting fingers in made-up touchpad reports and running the program
 itself, both under Wine; it's skipped without llvm-mingw and Wine).
+
+How fast (medians over several runs; compare two versions one after the other on the same machine, the
+numbers move with what else it's doing):
+
+```
+xvfb-run -a node tests/bench/startup.mjs [runs] [--fresh] [--history=<pages>] [--tabs=<n>] [--each] [--root=<another checkout>]
+xvfb-run -a node tests/bench/pageload.mjs [runs] [--only=default,bare] [--no-ads] [--root=<another checkout>]
+```
+
+`startup` starts Bifrost with a profile that's been used (its ad blocker's lists built and kept) and prints
+when the window was shown, when its UI had loaded and when the first page was in, then the marks Bifrost
+keeps itself (src/main/timing.js; `BIFROST_TIMING=1` prints them on any start). `pageload` loads a local page
+of about 200 requests over five origins in a tab, as Bifrost comes, with the ad blocker off, and with nothing
+of Bifrost's on the requests (the floor). `--root` measures another checkout (an older version) the same way.
 
 ## Releases
 

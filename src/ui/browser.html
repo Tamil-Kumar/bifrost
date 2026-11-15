@@ -3,6 +3,41 @@
 <head>
   <meta charset="utf-8">
   <title>Bifrost</title>
+  <!-- All the window is made of, asked for at once as it opens, rather than each file after the one that names
+       it (the modules js/main.js imports, however deep: tests/unit/ui-preload.test.mjs keeps the list true). -->
+  <link rel="preload" as="style" href="/_/common/base.css">
+  <link rel="modulepreload" href="/js/ambient.js">
+  <link rel="modulepreload" href="/js/appmenu.js">
+  <link rel="modulepreload" href="/js/bookmarks.js">
+  <link rel="modulepreload" href="/js/commands.js">
+  <link rel="modulepreload" href="/js/contextmenu.js">
+  <link rel="modulepreload" href="/js/downloads.js">
+  <link rel="modulepreload" href="/js/extensions.js">
+  <link rel="modulepreload" href="/js/flyouts.js">
+  <link rel="modulepreload" href="/js/siteinfo.js">
+  <link rel="modulepreload" href="/js/swipe.js">
+  <link rel="modulepreload" href="/js/theme.js">
+  <link rel="modulepreload" href="/js/workspaces.js">
+  <link rel="modulepreload" href="/js/findbar.js">
+  <link rel="modulepreload" href="/js/launcher.js">
+  <link rel="modulepreload" href="/js/panels.js">
+  <link rel="modulepreload" href="/js/tabstrip.js">
+  <link rel="modulepreload" href="/js/tabswitch.js">
+  <link rel="modulepreload" href="/js/toolbar.js">
+  <link rel="modulepreload" href="/_/common/dialogs.js">
+  <link rel="modulepreload" href="/_/common/menus.js">
+  <link rel="modulepreload" href="/_/common/translate.js">
+  <link rel="modulepreload" href="/js/omnibox.js">
+  <link rel="modulepreload" href="/js/prompts.js">
+  <link rel="modulepreload" href="/js/views.js">
+  <link rel="modulepreload" href="/_/common/icons.js">
+  <link rel="modulepreload" href="/_/common/util.js">
+  <link rel="modulepreload" href="/js/menus.js">
+  <link rel="modulepreload" href="/js/results.js">
+  <link rel="modulepreload" href="/js/icons.js">
+  <link rel="modulepreload" href="/js/state.js">
+  <link rel="modulepreload" href="/js/tabs.js">
+  <link rel="modulepreload" href="/js/util.js">
   <link rel="stylesheet" href="browser.css">
   <script src="/_/shared/themes.js"></script>
   <script src="/_/shared/defaults.js"></script>

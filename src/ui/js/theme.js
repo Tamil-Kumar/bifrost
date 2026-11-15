@@ -148,17 +148,21 @@ export function applyBlend() {
   root.classList.toggle('see-through', see);
   root.classList.toggle('frosted', see && a.blend === 'blur');
   applyNtpBackground(see && isNewTab(t.url));
-  const key = tint + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2;
+  // (a loud page's color is calmed for the bars, as Look & feel → "Bright and vivid pages" says; behind a
+  // blurred picture of the page it's the picture that shows, so the color is the page's)
+  const tone = a.blend === 'blur' ? 'exact' : ['soft', 'exact', 'theme'].includes(a.blendTone) ? a.blendTone : 'soft';
+  const key = tint + '|' + tone + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2;
   if (key === blendKey) { syncCaption(); return; }
   blendKey = key;
-  blendVars = tint ? window.WBThemes.blendVars(tint, theme) : null;
+  blendVars = tint ? window.WBThemes.blendVars(tint, theme, tone) : null;
   let style = document.getElementById('blend-vars');
   if (!style) { style = document.createElement('style'); style.id = 'blend-vars'; document.head.appendChild(style); }
-  const decl = blendVars ? Object.entries(blendVars).filter(([k]) => k.startsWith('--')).map(([k, v]) => `${k}: ${v};`).join(' ') : '';
+  const decl = blendVars ? Object.entries(blendVars).filter(([k]) => k.startsWith('--') && k !== '--page-tint' && k !== '--bar-tint').map(([k, v]) => `${k}: ${v};`).join(' ') : '';
   // (from one page color to the next on the same tab; never from none: the window behind would show)
   root.classList.toggle('blend-fade', !!blendVars && sameTab && root.classList.contains('blend'));
   // (on the bars only: menus, dialogs and side panels keep the theme)
-  style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; }\n:root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { ${decl} }` : '';
+  // (--page-tint: the page's own color, behind the page; --bar-tint: the bars', around it)
+  style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; --bar-tint: ${blendVars['--bar-tint']}; }\n:root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { ${decl} }` : '';
   root.classList.toggle('blend', !!blendVars);
   root.dataset.blendScheme = blendVars ? (blendVars.dark ? 'dark' : 'light') : '';
   syncCaption();

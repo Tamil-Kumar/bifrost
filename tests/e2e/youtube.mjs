@@ -79,6 +79,8 @@ const port = yt.address().port;
 const site = await startSite(path.join(ROOT, 'tests', 'site'), { routes: {
   '/embedder.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Embedder</title><h1>A page with a YouTube video</h1><iframe width="700" height="420" src="https://www.youtube-nocookie.com/embed/abc?mode=stream&skip=0"></iframe>'); },
   '/plain.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Plain</title><p>Not YouTube</p>'); },
+  // Another site's link that sends you on to YouTube (a link shortener, a search result).
+  '/to-youtube': (req, res) => { res.writeHead(302, { location: 'https://www.youtube.com/watch?v=data&via=redirect' }); res.end(); },
 } });
 
 const NO_PROXY = { HTTPS_PROXY: '', https_proxy: '', HTTP_PROXY: '', http_proxy: '', ALL_PROXY: '', all_proxy: '', NO_PROXY: '*', no_proxy: '*' };
@@ -156,6 +158,24 @@ try {
     assert(seen.inline.join() === 'no_ads,playabilityStatus,responseContext,videoDetails', 'the data it starts with: ' + seen.inline.join());
     assert(seen.got.player.join() === 'no_ads,playabilityStatus,responseContext,streamingData,videoDetails' && seen.got.pbj.includes('no_ads') && !seen.got.pbj.includes('adSlots'), 'the player’s answers: ' + JSON.stringify(seen.got));
     assert(seen.check === 'passed' && seen.adStatus === 'Google', 'the check, the ad status: ' + JSON.stringify([seen.check, seen.adStatus]));
+  });
+
+  await R.step('only a tab on YouTube has its answers held (others’ requests go untouched by it): from the moment the tab goes to YouTube, by a link from another site that sends it on too, until the tab has left', async () => {
+    // (whether a tab's answers are held: main/youtube-ads.js)
+    const attached = (match) => t.main(({ webContents }, match) => { const wc = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.getType() === 'webview' && w.getURL().includes(match)); return wc ? global.__require('./youtube-ads').isOn(wc) : null; }, match);
+    assert(await attached('v=data') === true, 'the YouTube tab’s answers aren’t held');
+    assert(await attached('/plain.html') === false, 'a tab on another site has its answers held: ' + await attached('/plain.html'));
+    // Sent on to YouTube by another site: its ads are out all the same.
+    await open(site.url + '/to-youtube');
+    const seen = await until(() => t.guest('via=redirect', 'window.__seen && window.__seen.got && window.__seen'), 10000, 'the page, by way of another site');
+    assert(await attached('via=redirect') === true, 'sent on to YouTube: its answers aren’t held');
+    assert(seen.inline.join() === 'no_ads,playabilityStatus,responseContext,videoDetails' && seen.got.player.includes('no_ads') && seen.check === 'passed', 'sent on to YouTube: ' + JSON.stringify(seen));
+    // (the tab as after any link: YouTube's page, no error, nothing before it to go back to)
+    const tab = await t.ui(() => { const tb = window.__wbTest.state.tabs.find((x) => x.url.includes('via=redirect')); return tb ? { error: tb.error || null, back: !!tb.canGoBack, loading: !!tb.loading } : null; });
+    assert(tab && !tab.error && !tab.back, 'the tab sent on to YouTube: ' + JSON.stringify(tab));
+    // …and leaving YouTube ends it.
+    await t.main(({ webContents }, url) => webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().includes('via=redirect')).loadURL(url), site.url + '/plain.html?left');
+    await until(async () => (await attached('plain.html?left')) === false, 5000, 'the holding over after leaving YouTube');
   });
 
   await R.step('a video ad is covered and silent from the moment it starts, and run to its end (a stream of its own)', async () => {

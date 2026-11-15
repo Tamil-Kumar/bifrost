@@ -432,7 +432,7 @@ try {
     await set('keyboard.vim.enabled', false);
   });
 
-  await R.step('“Match the page”: the sidebar and toolbar take the page’s color, with text that reads on it; Bifrost’s own pages turn see-through to the window', async () => {
+  await R.step('“Match the page”: the sidebar and toolbar take the page’s color (a bright one softened, or exactly, or as a tint of the theme), with text that reads on it; Bifrost’s own pages turn see-through to the window', async () => {
     const rgb = (c) => (String(c).match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
     const light = (c) => { const [r, g, b] = rgb(c); return (r + g + b) / 3; };
     const look = () => t.ui(() => {
@@ -451,9 +451,26 @@ try {
     assert(l.shadow === 'none', 'no shadow between the page and the window: ' + l.shadow);
     await t.shot('behavior-blend-dark');
     await clickTab('/a.html');
-    l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(255, 247, 240)' ? v : null; }, 4000, 'the light page’s color');
+    // A bright page next to the dark theme: its color, calmed (a soft shade of it, not near-white), so the
+    // window doesn't glare and the bars' text reads; behind the page itself, the page's own color.
+    l = await until(async () => { const v = await look(); return v.blend && light(v.body) > 150 ? v : null; }, 4000, 'the light page’s color');
+    const [sr, , sb] = rgb(l.body);
+    assert(light(l.body) > 190 && light(l.body) < 232 && sr > sb, 'the bright page’s color, softened: ' + l.body);
     assert(light(l.tab) < 110 && (!l.ws || light(l.ws) < 110) && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
+    const behind = await t.ui(() => getComputedStyle(document.getElementById('stage')).backgroundColor);
+    assert(behind === 'rgb(255, 247, 240)', 'behind the page, the page’s own color: ' + behind);
     await t.shot('behavior-blend-light');
+    // "Bright and vivid pages" → "Exactly the page's": its color, whatever it is.
+    await set('appearance.blendTone', 'exact');
+    l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(255, 247, 240)' ? v : null; }, 4000, 'exactly the light page’s color');
+    assert(light(l.tab) < 110 && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
+    // → "Tint my theme": the bars as dark as the theme, with light text.
+    await set('appearance.blendTone', 'theme');
+    l = await until(async () => { const v = await look(); return v.blend && light(v.body) < 70 ? v : null; }, 4000, 'the theme’s shade, tinted');
+    assert(light(l.tab) > 170 && light(l.addr) > 150, 'light text on the theme’s shade: ' + JSON.stringify(l));
+    await t.shot('behavior-blend-theme');
+    await set('appearance.blendTone', 'soft');
+    await until(async () => { const v = await look(); return v.blend && light(v.body) > 190 && light(v.body) < 232; }, 4000, 'the softened color again');
     // Bifrost's own pages: see-through, sharing the window's background (the new tab page's glow too).
     const own = () => t.ui(() => ({ see: document.documentElement.classList.contains('see-through'), ntp: document.documentElement.dataset.ntpBg || '', stage: getComputedStyle(document.getElementById('stage')).backgroundColor }));
     await open('bifrost://settings/', false);

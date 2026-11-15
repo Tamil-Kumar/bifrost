@@ -1,6 +1,8 @@
 'use strict';
 // Bifrost browser — main process entry.
 const { app, session, BrowserWindow, Menu, nativeTheme } = require('electron');
+const timing = require('./timing');
+timing.mark('main');
 const path = require('node:path');
 const paths = require('./paths');
 const protocol = require('./protocol');
@@ -20,6 +22,7 @@ protocol.registerSchemes();
 const settingsMod = require('./settings');
 const settings = settingsMod.open(profile.dir);
 ctx.settings = settings;
+timing.mark('settings');
 if (!settings.get('advanced.hardwareAcceleration')) app.disableHardwareAcceleration();
 if (!settings.get('advanced.smoothScrolling')) app.commandLine.appendSwitch('disable-smooth-scrolling');
 if (process.platform === 'linux' && settings.get('advanced.waylandNative')) app.commandLine.appendSwitch('ozone-platform-hint', 'auto');
@@ -64,6 +67,7 @@ function start() {
   if (ctx.updater.applyPendingAtStartup()) { app.exit(0); return; }
 
   app.whenReady().then(async () => {
+    timing.mark('ready');
     Menu.setApplicationMenu(null);
     if (process.platform === 'win32') {
       app.setAppUserModelId('Bifrost.Browser');
@@ -71,71 +75,97 @@ function start() {
       // BifrostPortable: default-browser.js)
       setTimeout(() => require('./default-browser').registerAppId().catch((e) => console.warn('[notifications] not registered with Windows:', e.message)), 3000);
     }
-    // Widevine (protected content): starts installing or checking now; windows open once it's there, or
-    // after a few seconds at most.
+    // Widevine (protected content): starts installing or checking now; tabs start once it's there, or after
+    // a few seconds at most.
     const drm = require('./drm');
     drm.init();
     // Chromium's own DNS resolver (as in Chrome) instead of the system's one-at-a-time lookups, with secure
     // DNS used automatically when your DNS provider supports it.
     try { app.configureHostResolver({ enableBuiltInResolver: true, secureDnsMode: 'automatic' }); } catch (e) { console.warn('[dns]', e.message); }
 
+    // What a window needs to open: where it was and its tabs (the database, the saved session), Bifrost's own
+    // pages (bifrost://), and the answers its UI asks for (api.js; its parts are made here and started below).
     const db = require('./db').open(profile.dir);
     ctx.db = db;
+    timing.mark('db');
     ctx.registry = require('./registry');
     const { SessionStore } = require('./session-store');
     ctx.sessionStore = new SessionStore(profile.dir);
     const { Sync } = require('./sync');
     ctx.sync = new Sync();
-    try { ctx.sync.init(); } catch (e) { console.error('[sync] couldn’t start', e); }
     const { SearchService } = require('./search');
     ctx.search = new SearchService();
-    ctx.search.init();
     ctx.downloads = require('./downloads');
     ctx.windows = require('./windows');
-    require('./guests').init();
-    // (how many fingers are on the touchpad, for swipes: Windows' precision touchpads)
-    require('./touchpad').init(ctx);
-    // Dark mode for websites and your userstyles (before the tabs' color schemes: they ask it).
+    const guests = require('./guests');
     const { WebStyles } = require('./web-styles');
     ctx.webStyles = new WebStyles();
-    ctx.webStyles.init();
-    require('./web-theme').init();
-
+    const { AdBlock } = require('./adblock');
+    ctx.adblock = new AdBlock();
+    const { Safety } = require('./safety');
+    ctx.safety = new Safety();
+    const { GoogleAccounts } = require('./google-accounts');
+    ctx.googleAccounts = new GoogleAccounts();
+    const { Extensions } = require('./extensions');
+    ctx.extensions = new Extensions();
+    const sessions = require('./sessions');
+    ctx.setupBrowsingSession = (ses, opts) => sessions.setup(ses, opts);
     // The browser UI runs in the default session; pages run in persist:main (or private sessions).
     protocol.attach(session.defaultSession);
     protocol.setWallpaperGetter(() => settings.get('appearance.newTab.image'));
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(['fullscreen', 'clipboard-sanitized-write', 'clipboard-read'].includes(perm)));
+    ctx.mainSession = session.fromPartition('persist:main');
+    require('./api').register();
+    // Automated tests reach the main process's state through this (never set in normal use).
+    if (process.env.BIFROST_TEST === '1') { global.__bifrost = ctx; global.__require = require; }
+    timing.mark('made');
 
-    const { AdBlock } = require('./adblock');
-    ctx.adblock = new AdBlock();
+    // The window opens now, and its UI loads while the rest of Bifrost starts (a step at a time, so the
+    // window's own files are served in between). Its tabs wait for the rest (ctx.started, which the UI's first
+    // question waits for: api.js 'ui:init'): a page's requests go through the ad blocker and the rest from the
+    // very first one, and protected video needs Widevine there before its page starts.
+    let started;
+    ctx.started = new Promise((resolve) => { started = resolve; });
+    const urls = urlsFromArgv(process.argv);
+    restoreOrOpen(urls);
+    timing.mark('window');
+    const breathe = () => new Promise((resolve) => setImmediate(resolve));
+    await breathe();
+
+    try { ctx.sync.init(); } catch (e) { console.error('[sync] couldn’t start', e); }
+    ctx.search.init();
+    timing.mark('search');
+    guests.init();
+    // (how many fingers are on the touchpad, for swipes: Windows' precision touchpads)
+    require('./touchpad').init(ctx);
+    // Dark mode for websites and your userstyles (before the tabs' color schemes: they ask it).
+    ctx.webStyles.init();
+    require('./web-theme').init();
+    timing.mark('web-styles');
+    await breathe();
+
     ctx.adblock.init();
     // YouTube's ads, out of what it sends before its pages see it.
     require('./youtube-ads').init();
-    const { Safety } = require('./safety');
-    ctx.safety = new Safety();
     ctx.safety.init();
-    const { GoogleAccounts } = require('./google-accounts');
-    ctx.googleAccounts = new GoogleAccounts();
+    timing.mark('blockers');
+    await breathe();
 
-    ctx.mainSession = session.fromPartition('persist:main');
-    const sessions = require('./sessions');
-    ctx.setupBrowsingSession = (ses, opts) => sessions.setup(ses, opts);
-
-    const { Extensions } = require('./extensions');
-    ctx.extensions = new Extensions();
     sessions.setup(ctx.mainSession, { isPrivate: false });
     const extReady = ctx.extensions.init(ctx.mainSession);
-
-    require('./api').register();
     ctx.updater.init();
-    // Automated tests reach the main process's state through this (never set in normal use).
-    if (process.env.BIFROST_TEST === '1') { global.__bifrost = ctx; global.__require = require; }
-
-    const urls = urlsFromArgv(process.argv);
+    timing.mark('session');
+    // The ad blocker's lists, when they only have to be read back (built anew, which takes seconds, the
+    // window doesn't wait: the first pages' ads show, as before).
+    await ctx.adblock.whenRead();
+    timing.mark('lists');
+    // Widevine (protected content): there already unless this is the first start, or it's being updated.
     // (Automated tests run offline: they don't wait, unless they ask to.)
     await drm.waitBriefly(process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_DRM_WAIT_MS || 0) : 4000);
-    restoreOrOpen(urls);
+    timing.mark('started');
+    started();
     await extReady;
+    timing.mark('extensions-ready');
 
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) ctx.windows.create(); });
   }).catch((e) => {

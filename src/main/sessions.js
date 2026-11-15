@@ -80,6 +80,8 @@ function applyProxy(ses) {
 function refreshAll(changedPath) {
   const sessions = [ctx.mainSession, ...ctx.registry.list().filter((c) => c.isPrivate).map((c) => c.ses)].filter(Boolean);
   if (!changedPath || changedPath.startsWith('advanced')) { try { const { session } = require('electron'); applyProxy(session.fromPartition('bifrost-icons')); } catch { /* not ready */ } }
+  // (a site's user agent or the default one may have changed: tabs' requests ask again)
+  if (!changedPath || changedPath.startsWith('advanced')) ua.forgetTabs();
   for (const ses of sessions) {
     if (!changedPath || changedPath.startsWith('advanced')) {
       ses.setUserAgent(ua.defaultUA());

@@ -147,24 +147,102 @@
     return c;
   }
 
-  // "Match the page" (Look & feel → Sidebar and toolbar): the window around the page in the page's own
-  // color `tint`. Its surfaces come from that color; text and lines read on it (dark on a light page, light
-  // on a dark one), and the theme's accents are kept, made darker or lighter where they wouldn't show.
-  function blendVars(tint, t) {
+  // Colors as the eye takes them (OKLCH: lightness 0 to 1, how vivid from 0 (gray) up to about 0.3, and hue):
+  // what's needed to make a color calmer or darker without changing which color it is.
+  function toOklch(hex) {
+    const c = hexToRgb(hex);
+    if (!c) return null;
+    const [r, g, b] = c.map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
+    const A = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
+    const B = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+    return { L, C: Math.sqrt(A * A + B * B), h: Math.atan2(B, A) };
+  }
+  function oklabToRgb(L, A, B) {
+    const l = Math.pow(L + 0.3963377774 * A + 0.2158037573 * B, 3);
+    const m = Math.pow(L - 0.1055613458 * A - 0.0638541728 * B, 3);
+    const s = Math.pow(L - 0.0894841775 * A - 1.291485548 * B, 3);
+    return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s];
+  }
+  // (a color the screen can't show keeps its lightness and hue, and is as vivid as it can be)
+  function fromOklch(L, C, h) {
+    L = Math.max(0, Math.min(1, L));
+    const fits = (c) => oklabToRgb(L, c * Math.cos(h), c * Math.sin(h)).every((v) => v >= -0.0005 && v <= 1.0005);
+    let c = Math.max(0, C);
+    if (!fits(c)) { let lo = 0, hi = c; for (let i = 0; i < 18; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid; } c = lo; }
+    const rgb = oklabToRgb(L, c * Math.cos(h), c * Math.sin(h)).map((v) => { v = Math.max(0, Math.min(1, v)); return Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055)); });
+    return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+
+  // "Match the page" (Look & feel → Sidebar and toolbar): the color the sidebar and toolbar take from the page's
+  // own, `tint`. A calm page's color they take as it is. A loud one (bright white next to a dark theme, a neon
+  // yellow, a full red) would drown them: their tabs and buttons can't be read on it, whatever color the text
+  // is given, and a window all in it glares. How it's tamed, by Look & feel → "Bright and vivid pages":
+  //   soft (the usual)  as vivid as a pastel at most (a dark color, a little more); with a dark theme, no
+  //                     brighter than a light gray; and a color in the middle, on which neither black nor
+  //                     white text reads well (a full red, a mid blue), a darker shade of itself (a lighter
+  //                     one, with a light theme)
+  //   theme             the theme's own shade, tinted with the page's color: always as dark (or light) as the
+  //                     theme
+  //   exact             the page's color, whatever it is
+  const VIVID_MOST = 0.105, VIVID_DARK = 0.055, BRIGHT_MOST = 0.885, READS = 7, NEAR = 3;
+  const reads = (hex) => Math.max(contrast(hex, '#ffffff'), contrast(hex, '#000000'));
+  function barColor(tint, t, how) {
+    const c = toOklch(tint);
+    if (!c) return tint;
+    const dark = !t || t.dark !== false;
+    if (how === 'exact') return tint;
+    if (how === 'theme' && t && toOklch(t.mantle)) {
+      const m = toOklch(t.mantle);
+      // (a page with no color of its own, white or gray or black, leaves the theme's)
+      const w = Math.min(1, c.C / 0.045);
+      const toned = toOklch(fromOklch(m.L, Math.min(c.C, 0.075), c.h));
+      const ax = m.C * Math.cos(m.h), bx = m.C * Math.sin(m.h), ay = toned.C * Math.cos(toned.h), by = toned.C * Math.sin(toned.h);
+      const A = ax + (ay - ax) * w, B = bx + (by - bx) * w;
+      return fromOklch(m.L, Math.sqrt(A * A + B * B), Math.atan2(B, A));
+    }
+    // (a dark color doesn't glare, however deep it is: a navy, a forest green keep more of theirs)
+    const C = Math.min(c.C, VIVID_MOST + VIVID_DARK * Math.max(0, Math.min(1, (0.62 - c.L) / 0.2)));
+    let out = C < c.C ? fromOklch(c.L, C, c.h) : tint;
+    // In the middle: toward the theme's side until text reads on it (the other side, where that's a shade away:
+    // a navy stays a navy next to a light theme).
+    if (reads(out) < READS) {
+      const toward = (step) => { let L = c.L; for (let i = 1; i <= 60; i++) { L += step; const o = fromOklch(L, C, c.h); if (reads(o) >= READS) return { o, i }; } return null; };
+      const own = toward(dark ? -0.01 : 0.01), other = toward(dark ? 0.01 : -0.01);
+      const pick = other && other.i <= NEAR && (!own || own.i > other.i) ? other : own || other;
+      if (pick) out = pick.o;
+    }
+    if (dark && toOklch(out).L > BRIGHT_MOST) out = fromOklch(BRIGHT_MOST, C, c.h);
+    return out;
+  }
+
+  // …and the bars in that color: their surfaces come from it; text and lines read on it (dark on a light
+  // color, light on a dark one), each at least as clearly as it has to be, on the bar and on the fields and
+  // tabs in it; the theme's accents and its named colors (a warning's orange, a folder's yellow, a tab
+  // group's) are kept, made darker or lighter where they wouldn't show. `--page-tint` stays the page's own
+  // color, for what's behind the page itself.
+  function blendVars(tint, t, how) {
     if (!hexToRgb(tint)) return null;
-    const dark = contrast(tint, '#ffffff') >= contrast(tint, '#000000');
+    const bar = barColor(tint, t, how || 'soft');
+    const dark = contrast(bar, '#ffffff') >= contrast(bar, '#000000');
     const ink = dark ? '#ffffff' : '#000000';
-    const m = (k) => mix(tint, ink, k);
-    const base = dark ? m(0.1) : mix(tint, '#ffffff', 0.6);
-    const accent = readable(t.accent, tint, ink, 3);
-    const accent2 = readable(t.accent2 || t.accent, tint, ink, 3);
-    return {
-      '--page-tint': tint,
-      '--mantle': tint, '--chrome-low': tint,
-      '--crust': mix(tint, '#000000', dark ? 0.25 : 0.06),
+    const m = (k) => mix(bar, ink, k);
+    const base = dark ? m(0.1) : mix(bar, '#ffffff', 0.6);
+    // (what text sits on at worst: the bar itself, or a field or a hovered tab in it, a shade toward the ink)
+    const field = m(dark ? 0.2 : 0.16);
+    const least = (color, ratio) => { const a = readable(color, bar, ink, ratio); return contrast(a, field) >= ratio - 0.5 ? a : readable(a, field, ink, ratio - 0.5); };
+    const accent = least(t.accent, 3);
+    const accent2 = least(t.accent2 || t.accent, 3);
+    const vars = {
+      '--page-tint': tint, '--bar-tint': bar,
+      '--mantle': bar, '--chrome-low': bar,
+      '--crust': mix(bar, '#000000', dark ? 0.25 : 0.06),
       '--base': base,
       '--s0': m(dark ? 0.13 : 0.11), '--s1': m(dark ? 0.2 : 0.16), '--s2': m(dark ? 0.27 : 0.22),
-      '--overlay': m(dark ? 0.46 : 0.45), '--subtext': m(dark ? 0.7 : 0.64), '--text': m(dark ? 0.92 : 0.86),
+      '--overlay': least(m(dark ? 0.46 : 0.45), 3), '--subtext': least(m(dark ? 0.7 : 0.64), 4.5), '--text': least(m(dark ? 0.92 : 0.86), 7),
       '--hover': m(dark ? 0.07 : 0.06), '--active': m(dark ? 0.12 : 0.1),
       '--surface-hi': m(dark ? 0.035 : 0.02),
       '--border-tint': m(dark ? 0.14 : 0.12),
@@ -177,7 +255,9 @@
       '--accent-glow': rgba(accent, dark ? 0.38 : 0.28),
       dark,
     };
+    for (const k of ['red', 'peach', 'yellow', 'green', 'teal', 'blue', 'pink', 'lavender']) if (hexToRgb(t[k])) vars['--' + k] = least(t[k], 3.5);
+    return vars;
   }
 
-  return { THEMES, ACCENT_KEYS, resolve, cssVars, mix, hexToRgb, rgba, luminance, contrast, blendVars };
+  return { THEMES, ACCENT_KEYS, resolve, cssVars, mix, hexToRgb, rgba, luminance, contrast, toOklch, fromOklch, barColor, blendVars };
 });

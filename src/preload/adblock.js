@@ -2,10 +2,10 @@
 // Bifrost — ad blocker element hiding and page scripts ("scriptlets"), in every frame of every page.
 //
 // Ghostery's own Electron preload asks for these over an async IPC round-trip, which lands after the page's
-// scripts have started: too late for the scriptlets that defuse ads (YouTube's, for one), and only in the
-// top frame. Here each frame asks synchronously as it starts, applies the styles and runs the scriptlets in
-// the page before any of the page's own scripts, then watches the DOM for new classes and ids as Ghostery's
-// preload does.
+// scripts have started: too late for the scriptlets that defuse ads, and only in the top frame. Here a page
+// waits for its own as it starts (with the rest of what it starts with, in one question to the main process),
+// applies the styles and runs the scriptlets before any of the page's own scripts; frames inside it ask
+// without waiting; and each then watches the DOM for new classes and ids as Ghostery's preload does.
 //
 // The DOM watcher below (between the two lines of dashes) is Ghostery's adblocker-content package, copied
 // from src/vendor/adblocker/preload.js — Copyright (c) 2017-present Ghostery GmbH, MPL-2.0.
@@ -453,8 +453,13 @@ function quietDetection() {
   // The page itself waits for its rules (its scriptlets must run before its own scripts); frames inside it
   // don't hold anything up and apply theirs when they arrive.
   if (isTop) {
-    let first = null;
-    try { first = ipcRenderer.sendSync('bifrost-adblock:start', href, true); } catch { /* no blocker */ }
+    // (with what else the page starts with, in one question: see pageStart in tab.js, which shares the answer)
+    let start = globalThis.__bifrostStart && globalThis.__bifrostStart.href === href ? globalThis.__bifrostStart.data : undefined;
+    if (start === undefined) {
+      try { start = ipcRenderer.sendSync('tab:start', href); } catch { start = null; }
+      try { globalThis.__bifrostStart = { href, data: start }; } catch { /* asked again */ }
+    }
+    const first = start && start.adblock;
     if (first) apply(first, href, true);
   } else {
     ipcRenderer.invoke('bifrost-adblock:start-frame', href).then((first) => { if (first) apply(first, href, false); }).catch(() => {});

@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const ctx = require('./context');
 const guests = require('./guests');
 const themes = require('../shared/themes');
+const timing = require('./timing');
 
 const PRELOAD_UI = path.join(__dirname, '..', 'preload', 'ui.js');
 const PRELOAD_TAB = path.join(__dirname, '..', 'preload', 'tab.js');
@@ -78,7 +79,7 @@ function defaultBounds() {
   return { x: wa.x + Math.round((wa.width - width) / 2), y: wa.y + Math.round((wa.height - height) / 2), width, height };
 }
 
-function create({ isPrivate = false, urls = [], key = null, restoreState = null, bounds = null, maximized = false, show = true } = {}) {
+function create({ isPrivate = false, urls = [], key = null, restoreState = null, bounds = null, maximized = false, show = true, whenPainted = false } = {}) {
   const ctl = new WindowController({ isPrivate, key, restoreState });
   ctl.pendingUrls = urls.slice();
   const a = ctx.settings.get('appearance');
@@ -127,6 +128,7 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
   }
 
   const win = new BrowserWindow(opts);
+  timing.once('window-made');
   ctl.win = win;
   ctl.id = win.id;
   ctl.partition = isPrivate ? 'private-' + ctl.key : 'persist:main';
@@ -190,11 +192,18 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
-  win.once('ready-to-show', () => {
-    if (!show) return;
+  // On screen as soon as it's made, in the theme's own color, and its UI fills in: nothing of it waits to be
+  // drawn first (Bifrost is there the moment it's opened). A window made to take another's place (rebuild)
+  // waits until it's painted: the one it replaces is still up.
+  const reveal = () => {
+    if (win.isDestroyed()) return;
     if (maximized || (!bounds && saved && saved.maximized && !ctx.registry.list().some((c) => c !== ctl))) win.maximize();
     win.show();
-  });
+    timing.once('shown');
+  };
+  win.once('ready-to-show', () => { timing.once('ui-painted'); if (show && whenPainted) reveal(); });
+  win.webContents.once('dom-ready', () => timing.once('ui-dom'));
+  win.webContents.once('did-finish-load', () => timing.once('ui-loaded'));
   win.on('focus', () => { ctx.registry.focus(win.id); ctl.send('window-focus', true); });
   win.on('blur', () => ctl.send('window-focus', false));
   win.on('enter-full-screen', () => ctl.send('fullscreen', true));
@@ -269,6 +278,7 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
   const q = new URLSearchParams({ id: String(ctl.id), key: ctl.key });
   if (isPrivate) q.set('private', '1');
   win.loadURL('bifrost://ui/browser.html?' + q.toString());
+  if (show && !whenPainted) reveal();
   return ctl;
 }
 
@@ -292,7 +302,7 @@ async function rebuild(ctl) {
   const focused = win.isFocused();
   ctl.rebuilding = true;
   ctl.closeConfirmed = true;
-  const next = create({ key: ctl.key, restoreState: ui, bounds, maximized });
+  const next = create({ key: ctl.key, restoreState: ui, bounds, maximized, whenPainted: true });
   next.win.once('ready-to-show', () => {
     if (fullscreen) next.win.setFullScreen(true);
     if (focused) next.win.focus();

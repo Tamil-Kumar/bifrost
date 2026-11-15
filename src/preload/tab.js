@@ -11,6 +11,23 @@ const ours = (channel) => typeof channel === 'string' && !channel.startsWith('cr
 
 const isTop = window.top === window;
 const isInternal = location.protocol === 'bifrost:';
+const isWeb = /^(https?|file):$/.test(location.protocol);
+
+// What a page starts with (its user agent, whether its tab is showing, your styles for it, the ad blocker's
+// rules): the page itself waits for it, once, before any of its scripts run. The wait is for the main process,
+// which is at its busiest just then (every request of the page goes through it), so it's one question, asked by
+// whichever of the tab's two page scripts runs first (this one and adblock.js; they share this world) and kept
+// for the other. Frames inside the page don't wait: they ask, and take the answer when it comes.
+function pageStart() {
+  const have = globalThis.__bifrostStart;
+  if (have && have.href === location.href) return have.data;
+  let data = null;
+  try { data = ipcRenderer.sendSync('tab:start', location.href); } catch { data = null; }
+  try { globalThis.__bifrostStart = { href: location.href, data }; } catch { /* asked again */ }
+  return data;
+}
+const start = isTop && isWeb ? pageStart() : null;
+const frameStart = !isTop && isWeb ? ipcRenderer.invoke('tab:start-frame', location.href).catch(() => null) : null;
 
 if (isInternal && isTop) {
   contextBridge.exposeInMainWorld('wb', {
@@ -30,7 +47,7 @@ if (isInternal && isTop) {
 // the right one here, before any of its scripts run (so it matches what its request sent).
 if (isTop && /^https?:$/.test(location.protocol)) {
   try {
-    const u = ipcRenderer.sendSync('tab:ua', location.href);
+    const u = start && start.ua;
     if (u && u.ua && u.ua !== navigator.userAgent) {
       contextBridge.executeInMainWorld({
         func: (u) => {
@@ -94,28 +111,36 @@ if (/^(https?|file):$/.test(location.protocol)) {
 // (what claude.ai did). What you answer, in the prompt or with the address bar's permissions button, reaches
 // the page straight away. A click on one of its notifications brings its tab to the front.
 if (/^https?:$/.test(location.protocol) && typeof Notification === 'function') {
-  const read = () => { let v = null; try { v = ipcRenderer.sendSync('tab:perm-state'); } catch { v = null; } return v === 'allow' ? 'granted' : v === 'block' ? 'denied' : 'default'; };
+  const name = (v) => (v === 'allow' ? 'granted' : v === 'block' ? 'denied' : 'default');
+  const read = () => { let v = null; try { v = ipcRenderer.sendSync('tab:perm-state'); } catch { v = null; } return name(v); };
   let push = null;
-  ipcRenderer.on('tab-perm', (_e, d) => { if (d && push) { const v = d.notifications; try { push(v === 'allow' ? 'granted' : v === 'block' ? 'denied' : 'default'); } catch { /* page gone */ } } });
+  ipcRenderer.on('tab-perm', (_e, d) => { if (d && push) { try { push(name(d.notifications)); } catch { /* page gone */ } } });
+  // The page knows from the start (part of what it starts with). A frame inside it isn't held up for it: it
+  // knows when its answer comes, or the moment it asks, if that's sooner (most never do).
+  if (frameStart) frameStart.then((r) => { if (r && push) { try { push(name(r.perm), true); } catch { /* page gone */ } } });
   try {
     contextBridge.executeInMainWorld({
       func: (initial, hooks) => {
         const N = window.Notification;
         if (typeof N !== 'function') return;
-        let state = initial;
+        let state = initial;   // (null: not known yet, in a frame)
         const statuses = [];
-        const permState = () => (state === 'default' ? 'prompt' : state);
-        const set = (s) => {
+        const cur = () => { if (state === null) state = hooks.read(); return state; };
+        const permState = () => (cur() === 'default' ? 'prompt' : cur());
+        // (first: a frame's answer arriving, which changes nothing the frame was told before)
+        const set = (s, first) => {
+          if (first && state !== null) return;
           if (s === state) return;
+          const known = state !== null;
           state = s;
-          for (const st of statuses) { try { st.dispatchEvent(new Event('change')); } catch { /* gone */ } }
+          if (known) for (const st of statuses) { try { st.dispatchEvent(new Event('change')); } catch { /* gone */ } }
         };
         hooks.listen(set);
-        try { Object.defineProperty(N, 'permission', { get: () => state, configurable: true, enumerable: true }); } catch { /* sealed */ }
+        try { Object.defineProperty(N, 'permission', { get: () => cur(), configurable: true, enumerable: true }); } catch { /* sealed */ }
         const nativeRequest = N.requestPermission;
         if (typeof nativeRequest === 'function') {
           const requestPermission = function requestPermission(cb) {
-            const p = Promise.resolve(Reflect.apply(nativeRequest, N, [])).then(() => { set(hooks.read()); return state; }, () => state);
+            const p = Promise.resolve(Reflect.apply(nativeRequest, N, [])).then(() => { set(hooks.read()); return cur(); }, () => cur());
             if (typeof cb === 'function') p.then((r) => { try { cb(r); } catch { /* the page's */ } });
             return p;
           };
@@ -194,7 +219,7 @@ if (/^https?:$/.test(location.protocol) && typeof Notification === 'function') {
         define(SWR.prototype, 'showNotification', function showNotification(title, options) {
           if (!arguments.length) return Promise.reject(fail('showNotification', '1 argument required, but only 0 present.'));
           if (!this.active) return Promise.reject(fail('showNotification', 'No active registration available on the ServiceWorkerRegistration.'));
-          if (state !== 'granted') return Promise.reject(fail('showNotification', 'No notification permission has been granted for this origin.'));
+          if (cur() !== 'granted') return Promise.reject(fail('showNotification', 'No notification permission has been granted for this origin.'));
           let o;
           try { o = prep(options); } catch (e) { return Promise.reject(e); }
           return Promise.resolve(hooks.swShow({ scope: this.scope, title: String(title), options: o })).then((r) => {
@@ -208,7 +233,7 @@ if (/^https?:$/.test(location.protocol) && typeof Notification === 'function') {
           return Promise.resolve(hooks.swList({ scope, tag })).then((items) => Array.from(items || [], (d) => make(d, scope)));
         });
       },
-      args: [read(), {
+      args: [start ? name(start.perm) : frameStart ? null : read(), {
         read,
         clicked: () => { try { ipcRenderer.send('tab:notification-click'); } catch { /* gone */ } },
         listen: (fn) => { push = fn; },
@@ -225,11 +250,12 @@ if (/^https?:$/.test(location.protocol) && typeof Notification === 'function') {
 // it has the focus, the tab in front or not, so a page couldn't tell you'd gone to another tab, and sites
 // that notify you only then (chat sites such as claude.ai) never did. (Whether it's hidden, Electron tells
 // it itself: main/guests.js.) The window says which pages are showing (ui/js/views.js → main/guests.js).
-if (/^(https?|file):$/.test(location.protocol)) {
-  let shown = true;
-  try { shown = ipcRenderer.sendSync('tab:shown') !== false; } catch { shown = true; }
-  let tell = null;
-  ipcRenderer.on('tab-shown', (_e, v) => { if (tell) { try { tell(v !== false); } catch { /* page gone */ } } });
+if (isWeb) {
+  const shown = !start || start.shown !== false;
+  let tell = null, told = false;
+  ipcRenderer.on('tab-shown', (_e, v) => { told = true; if (tell) { try { tell(v !== false); } catch { /* page gone */ } } });
+  // (a frame: showing until its answer says otherwise, unless the window has said since)
+  if (frameStart) frameStart.then((r) => { if (r && r.shown === false && !told && tell) { try { tell(false); } catch { /* page gone */ } } });
   try {
     contextBridge.executeInMainWorld({
       func: (initial, hooks) => {
@@ -261,7 +287,7 @@ if (/^(https?|file):$/.test(location.protocol)) {
 // dark mode's brightness). Applied the way Stylus applies a userstyle: after the page's own styles, so they win
 // where both say something, and as a constructed stylesheet, which a site's Content-Security-Policy can't block
 // (a <style> element would be). Asked for as the frame starts, so the page is styled from its first paint.
-if (/^(https?|file):$/.test(location.protocol)) setupSiteCss();
+if (isWeb) setupSiteCss();
 
 function setupSiteCss() {
   let sheet = null;
@@ -283,10 +309,11 @@ function setupSiteCss() {
     try { sheet.replaceSync(css); } catch { /* (an @import line can't be in a constructed sheet; the rest still applies) */ }
     adopt();
   };
-  let first = '';
-  try { first = ipcRenderer.sendSync('tab:page-css', location.href); } catch { first = ''; }
-  apply(first);
-  ipcRenderer.on('tab-site-css', (_e, css) => apply(css));
+  // (the page: there from its first paint; a frame in it: when its answer comes, unless a newer one has)
+  let pushed = false;
+  if (start) apply(start.css);
+  else if (frameStart) frameStart.then((r) => { if (r && !pushed) apply(r.css); });
+  ipcRenderer.on('tab-site-css', (_e, css) => { pushed = true; apply(css); });
   // A page that sets its own constructed stylesheets can replace the whole list; put ours back.
   for (const ev of ['DOMContentLoaded', 'load']) window.addEventListener(ev, adopt);
   let n = 0;

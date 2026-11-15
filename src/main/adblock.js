@@ -67,6 +67,7 @@ class AdBlock extends EventEmitter {
     this.domains = null;       // the domain list's engine (when it's on)
     this.domainsKey = '';
     this.loading = null;
+    this.building = false;     // an engine is being built from its lists (not just read back)
     this.failedAt = 0;         // when a scheduled update last failed
     this.counts = new Map();   // webContents id -> blocked count for the current page
     this.pages = new Map();    // webContents id -> top-level page URL
@@ -84,13 +85,8 @@ class AdBlock extends EventEmitter {
     this.total = ctx.db.kvGet('adblock.total', 0);
     ipcMain.handle('@ghostery/adblocker/inject-cosmetic-filters', (event, url, msg) => this.onCosmetics(event, url, msg));
     ipcMain.handle('@ghostery/adblocker/is-mutation-observer-enabled', () => true);
-    // Element hiding and scriptlets for a frame that's starting (synchronous: they must run before the
-    // page's own scripts), then extra hiding rules as the page's DOM grows. See preload/adblock.js.
-    ipcMain.on('bifrost-adblock:start', (event, url, isTop) => {
-      let out = null;
-      try { out = this.cosmeticsFor(event, url, { first: true, isTop: !!isTop }); } catch (e) { console.warn('[adblock] cosmetics', e.message); }
-      event.returnValue = out;
-    });
+    // Element hiding and scriptlets for a frame inside a page as it starts (the page's own: startFor), then
+    // extra hiding rules as the page's DOM grows. See preload/adblock.js.
     ipcMain.handle('bifrost-adblock:start-frame', (event, url) => {
       try { return this.cosmeticsFor(event, url, { first: true, isTop: false }); } catch { return null; }
     });
@@ -106,6 +102,17 @@ class AdBlock extends EventEmitter {
     });
     if (this.settings.enabled) this.load().catch((e) => console.error('[adblock] load', e));
     this.scheduleUpdate();
+  }
+
+  // Element hiding and scriptlets for a page that's starting (they must be there before the page's own scripts:
+  // part of what the page waits for as it starts, guests.js 'tab:start'). See preload/adblock.js.
+  startFor(event, url) { return this.cosmeticsFor(event, url, { first: true, isTop: true }); }
+
+  // Once the lists are in from their saved engines, or it's clear they have to be built (which takes seconds,
+  // and isn't waited for): Bifrost's first tabs wait for this (index.js).
+  whenRead() {
+    if (!this.loading || this.building) return Promise.resolve();
+    return new Promise((resolve) => { this.loading.then(resolve, resolve); this.once('building', resolve); });
   }
 
   // ----------------------------------------------------------------- engine
@@ -175,6 +182,7 @@ class AdBlock extends EventEmitter {
       return engine;
     })().finally(() => {
       this.loading = null;
+      this.building = false;
       // Settings changed while the engines were being built (new filters, lists): build again.
       if (this.settings.enabled && (this.wantedKey() !== this.engineKey || this.wantedDomainsKey() !== this.domainsKey)) setImmediate(() => this.load().catch((e) => console.error('[adblock]', e)));
     });
@@ -183,9 +191,14 @@ class AdBlock extends EventEmitter {
 
   async cachedEngine(prefix, key, work, deserialize) {
     const cacheFile = path.join(this.dir, prefix + '-' + crypto.createHash('sha1').update(key).digest('hex').slice(0, 16) + '.bin');
-    if (fs.existsSync(cacheFile)) {
-      try { return deserialize(new Uint8Array(fs.readFileSync(cacheFile))); } catch { /* built again below */ }
+    // (read without holding the main process up: megabytes, as Bifrost starts)
+    let saved = null;
+    try { saved = await fs.promises.readFile(cacheFile); } catch { saved = null; }
+    if (saved) {
+      try { return deserialize(new Uint8Array(saved.buffer, saved.byteOffset, saved.byteLength)); } catch { /* built again below */ }
     }
+    this.building = true;
+    this.emit('building');
     const { buffer } = await this.runWorker(work());
     const engine = deserialize(new Uint8Array(buffer));
     fs.mkdirSync(this.dir, { recursive: true });

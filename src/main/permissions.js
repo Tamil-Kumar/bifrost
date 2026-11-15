@@ -65,17 +65,19 @@ function tellWindow(wc, host, keys, allowed, asked) {
 
 // For the tab preload: the page's own view of its notifications permission (Notification.permission), asked
 // before the page's scripts run.
+// What a frame's site may do with notifications ('allow', 'block' or null: not answered yet).
+function notifyState(event) {
+  try {
+    const wc = event.sender;
+    const isPrivate = !!(wc.session && wc.session.__bifrostPrivate);
+    // (the asking frame's own site: never another's)
+    return decision(hostOf((event.senderFrame && event.senderFrame.url) || wc.getURL()), 'notifications', isPrivate) || null;
+  } catch { return null; }
+}
+
 function initIpc() {
-  ipcMain.on('tab:perm-state', (event) => {
-    let v = null;
-    try {
-      const wc = event.sender;
-      const isPrivate = !!(wc.session && wc.session.__bifrostPrivate);
-      // (the asking frame's own site: never another's)
-      v = decision(hostOf((event.senderFrame && event.senderFrame.url) || wc.getURL()), 'notifications', isPrivate) || null;
-    } catch { v = null; }
-    event.returnValue = v;
-  });
+  // (a page is told as it starts, with the rest of what it starts with: guests.js 'tab:start')
+  ipcMain.on('tab:perm-state', (event) => { event.returnValue = notifyState(event); });
   // A site's notification was clicked: its tab comes to the front, in its window.
   ipcMain.on('tab:notification-click', (event) => { require('./notifications').bringToFront(event.sender); });
 }
@@ -214,4 +216,4 @@ function listForHost(host, isPrivate = false) {
   return out;
 }
 
-module.exports = { attach, initIpc, listForHost, setDecision, decision, LABEL, originOf };
+module.exports = { attach, initIpc, listForHost, setDecision, decision, notifyState, LABEL, originOf };

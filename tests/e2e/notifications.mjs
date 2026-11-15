@@ -54,6 +54,9 @@ self.addEventListener('notificationclick', (e) => {
 self.addEventListener('notificationclose', (e) => { e.waitUntil(tell({ closeEvent: e.notification.title })); });
 `;
 const site = await startSite(undefined, { routes: {
+  // What a page (or a frame) is told about notifications at its first script.
+  '/perm.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end('<!doctype html><meta charset="utf-8"><title>Permission</title><script>window.__perm = Notification.permission;</script><p>Permission</p>'); },
+  '/perm-holder.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(`<!doctype html><meta charset="utf-8"><title>Holder</title><script>window.__perm = Notification.permission;</script><iframe src="http://localhost:${req.socket.localPort}/perm.html?inframe"></iframe>`); },
   '/notes-sw.js': (req, res) => { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(WORKER); },
   '/notes.html': html(`<p>Notifications</p><script>
 window.msgs = [];
@@ -271,6 +274,16 @@ try {
     await sleep(500);
     assert(shown().length === before, 'shown anyway: ' + JSON.stringify(shown().slice(before)));
     await allow('allow');
+  });
+
+  await R.step('a page knows whether it may notify from its first script, and so does a frame inside it (its own site’s answer, without holding the page up for it)', async () => {
+    await t.main(() => global.__require('./permissions').setDecision('localhost', 'notifications', 'block'));
+    await open(site.url + '/perm-holder.html');
+    const top = await until(() => t.guest('/perm-holder.html', 'window.__perm'), 5000, 'the page');
+    assert(top === 'granted', 'the page: ' + top);
+    const inner = await until(() => t.main(({ webContents }) => { const wc = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().includes('/perm-holder.html')); const f = wc && wc.mainFrame.frames[0]; return f ? f.executeJavaScript('window.__perm') : null; }), 5000, 'the frame');
+    assert(inner === 'denied', 'the frame: ' + inner);
+    await t.main(() => global.__require('./permissions').setDecision('localhost', 'notifications', null));
   });
 
   await R.step('private windows’ sites get them too', async () => {

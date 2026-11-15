@@ -79,6 +79,7 @@ const server = http.createServer((req, res) => {
   // Says it has a dark theme, and has only part of one (as Google Classroom: its bar dark, its page white).
   if (host === 'halfdark.test') return send('text/html', page('Half a dark theme', '<meta name="color-scheme" content="light dark"><style>header{height:64px;background:light-dark(#ffffff,#1f1f1f);color:light-dark(#202124,#e8eaed)}</style>', '<header>Bar</header>'));
   if (host === 'csp.test') return send('text/html', page('Strict CSP'), { 'content-security-policy': "style-src 'none'; script-src 'unsafe-inline'" });
+  if (req.url.startsWith('/frames-styled')) return send('text/html', page('With a styled frame', '', '<iframe id=f src="http://styled.test/?framed=1" style="width:300px;height:150px;border:0"></iframe>'));
   if (req.url.startsWith('/framed')) return send('text/html', page('With a frame', '', '<iframe id=f src="http://other.test/" style="width:300px;height:150px;border:0"></iframe>'));
   if (host === 'ctp.test' && req.url.startsWith('/extra.css')) return send('text/css', 'p { color: rgb(1, 2, 3) !important; }');
   send('text/html', page(host));
@@ -258,7 +259,7 @@ try {
   });
 
   let styled, csp;
-  await R.step('your styles: installed from a link in Settings, there from the first paint, only on its sites, through a CSP that forbids styles', async () => {
+  await R.step('your styles: installed from a link in Settings, there from the first paint, only on its sites, through a CSP that forbids styles, in a frame inside another site’s page', async () => {
     await toSettings();
     await settingsPage("document.getElementById('user-styles').scrollIntoView({ block: 'start', behavior: 'instant' })");
     await settingsPage("document.querySelector('[data-act=install-link]').click()");
@@ -280,6 +281,15 @@ try {
     assert((await inTab(other, 'window.__first')) === '|rgba(0, 0, 0, 0)', 'another site: ' + (await inTab(other, 'window.__first')));
     csp = await open('http://csp.test/');
     assert((await inTab(csp, 'getComputedStyle(document.body).backgroundColor')) === 'rgb(51, 85, 255)', 'through the CSP: ' + (await inTab(csp, 'getComputedStyle(document.body).backgroundColor')));
+    // In a frame inside another site's page too (a frame doesn't hold its page up for it: it's there a moment
+    // after); and the page itself asked the main process once for all it starts with, its frame not at all.
+    const asked = await t.main(() => global.__tabStarts || 0);
+    const holder = await open('http://other.test/frames-styled');
+    const inFrame = () => t.main(({ webContents }, id) => { const f = webContents.fromId(id).mainFrame.frames[0]; return f ? f.executeJavaScript('getComputedStyle(document.body).backgroundColor') : null; }, holder);
+    await until(async () => (await inFrame()) === 'rgb(51, 85, 255)', 4000, 'the style in a frame');
+    assert((await inTab(holder, 'getComputedStyle(document.body).backgroundColor')) === 'rgb(255, 255, 255)', 'the page around the frame was styled too');
+    const now = await t.main(() => global.__tabStarts || 0);
+    assert(now - asked === 1, 'the page asked ' + (now - asked) + ' times as it started');
   });
 
   await R.step('…off and on, edited (its variable), listed in the site info popover with a switch, deleted: all at once in open tabs', async () => {

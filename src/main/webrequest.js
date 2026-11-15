@@ -40,17 +40,27 @@ class WebRequestHub {
       const headers = Object.assign({}, d.requestHeaders);
       for (const fn of this.sendHeaders) { try { fn(d, headers); } catch (e) { console.error('[webrequest] headers', e); } }
       cb({ requestHeaders: headers });
-      this.notify('sendHeaders', Object.assign({}, d, { requestHeaders: headers }));
+      if (this.observers.sendHeaders.length) this.notify('sendHeaders', Object.assign({}, d, { requestHeaders: headers }));
     });
 
-    wr.onHeadersReceived(withFiles, (d, cb) => {
+    // Answers. What's changed in them is a page's or a frame's Content-Security-Policy (the ad blocker's, and
+    // a local file's), so only theirs come here, not every picture's and script's: until an extension watches
+    // answers (observe), which wants them all.
+    const onReceived = (d, cb) => {
       if (isFile(d.url)) { let h = null; try { h = fileGuard.headers(d); } catch (e) { console.error('[webrequest] file', e); } cb(h ? { responseHeaders: h } : {}); return; }
       const headers = Object.assign({}, d.responseHeaders || {});
       let changed = false;
       for (const fn of this.headersReceived) { try { if (fn(d, headers)) changed = true; } catch (e) { console.error('[webrequest] received', e); } }
       cb(changed ? { responseHeaders: headers } : {});
       this.notify('headersReceived', d);
-    });
+    };
+    const documents = { urls: withFiles.urls, types: ['mainFrame', 'subFrame', 'object'] };
+    this.receivedAll = false;
+    this.attachReceived = () => {
+      try { wr.onHeadersReceived(this.receivedAll ? withFiles : documents, onReceived); }
+      catch { this.receivedAll = true; wr.onHeadersReceived(withFiles, onReceived); }
+    };
+    this.attachReceived();
 
     // The events only extensions watch (chrome.webRequest) are attached when one starts watching.
   }
@@ -58,6 +68,7 @@ class WebRequestHub {
   // Adds a watcher; the matching webRequest event is attached the first time it's needed.
   observe(kind, fn) {
     this.observers[kind].push(fn);
+    if (kind === 'headersReceived' && !this.receivedAll) { this.receivedAll = true; this.attachReceived(); }
     const ev = { responseStarted: 'onResponseStarted', beforeRedirect: 'onBeforeRedirect', completed: 'onCompleted', errorOccurred: 'onErrorOccurred' }[kind];
     if (ev && !this.attachedObservers.has(kind)) {
       this.attachedObservers.add(kind);

@@ -76,22 +76,38 @@ const noHints = (ua) => /Firefox\/|Version\/[\d.]+ (Mobile\/\S+ )?Safari/.test(u
 
 // Request headers. A tab's user agent changes when it navigates to a site with its own rule, but only from
 // the next page on, so requests get their page's user agent here, and the tab preload sets the page's
-// navigator.userAgent to match (see 'tab:ua' in guests.js). Firefox and Safari don't send client hints; Electron's brand never goes out.
+// navigator.userAgent to match (see uaFor in guests.js). Firefox and Safari don't send client hints; Electron's brand never goes out.
+// (This runs for every request: what a tab's page wants is worked out once, when the page is asked for, and
+// its images, scripts and frames, hundreds of them, look it up.)
+const tabWants = new Map();   // webContents id -> the user agent its page's requests carry (null: as they come)
 function headerHook(details, headers) {
   // The page request uses its own address; everything a page loads (its images, scripts, frames) follows
   // the page at the top of the tab, which is what navigator.userAgent reports there.
-  let pageUrl = details.resourceType === 'mainFrame' ? details.url : '';
-  if (!pageUrl) { try { const top = details.frame && details.frame.top; pageUrl = (top && top.url) || ''; } catch { /* frame gone */ } }
-  const want = pageUrl ? forUrl(pageUrl) : null;
+  const id = details.webContentsId;
+  let want;
+  if (details.resourceType === 'mainFrame') {
+    want = forUrl(details.url);
+    if (id != null) { tabWants.set(id, want); if (tabWants.size > 500) tabWants.delete(tabWants.keys().next().value); }
+  } else if (id != null && tabWants.has(id)) {
+    want = tabWants.get(id);
+  } else {
+    // (a tab whose page was asked for before this was watching, or a request that's no tab's)
+    let pageUrl = '';
+    try { const top = details.frame && details.frame.top; pageUrl = (top && top.url) || ''; } catch { /* frame gone */ }
+    want = pageUrl ? forUrl(pageUrl) : null;
+    if (id != null && pageUrl) tabWants.set(id, want);
+  }
   if (want) headers['User-Agent'] = want;
   const sent = headers['User-Agent'] || '';
   if (noHints(sent)) { for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k]; return; }
-  for (const k of Object.keys(headers)) {
-    if (/^sec-ch-ua$/i.test(k) && /Electron/i.test(headers[k]) && !/Electron\//.test(sent)) {
+  for (const k in headers) {
+    if ((k === 'sec-ch-ua' || /^sec-ch-ua$/i.test(k)) && /Electron/i.test(headers[k]) && !/Electron\//.test(sent)) {
       const v = chromeMajor();
       headers[k] = `"Chromium";v="${v}", "Not_A Brand";v="24"`;
     }
   }
 }
+// Settings changed (a site's user agent, the default one): asked afresh.
+function forgetTabs() { tabWants.clear(); }
 
-module.exports = { chrome, firefox, safari, embedded, defaultUA, applyForUrl, headerHook, forHost, forUrl, noHints };
+module.exports = { chrome, firefox, safari, embedded, defaultUA, applyForUrl, headerHook, forgetTabs, forHost, forUrl, noHints };

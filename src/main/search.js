@@ -32,13 +32,20 @@ class SearchService {
   }
 
   init() {
-    this.loadHistory();
+    // The pages you've been to (thousands, each made ready for matching) are read when the launcher first
+    // needs them, or a moment after Bifrost has started, whichever is first: not while it's starting.
+    this.historyLoaded = false;
+    this.warming = null;
+    const warm = setTimeout(() => this.warmHistory(), 3000);
+    if (warm.unref) warm.unref();
     try {
       const saved = ctx.db.kvGet('launcherRedirects', {}) || {};
       for (const [k, v] of Object.entries(saved)) if (v && typeof v.key === 'string') this.redirects.set(k, { key: v.key, pk: typeof v.pk === 'string' ? v.pk : null });
     } catch { /* none yet */ }
     this.loadPicks();
     ctx.db.on('visit', (e) => {
+      if (this.warming) this.warming.since.push(e);
+      if (!this.historyLoaded) return;   // (read with the rest, when they are)
       const h = E.prep({ url: e.url, title: e.title || '', visitCount: e.visitCount, lastVisitTime: e.lastVisitTime, favicon: e.favicon });
       this.visitIndex.delete(h.key);
       this.visitIndex.set(h.key, h);
@@ -59,7 +66,8 @@ class SearchService {
         this.forgetPicks(gone);
       }
       this.saveRedirects();
-      this.loadHistory();
+      this.warming = null;   // (what was being read is out of date: read when next needed)
+      if (this.historyLoaded) this.loadHistory();
     });
     ctx.db.on('bookmarks-changed', () => { this.bookmarks = null; this.bmKeys = null; this.cache = {}; });
   }
@@ -179,6 +187,32 @@ class SearchService {
       this.visitIndex.set(h.key, h);
     }
     this.cache = {};
+    this.historyLoaded = true;
+  }
+  ensureHistory() { if (!this.historyLoaded) { this.warming = null; try { this.loadHistory(); } catch (e) { console.error('[search] history', e); } } }
+  // The same in the background, a few hundred pages at a time, so nothing waits on it (the launcher, asked
+  // before it's done, reads them all at once: ensureHistory).
+  warmHistory() {
+    if (this.historyLoaded || this.warming) return;
+    let rows;
+    try {
+      const own = Math.round(Number(ctx.settings.get('launcher.historyIndex')) || 0);
+      this.historySize = own > 0 ? Math.max(500, Math.min(200000, own)) : require('./perf').current().historyIndexSize || 10000;
+      rows = ctx.db.recentHistory(this.historySize);
+    } catch (e) { console.error('[search] history', e); return; }
+    const w = this.warming = { rows, index: new Map(), i: rows.length - 1, since: [] };
+    const step = () => {
+      if (this.warming !== w) return;   // (read all at once meanwhile)
+      for (let n = 0; n < 400 && w.i >= 0; n++, w.i--) { const h = E.prep(w.rows[w.i]); w.index.set(h.key, h); }
+      if (w.i >= 0) { setTimeout(step, 4); return; }
+      // (pages visited while it was being read)
+      for (const e of w.since) { const h = E.prep({ url: e.url, title: e.title || '', visitCount: e.visitCount, lastVisitTime: e.lastVisitTime, favicon: e.favicon }); w.index.delete(h.key); w.index.set(h.key, h); }
+      this.visitIndex = w.index;
+      this.cache = {};
+      this.historyLoaded = true;
+      this.warming = null;
+    };
+    step();
   }
 
   trim() {
@@ -196,6 +230,7 @@ class SearchService {
   // Search context for one window: open tabs from every normal window (private windows see only their own;
   // with Settings → Launcher → "Only tabs in this window", every window does).
   context(ctl, activeWcId) {
+    this.ensureHistory();
     const tabs = [];
     const tabByKey = new Map();
     const own = ctl && (ctl.isPrivate || ctx.settings.get('launcher.sources.tabs.currentWindowOnly'));

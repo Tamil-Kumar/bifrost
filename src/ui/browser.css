@@ -1290,8 +1290,10 @@ body { background: var(--chrome-bg); }
 /* ======================================================= match the page
    Look & feel → Sidebar and toolbar → Match the page (theme.js): the window around the page takes the color
    of the page next to it (the sidebar's and the toolbar's colors come from it too), with no glow, grain,
-   edge or shadow between them, so page and window read as one surface. */
-:root.blend body { background: var(--page-tint); }
+   edge or shadow between them, so page and window read as one surface. A loud page's color (bright white
+   next to a dark theme, a neon) is calmed for the window, --bar-tint (shared/themes.js barColor); what's
+   behind the page itself stays the page's own, --page-tint. */
+:root.blend body { background: var(--bar-tint, var(--page-tint)); }
 /* (only from one color of the page to another: theme.js) */
 :root.blend.blend-fade body { transition: background-color var(--t-med, 220ms) ease; }
 :root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { color: var(--text); }
@@ -1301,8 +1303,10 @@ body { background: var(--chrome-bg); }
 :root.blend:not(.private) #stage { box-shadow: none; }
 :root.blend #stage { background: var(--page-tint); }
 :root.blend.no-page-frame #stage { border-top-color: transparent; }
-:root.blend[data-layout="vertical"].sidebar-autohide #sidebar { background: var(--page-tint); }
-:root.blend.topbar-autohide #topbar { background: var(--page-tint); }
+:root.blend[data-layout="vertical"].sidebar-autohide #sidebar { background: var(--bar-tint, var(--page-tint)); }
+:root.blend.topbar-autohide #topbar { background: var(--bar-tint, var(--page-tint)); }
+/* (a space's own color, any the user picked: toward the text's where it wouldn't show on the page's) */
+:root.blend :is(.wsb-ico, .ws-ico, .ws-dot.on, .ws-dot:hover) { color: color-mix(in oklab, var(--wc, var(--accent)) 62%, var(--text)); }
 
 /* "Blur the page": behind the bars, a blurred picture of the page (theme.js applyBackdrop), under a veil of
    its color so text stays readable; bars that float over the page are frosted glass over it. */

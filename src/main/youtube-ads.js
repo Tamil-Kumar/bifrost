@@ -1,8 +1,8 @@
 'use strict';
 // YouTube's ads, taken out of what YouTube sends before its page sees it, as AdGuard's app does (which answers,
-// and what becomes of them: youtube-edit.js). Each tab's DevTools protocol session (tab-debugger.js) holds the
-// YouTube answers that can carry ads as they arrive, and they go on to the page changed, as if YouTube had sent
-// them so. Nothing in the page is touched for this, and YouTube's requests (and those to Google's ad servers) go
+// and what becomes of them: youtube-edit.js). The DevTools protocol session of a tab on YouTube (tab-debugger.js;
+// other tabs have none for this) holds the YouTube answers that can carry ads as they arrive, and they go on to
+// the page changed, as if YouTube had sent them so. Nothing in the page is touched for this, and YouTube's requests (and those to Google's ad servers) go
 // out as YouTube makes them (adblock.js), so it hears nothing fail.
 // YouTube's service worker could answer its pages' requests with what it fetched itself (the worker's requests,
 // which a tab's session doesn't hold): a tab on YouTube goes past it, as DevTools' "Bypass for network" does. It
@@ -24,7 +24,7 @@ const MAX_BODY = 16 * 1024 * 1024;
 // A page on YouTube (its short links included: a tab going to one is going to YouTube).
 const YT_PAGE = /^https?:\/\/([^/?#@]*\.)?(youtube\.com|youtube-nocookie\.com|youtubekids\.com|youtu\.be)(:\d+)?([/?#]|$)/i;
 
-const tabs = new Map();   // webContents id -> { wc, on, past }
+const tabs = new Map();   // webContents id -> { wc, on }
 
 function wanted() {
   const a = (ctx.settings && ctx.settings.get('privacy.adblock')) || {};
@@ -72,61 +72,62 @@ async function paused(t, p) {
   }
 }
 
-// Past YouTube's service worker, or not, for the page a tab has or is going to. Set as a page starts loading,
-// before it's asked for (the commands take effect as they're sent).
-function goPast(t, url) {
-  const want = !!(t.on && url && YT_PAGE.test(url)) && !allowed(url);
-  if (want === t.past) return;
-  t.past = want;
-  const send = (method, args) => t.wc.debugger.sendCommand(method, args).catch(() => {});
-  if (want) {
-    // (what it'd hear of requests isn't kept: nothing here reads it)
-    send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0, maxPostDataSize: 0 });
-    send('Network.setBypassServiceWorker', { bypass: true });
-  } else {
-    send('Network.disable');
-  }
-}
-
-// A tab's holding on or off, as the settings say.
-async function sync(t) {
+// A tab's holding, on while it's on YouTube (or going there) and off otherwise: a tab's session costs every
+// request of its pages a little, so only YouTube's tabs have one. Going past YouTube's service worker goes with
+// it. Turned on as a page starts loading, before it's asked for (the commands take effect as they're sent).
+const want = (url) => !!url && YT_PAGE.test(url) && wanted() && !allowed(url);
+function turnOn(t) {
   const wc = t.wc;
+  if (t.on || wc.isDestroyed()) return;
+  try { TD.use(wc, 'youtube'); } catch { return; }   // (DevTools has its session: when they close)
+  t.on = true;
+  const send = (method, args) => wc.debugger.sendCommand(method, args).catch(() => {});
+  send('Fetch.enable', { patterns: PATTERNS });
+  // (what it'd hear of requests isn't kept: nothing here reads it)
+  send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0, maxPostDataSize: 0 });
+  send('Network.setBypassServiceWorker', { bypass: true });
+}
+function turnOff(t) {
+  const wc = t.wc;
+  if (!t.on) return;
+  t.on = false;
   if (wc.isDestroyed()) return;
-  const want = wanted();
-  if (want && !t.on) {
-    try {
-      TD.use(wc, 'youtube');
-      t.on = true;
-      goPast(t, wc.getURL());
-      await wc.debugger.sendCommand('Fetch.enable', { patterns: PATTERNS });
-    } catch {
-      t.on = false;
-      t.past = false;
-    }
-  } else if (!want && t.on) {
-    goPast(t, '');
-    t.on = false;
-    try { await wc.debugger.sendCommand('Fetch.disable'); } catch { /* gone */ }
-    TD.release(wc, 'youtube');
-  } else if (t.on) {
-    goPast(t, wc.getURL());   // (YouTube allowed in the ad blocker now, or not)
-  }
+  // (the session may stay, for the tab's color scheme: web-theme.js)
+  try { if (wc.debugger.isAttached()) { wc.debugger.sendCommand('Network.disable').catch(() => {}); wc.debugger.sendCommand('Fetch.disable').catch(() => {}); } } catch { /* gone */ }
+  TD.release(wc, 'youtube');
+}
+// As the page a tab has says (the settings changed, or DevTools closed).
+function sync(t) {
+  if (t.wc.isDestroyed()) return;
+  let url = '';
+  try { url = t.wc.getURL(); } catch { url = ''; }
+  if (want(url)) turnOn(t); else turnOff(t);
 }
 
 // Every tab, from its first page (it's created before it starts loading one).
 function setUp(wc) {
   if (tabs.has(wc.id)) return;
-  const t = { wc, on: false, past: false };
+  const t = { wc, on: false };
   tabs.set(wc.id, t);
   wc.debugger.on('message', (_e, method, params) => { if (method === 'Fetch.requestPaused' && t.on) paused(t, params); });
-  wc.on('did-start-navigation', (d) => { if (d && d.isMainFrame && !d.isSameDocument) goPast(t, d.url); });
-  wc.on('did-redirect-navigation', (d) => { if (d && d.isMainFrame) goPast(t, d.url); });
-  wc.on('did-navigate', (_e, url) => goPast(t, url));
+  // Going to YouTube: on, before the page is asked for. (Going elsewhere: off once it's there. Until then
+  // the tab still has YouTube's page.)
+  wc.on('did-start-navigation', (d) => { if (d && d.isMainFrame && !d.isSameDocument && want(d.url)) turnOn(t); });
+  // Sent on to YouTube by another site (a link shortener, a search result's link): a page already on its way
+  // isn't held by a session opened now, so it's asked for again, from YouTube's address, with one.
+  wc.on('will-redirect', (d) => {
+    if (!d || !d.isMainFrame || t.on || !want(d.url)) return;
+    turnOn(t);
+    if (!t.on) return;
+    const url = d.url;
+    try { d.preventDefault(); } catch { return; }
+    setImmediate(() => { if (!wc.isDestroyed()) wc.loadURL(url).catch(() => {}); });
+  });
+  wc.on('did-navigate', (_e, url) => { if (want(url)) turnOn(t); else turnOff(t); });
   // (DevTools opened on it: its session is theirs until they close)
-  wc.debugger.on('detach', () => { t.on = false; t.past = false; });
+  wc.debugger.on('detach', () => { t.on = false; });
   wc.on('devtools-closed', () => setTimeout(() => sync(t), 150));
   wc.once('destroyed', () => tabs.delete(wc.id));
-  sync(t);
 }
 
 function init() {
@@ -137,4 +138,7 @@ function init() {
   });
 }
 
-module.exports = { init, PATTERNS };
+// (for the tests: whether a tab's answers are being held)
+const isOn = (wc) => { const t = wc && tabs.get(wc.id); return !!(t && t.on); };
+
+module.exports = { init, PATTERNS, isOn };

@@ -63,6 +63,7 @@
       scrollbars: 'thin',        // thin | normal | hidden (in Bifrost's own pages and panels)
       chrome: 'aurora',          // the window around the page: aurora (lit with the theme's colors) | gradient | flat
       blend: 'window',           // the sidebar and toolbar: window (the window background above) | page (the color of the page you're on, no edge between them) | blur (a blurred picture of the page)
+      blendTone: 'soft',         // with "page", a bright or vivid page's color on them: soft (calmed: a pastel at most, no brighter than a light gray with a dark theme, never one text can't be read on) | theme (your theme's own shade, tinted with the page's color) | exact (the page's color, whatever it is)
       blendBlur: 40,             // how blurred, with "blur" (px)
       texture: true,             // a fine grain on the window around the page
       webTheme: 'browser',       // websites light or dark: browser (like Bifrost's theme, the default, as in Firefox) | system | light | dark

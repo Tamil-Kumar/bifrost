@@ -39,9 +39,13 @@ function register() {
   permissions.initIpc();
   require('./notifications').initIpc();
   // --------------------------------------------------------------- window/UI
-  ipc.handle('ui:init', 'ui', (event) => {
+  ipc.handle('ui:init', 'ui', async (event) => {
+    require('./timing').once('ui-asked');
+    // (the first window opens while Bifrost is still starting: its tabs wait for that, index.js)
+    if (ctx.started) await ctx.started;
     const ctl = ctlOf(event);
     if (!ctl) throw new Error('unknown window');
+    require('./timing').once('ui-init');
     const restore = ctl.restoreState;
     ctl.restoreState = null;
     const urls = ctl.pendingUrls;
@@ -57,7 +61,7 @@ function register() {
       maximized: ctl.win.isMaximized(), fullscreen: ctl.win.isFullScreen(),
     };
   });
-  ipc.on('ui:ready', 'ui', (event) => { const ctl = ctlOf(event); if (ctl) ctl.uiReady = true; });
+  ipc.on('ui:ready', 'ui', (event) => { const ctl = ctlOf(event); if (ctl) ctl.uiReady = true; require('./timing').once('ui-ready'); });
   ipc.on('ui:response', 'ui', (event, { id, error, result }) => { const ctl = ctlOf(event); if (ctl) ctl.resolveRequest(id, error, result); });
   ipc.on('session:save', 'ui', (event, ui) => {
     const ctl = ctlOf(event);

@@ -26,6 +26,7 @@ function forwardModifier(ctl, input) {
   if (!MODIFIERS.has(input.key) || input.isAutoRepeat || (input.type !== 'keyDown' && input.type !== 'keyUp')) return;
   ctl.send('modifier-key', { key: input.key, down: input.type === 'keyDown' });
 }
+const timing = require('./timing');
 const keyInfo = (input) => ({ key: input.key, at: Date.now(), mods: { control: !!input.control, alt: !!input.alt, meta: !!input.meta, shift: !!input.shift } });
 // Ctrl+Tab with its list of tabs (tabs.ctrlTabMenu) stays on this page until Ctrl comes up, which it has to hear:
 // Chromium ignores a page's key-ups until its next key-down once a shortcut was taken from it, so a repeat
@@ -118,7 +119,28 @@ function init() {
       for (const f of frames) { try { f.send('tab-shown', shown.has(id)); } catch { /* frame gone */ } }
     }
   });
-  ipcMain.on('tab:shown', (event) => { event.returnValue = pageShown(event.sender); });
+  // What a page starts with, in one answer (preload/tab.js and adblock.js: the page waits for it before any of
+  // its scripts run, so it's asked once): the user agent it should report, whether its tab is showing, your
+  // styles for it, whether it may show notifications, the ad blocker's rules for it.
+  ipcMain.on('tab:start', (event, url) => {
+    const href = String(url || '');
+    const out = { ua: null, shown: true, css: '', perm: null, adblock: null };
+    try { out.ua = uaFor(event.sender, href); } catch { out.ua = null; }
+    try { out.perm = require('./permissions').notifyState(event); } catch { out.perm = null; }
+    try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
+    try { out.css = cssFor(event, href); } catch { out.css = ''; }
+    try { if (ctx.adblock && /^https?:/i.test(href)) out.adblock = ctx.adblock.startFor(event, href); } catch (e) { console.warn('[adblock] cosmetics', e.message); }
+    if (process.env.BIFROST_TEST === '1') global.__tabStarts = (global.__tabStarts || 0) + 1;
+    event.returnValue = out;
+  });
+  // …and a frame inside a page, which doesn't wait (its ad blocker rules it asks for itself).
+  ipcMain.handle('tab:start-frame', (event, url) => {
+    const out = { shown: true, css: '', perm: null };
+    try { out.perm = require('./permissions').notifyState(event); } catch { out.perm = null; }
+    try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
+    try { out.css = cssFor(event, String(url || '')); } catch { out.css = ''; }
+    return out;
+  });
 
   ctx.settings.on('changed', ({ path }) => {
     if (!path || path.startsWith('keyboard')) {
@@ -167,12 +189,6 @@ function init() {
   });
   // The user agent this page should report (navigator.userAgent), asked by the tab preload before the
   // page's own scripts run, so it matches what its request sent (see useragent.headerHook).
-  ipcMain.on('tab:ua', (event, url) => {
-    let want = null;
-    // Tabs, and popup windows sites open (sign-in windows); never the browser's own windows.
-    try { const ty = event.sender.getType(); if (ty === 'webview' || (ty === 'window' && !protocol.isInternal(event.sender.getURL()))) want = ua.forUrl(String(url || '')); } catch { /* not a page */ }
-    event.returnValue = want ? { ua: want, hints: !ua.noHints(want), safari: /Version\/[\d.]+ Safari/.test(want), firefox: /Firefox\//.test(want) } : null;
-  });
   // alert(), confirm() and prompt() from a page (preload/tab.js): shown by the window the tab is in, which
   // answers when you do. The page waits meanwhile (it asked synchronously, as these functions are).
   ipcMain.on('tab:js-dialog', async (event, d) => {
@@ -220,16 +236,26 @@ function init() {
   // What a frame is styled with (main/web-styles.js: your userstyles, the site's own style from its info
   // popover, dark mode's brightness): asked for as the frame starts, before it draws anything, so a style is
   // there from the first paint; changes come after it (tab-site-css).
-  ipcMain.on('tab:page-css', (event, url) => {
-    let css = '';
-    try {
-      if (event.sender.getType() === 'webview' && ctx.webStyles) {
-        const f = event.senderFrame;
-        css = ctx.webStyles.cssFor((f && f.url) || String(url || ''), !f || !f.parent);
-      }
-    } catch { css = ''; }
-    event.returnValue = css;
-  });
+}
+
+// The user agent a page should report (navigator.userAgent), set by the tab preload before the page's own
+// scripts run, so it matches what its request sent (see useragent.headerHook). Tabs, and popup windows sites open
+// (sign-in windows); never the browser's own windows.
+function uaFor(sender, url) {
+  if (!/^https?:/i.test(url)) return null;
+  const ty = sender.getType();
+  if (!(ty === 'webview' || (ty === 'window' && !protocol.isInternal(sender.getURL())))) return null;
+  const want = ua.forUrl(url);
+  return want ? { ua: want, hints: !ua.noHints(want), safari: /Version\/[\d.]+ Safari/.test(want), firefox: /Firefox\//.test(want) } : null;
+}
+
+// What a frame is styled with (main/web-styles.js: your userstyles, the site's own style from its info popover,
+// dark mode's brightness): there as the page starts, before it draws anything; changes come after it
+// (tab-site-css).
+function cssFor(event, url) {
+  if (event.sender.getType() !== 'webview' || !ctx.webStyles) return '';
+  const f = event.senderFrame;
+  return ctx.webStyles.cssFor((f && f.url) || url, !f || !f.parent) || '';
 }
 
 // A site's style changed: every frame gets what's for it now (no reload).
@@ -352,6 +378,12 @@ if (process.env.BIFROST_TEST === '1') {
 
 function setup(guest, ctl) {
   const isPrivate = ctl.isPrivate;
+  // (how long the first page took, from Bifrost starting: timing.js)
+  if (timing.once('tab')) {
+    guest.once('did-start-navigation', () => timing.once('page-start'));
+    guest.once('dom-ready', () => timing.once('page-dom'));
+    guest.once('did-stop-loading', () => { timing.once('page-loaded'); timing.report(); });
+  }
   guest.on('input-event', (e, input) => swipeInput(guest, input));
   guest.once('destroyed', () => { swipes.delete(guest.id); endCoast(guest.id); });
   guest.__wbWindow = ctl.id;
@@ -490,7 +522,7 @@ function onWindowOpen(guest, { url, disposition, features, frameName }) {
       overrideBrowserWindowOptions: Object.assign({
         width: 520, height: 680, autoHideMenuBar: true, show: true,
         backgroundColor: '#ffffff',
-        // The tab preload, for the user agent sign-in pages need (see 'tab:ua').
+        // The tab preload, for the user agent sign-in pages need (see uaFor).
         webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, plugins: true, preload: PRELOAD_TAB },
       }, size),
       outlivesOpener: false,
