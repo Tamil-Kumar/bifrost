@@ -64,7 +64,7 @@ xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 
 Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
 task manager), `behavior` (settings that change behavior, the Launcher section's included, how long the downloads box stays (with the real pointer: what holds it open, and its close button), one press of the mouse's Back button one page back however many ways it arrives (and with the window busy in between), links opened in a new tab in front or behind; the settings page opening with what
-you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button; "Match the page": a dark page's color taken as it is, a bright one softened next to a dark theme, exactly the page's, or the theme's shade tinted, with text that reads on each), `everyday` (video, full screen and what shows
+you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button; "Match the page": a dark page's color taken as it is, the bars staying dark next to a bright one with the page in its frame, or going light, or taking it exactly, with text that reads on each), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
 questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar; its buttons and
@@ -128,7 +128,9 @@ Catppuccin's library with them in it, `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
 what local pages may load, `blend` the colors of "Match the page" (on every page color with every theme: text
-that reads on the bars, a bright or vivid color calmed, "Tint my theme" and "Exactly the page's"), `ui-preload`
+that reads on the bars, a dark page's color as it is, a deeper shade of a vivid one, the theme's own shade next
+to a bright one, "Go light" and "Exactly the page's"), `settings-migrate` what settings saved by older versions
+turn into, `ui-preload`
 that browser.html preloads every script the window's UI imports, `ranking` the launcher's ranking (what you
 use and open comes first), `launcher-settings` that every setting
 of the Waypoint extension has a place in Settings → Launcher, that its settings files import whole, and

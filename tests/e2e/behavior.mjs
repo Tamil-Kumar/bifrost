@@ -432,7 +432,7 @@ try {
     await set('keyboard.vim.enabled', false);
   });
 
-  await R.step('“Match the page”: the sidebar and toolbar take the page’s color (a bright one softened, or exactly, or as a tint of the theme), with text that reads on it; Bifrost’s own pages turn see-through to the window', async () => {
+  await R.step('“Match the page”: the sidebar and toolbar take a dark page’s color; next to a bright one they stay dark (or go light, or take it exactly), with text that reads on them; Bifrost’s own pages turn see-through to the window', async () => {
     const rgb = (c) => (String(c).match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
     const light = (c) => { const [r, g, b] = rgb(c); return (r + g + b) / 3; };
     const look = () => t.ui(() => {
@@ -451,26 +451,29 @@ try {
     assert(l.shadow === 'none', 'no shadow between the page and the window: ' + l.shadow);
     await t.shot('behavior-blend-dark');
     await clickTab('/a.html');
-    // A bright page next to the dark theme: its color, calmed (a soft shade of it, not near-white), so the
-    // window doesn't glare and the bars' text reads; behind the page itself, the page's own color.
-    l = await until(async () => { const v = await look(); return v.blend && light(v.body) > 150 ? v : null; }, 4000, 'the light page’s color');
-    const [sr, , sb] = rgb(l.body);
-    assert(light(l.body) > 190 && light(l.body) < 232 && sr > sb, 'the bright page’s color, softened: ' + l.body);
-    assert(light(l.tab) < 110 && (!l.ws || light(l.ws) < 110) && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
-    const behind = await t.ui(() => getComputedStyle(document.getElementById('stage')).backgroundColor);
-    assert(behind === 'rgb(255, 247, 240)', 'behind the page, the page’s own color: ' + behind);
+    // A bright page next to the dark theme: the bars stay dark (the theme's own shade, tinted with the page's
+    // color), so the window doesn't glare and their text reads; the page sits in them with its frame, and
+    // behind the page itself is the page's own color.
+    l = await until(async () => { const v = await look(); return v.blend && v.body !== 'rgb(19, 35, 58)' ? v : null; }, 4000, 'the bars next to the light page');
+    assert(light(l.body) < 60, 'the bars stay dark next to a bright page: ' + l.body);
+    assert(light(l.tab) > 170 && (!l.ws || light(l.ws) > 150) && light(l.addr) > 150, 'light text on them: ' + JSON.stringify(l));
+    const apart = await t.ui(() => ({ apart: document.documentElement.classList.contains('blend-apart'), behind: getComputedStyle(document.getElementById('stage')).backgroundColor, shadow: getComputedStyle(document.getElementById('stage')).boxShadow }));
+    assert(apart.behind === 'rgb(255, 247, 240)', 'behind the page, the page’s own color: ' + apart.behind);
+    assert(apart.apart && apart.shadow !== 'none', 'the page has its frame in bars of another color: ' + JSON.stringify(apart));
     await t.shot('behavior-blend-light');
-    // "Bright and vivid pages" → "Exactly the page's": its color, whatever it is.
+    // "Bright pages" → "Go light": the page's color, with dark text (the light theme's).
+    await set('appearance.blendTone', 'light');
+    l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(255, 247, 240)' ? v : null; }, 4000, 'the light page’s color');
+    assert(light(l.tab) < 110 && (!l.ws || light(l.ws) < 130) && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
+    assert(l.shadow === 'none', 'one surface with the page again: ' + l.shadow);
+    await t.shot('behavior-blend-go-light');
+    // → "Exactly the page's": its color too (a calm one).
     await set('appearance.blendTone', 'exact');
-    l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(255, 247, 240)' ? v : null; }, 4000, 'exactly the light page’s color');
-    assert(light(l.tab) < 110 && light(l.addr) < 110, 'dark text on the light page: ' + JSON.stringify(l));
-    // → "Tint my theme": the bars as dark as the theme, with light text.
-    await set('appearance.blendTone', 'theme');
-    l = await until(async () => { const v = await look(); return v.blend && light(v.body) < 70 ? v : null; }, 4000, 'the theme’s shade, tinted');
-    assert(light(l.tab) > 170 && light(l.addr) > 150, 'light text on the theme’s shade: ' + JSON.stringify(l));
-    await t.shot('behavior-blend-theme');
+    await sleep(400);
+    l = await look();
+    assert(l.body === 'rgb(255, 247, 240)' && light(l.tab) < 110, 'exactly the page’s color: ' + JSON.stringify(l));
     await set('appearance.blendTone', 'soft');
-    await until(async () => { const v = await look(); return v.blend && light(v.body) > 190 && light(v.body) < 232; }, 4000, 'the softened color again');
+    await until(async () => { const v = await look(); return v.blend && light(v.body) < 60; }, 4000, 'dark bars again');
     // Bifrost's own pages: see-through, sharing the window's background (the new tab page's glow too).
     const own = () => t.ui(() => ({ see: document.documentElement.classList.contains('see-through'), ntp: document.documentElement.dataset.ntpBg || '', stage: getComputedStyle(document.getElementById('stage')).backgroundColor }));
     await open('bifrost://settings/', false);
@@ -569,6 +572,9 @@ try {
       let nav = await until(async () => { const v = await guest(NAV); return v.n > 12 && v.vh < 600 && v.max > 0 ? v : null; }, 8000, 'Settings in a short window, its navigation taller than the window');
       assert(nav.box[1] <= nav.vh && nav.h >= 35 && Math.abs(nav.first - 86) <= 1, 'the navigation goes past the window, or its items moved or were squashed: ' + JSON.stringify(nav));
       const at = await guest(`(() => { const r = document.getElementById('nav').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round((r.top + r.bottom) / 2) }; })()`);
+      // (once the page is the one on screen and drawing: a wheel sent to it before that goes nowhere)
+      await until(() => guest("new Promise((res) => { if (document.visibilityState !== 'visible') return res(false); requestAnimationFrame(() => requestAnimationFrame(() => res(true))); setTimeout(() => res(false), 1500); })"), 6000, 'Settings on screen');
+      await sleep(300);
       await wheel(at, 20);
       nav = await guest(NAV);
       assert(nav.top >= nav.max - 1 && nav.page === 0, 'the wheel over it: ' + JSON.stringify(nav));

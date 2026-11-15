@@ -1,5 +1,5 @@
 /* Bifrost — downloads page. */
-.dls { display: flex; flex-direction: column; gap: 10px; max-width: 900px; }
+.dls { display: flex; flex-direction: column; gap: 10px; }
 .dl { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 14px; background: var(--mantle); border: 1px solid color-mix(in srgb, var(--s0) 70%, transparent); }
 .dl-ico { width: 44px; height: 44px; flex: none; display: grid; place-items: center; border-radius: 12px; background: var(--accent-soft); color: var(--accent); }
 .dl-ico svg.i { width: 22px; height: 22px; }

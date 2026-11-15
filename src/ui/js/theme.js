@@ -148,13 +148,18 @@ export function applyBlend() {
   root.classList.toggle('see-through', see);
   root.classList.toggle('frosted', see && a.blend === 'blur');
   applyNtpBackground(see && isNewTab(t.url));
-  // (a loud page's color is calmed for the bars, as Look & feel → "Bright and vivid pages" says; behind a
-  // blurred picture of the page it's the picture that shows, so the color is the page's)
-  const tone = a.blend === 'blur' ? 'exact' : ['soft', 'exact', 'theme'].includes(a.blendTone) ? a.blendTone : 'soft';
-  const key = tint + '|' + tone + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2;
+  // (what the bars take from a bright or vivid page: Look & feel → "Bright pages"; behind a blurred picture
+  // of the page it's the picture that shows, so the color is the page's)
+  const tone = a.blend === 'blur' ? 'exact' : ['soft', 'light', 'exact'].includes(a.blendTone) ? a.blendTone : 'soft';
+  // Your theme for the other side (the light one, with a dark theme): bars that end up there take its colors.
+  const ws = curWs();
+  const otherKey = theme.dark ? a.lightTheme || 'latte' : a.darkTheme || 'mocha';
+  let other = window.WBThemes.resolve(Object.assign({}, a, { theme: otherKey }), { systemDark: S.systemDark, workspaceColor: ws && ws.color });
+  if (!other || !!other.dark === !!theme.dark) other = null;
+  const key = tint + '|' + tone + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2 + '|' + (other ? other.name + other.accent : '');
   if (key === blendKey) { syncCaption(); return; }
   blendKey = key;
-  blendVars = tint ? window.WBThemes.blendVars(tint, theme, tone) : null;
+  blendVars = tint ? window.WBThemes.blendVars(tint, theme, tone, other) : null;
   let style = document.getElementById('blend-vars');
   if (!style) { style = document.createElement('style'); style.id = 'blend-vars'; document.head.appendChild(style); }
   const decl = blendVars ? Object.entries(blendVars).filter(([k]) => k.startsWith('--') && k !== '--page-tint' && k !== '--bar-tint').map(([k, v]) => `${k}: ${v};`).join(' ') : '';
@@ -164,6 +169,8 @@ export function applyBlend() {
   // (--page-tint: the page's own color, behind the page; --bar-tint: the bars', around it)
   style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; --bar-tint: ${blendVars['--bar-tint']}; }\n:root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { ${decl} }` : '';
   root.classList.toggle('blend', !!blendVars);
+  // (bars that aren't the page's color: the page sits in them, with its frame)
+  root.classList.toggle('blend-apart', !!blendVars && !!blendVars.apart && !thumb);
   root.dataset.blendScheme = blendVars ? (blendVars.dark ? 'dark' : 'light') : '';
   syncCaption();
 }

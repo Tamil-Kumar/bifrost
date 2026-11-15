@@ -42,6 +42,8 @@ h1, h2, h3 { letter-spacing: -.015em; }
   margin: -4px; padding: 4px;
 }
 .pg-nav > * { flex: none; }   /* (its items keep their height, and it scrolls) */
+/* (its scrollbar shows while the pointer or the keyboard is in it: a line down the page otherwise) */
+.pg-nav:not(:hover):not(:focus-within)::-webkit-scrollbar-thumb { background-color: transparent; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   height: 36px; padding: 0 12px;
@@ -73,7 +75,7 @@ h1, h2, h3 { letter-spacing: -.015em; }
 .range { display: flex; align-items: center; gap: 10px; }
 .range input { width: 180px; accent-color: var(--accent); }
 .range output { min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; color: var(--subtext); font-weight: 600; }
-select.field { width: auto; min-width: 180px; height: 34px; padding: 0 10px; }
+select.field { width: auto; min-width: 180px; height: 34px; padding: 0 30px 0 10px; }
 input.field.short { width: 220px; }
 input.field.num { width: 90px; }
 input[type=color].color { width: 40px; height: 32px; padding: 2px; border: 1px solid var(--s1); border-radius: var(--r-btn); background: var(--mantle); }

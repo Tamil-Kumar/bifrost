@@ -95,5 +95,11 @@ check('0.24.4’s Enter and Shift+Enter settings carry over to the launcher’s 
   const s3 = load(o3);
   assert(s3.launcher.open.enter === 'current' && s3.launcher.open.shift === 'newtab', JSON.stringify(s3.launcher.open));
 });
+check('0.33.0’s “Tint my theme” becomes “Stay dark”; the other choices for bright pages stay', () => {
+  const was = (tone) => { const o = clone(DEFAULTS); o.settingsVersion = 4; o.appearance.blend = 'page'; o.appearance.blendTone = tone; return load(o).appearance.blendTone; };
+  assert(was('theme') === 'soft', 'theme → ' + was('theme'));
+  assert(was('soft') === 'soft' && was('exact') === 'exact', 'soft → ' + was('soft') + ', exact → ' + was('exact'));
+  assert(DEFAULTS.appearance.blendTone === 'soft', 'the default: ' + DEFAULTS.appearance.blendTone);
+});
 console.log(`\nsettings: ${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

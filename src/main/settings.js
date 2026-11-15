@@ -6,7 +6,7 @@ const { EventEmitter } = require('node:events');
 const { DEFAULTS, deepMerge, setPath, getPath, clone } = require('../shared/defaults');
 
 // One-time changes to settings saved by older versions. settingsVersion records which have run.
-const SETTINGS_VERSION = 4;
+const SETTINGS_VERSION = 5;
 function migrate(raw) {
   const v = Number(raw.settingsVersion) || 1;
   if (v < 2) {
@@ -36,6 +36,11 @@ function migrate(raw) {
   if (v < 4 && raw.launcher && typeof raw.launcher === 'object') {
     // 0.24.4 had a setting each for Enter and Shift+Enter; now every Enter combination has one.
     raw.launcher = require('../shared/launcher-settings').upgrade(raw.launcher);
+  }
+  if (v < 5 && raw.appearance && raw.appearance.blendTone === 'theme') {
+    // 0.33.0's "Tint my theme" (the bars in the theme's shade next to every page) is what "Stay dark" now
+    // does next to bright pages; dark pages give the bars their own color.
+    raw.appearance.blendTone = 'soft';
   }
   raw.settingsVersion = SETTINGS_VERSION;
   return raw;

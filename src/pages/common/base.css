@@ -34,6 +34,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: default; }
 [hidden] { display: none !important; }
 svg.i { width: 1.23rem; height: 1.23rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; }
+svg.i.i-dots { stroke-width: 3.2; }   /* (three dots as wide as a line are specks) */
 kbd { font: 600 .8em/1 var(--font); color: var(--subtext); background: var(--s0); padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
 mark { background: none; color: var(--accent); font-weight: 700; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -172,7 +173,16 @@ mark { background: none; color: var(--accent); font-weight: 700; }
 .field:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 textarea.field { resize: vertical; min-height: 160px; line-height: 1.45; }
 .field.mono { font-family: var(--mono); font-size: .92rem; }
-select.field { appearance: auto; }
+/* Dropdowns: the icons' own thin chevron (the system's arrow is heavier than everything around it). */
+select.field, select.select-sm {
+  appearance: none; padding-right: 30px; text-overflow: ellipsis;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9afc6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 8px center; background-size: 16px 16px;
+}
+:root[data-scheme="light"] select.field, :root[data-scheme="light"] select.select-sm {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235f6379' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+}
+select.field:disabled, select.select-sm:disabled { opacity: .55; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
   height: 32px; padding: 0 14px;
@@ -188,6 +198,10 @@ select.field { appearance: auto; }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.danger { background: var(--red); border-color: var(--red); color: var(--accent-text); }
 .btn.small { height: 26px; padding: 0 10px; font-size: .88rem; }
+/* With a light theme, a plain button is a light one with an edge (the gray fill it had read as switched off). */
+/* (no stronger than .btn itself, so every kind of button that has a look of its own keeps it) */
+:where(:root[data-scheme="light"]) .btn:where(:not(.primary, .danger)) { background: color-mix(in srgb, var(--s0) 36%, #fff); border-color: color-mix(in srgb, var(--s1) 85%, transparent); }
+:where(:root[data-scheme="light"]) .btn:where(:not(.primary, .danger)):hover { background: color-mix(in srgb, var(--s0) 78%, #fff); }
 .btn svg.i { width: 15px; height: 15px; }
 .link-btn { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px; border: 0; border-radius: 6px; background: none; color: var(--accent); font-weight: 600; font-size: .92rem; }
 .link-btn:hover { background: var(--accent-soft); }
@@ -203,7 +217,12 @@ select.field { appearance: auto; }
 .switch input:checked + .switch-track { background: var(--accent); }
 .switch input:checked + .switch-track .switch-thumb { transform: translateX(14px); background: var(--accent-text); }
 .switch.disabled { opacity: .45; }
-select.select-sm { height: 28px; padding: 0 6px; border: 1px solid var(--s1); border-radius: max(0px, calc(var(--r-btn) - 1px)); background: var(--mantle); color: var(--text); }
+/* With a light theme, a switch that's off has a white knob on a gray track (a dark knob there read as on). */
+:root[data-scheme="light"] .switch-track, :root[data-scheme="light"] .mi-switch { background: var(--s2); }
+:root[data-scheme="light"] .switch-thumb, :root[data-scheme="light"] .mi-switch::after { background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+:root[data-scheme="light"] .switch input:checked + .switch-track, :root[data-scheme="light"] .mi-switch.on { background: var(--accent); }
+:root[data-scheme="light"] .mi-switch.on::after { background: #fff; }
+select.select-sm { height: 28px; padding: 0 24px 0 8px; border: 1px solid var(--s1); border-radius: max(0px, calc(var(--r-btn) - 1px)); background-color: var(--mantle); background-position: right 5px center; background-size: 15px 15px; color: var(--text); }
 
 /* Toasts. */
 .toasts { position: fixed !important; left: 50%; bottom: 22px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none !important; }

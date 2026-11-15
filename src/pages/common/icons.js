@@ -116,7 +116,7 @@ export function icon(name, cls = '') {
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', 'i' + (cls ? ' ' + cls : ''));
+  svg.setAttribute('class', 'i' + (name === 'dots' || name === 'dotsH' ? ' i-dots' : '') + (cls ? ' ' + cls : ''));
   const p = document.createElementNS(NS, 'path');
   p.setAttribute('d', P[name] || P.globe);
   svg.appendChild(p);
@@ -124,7 +124,7 @@ export function icon(name, cls = '') {
 }
 
 export function iconHTML(name) {
-  return `<svg viewBox="0 0 24 24" aria-hidden="true" class="i"><path d="${P[name] || P.globe}"/></svg>`;
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" class="i${name === 'dots' || name === 'dotsH' ? ' i-dots' : ''}"><path d="${P[name] || P.globe}"/></svg>`;
 }
 
 export const ICONS = P;
