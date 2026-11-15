@@ -19,7 +19,7 @@ import path from 'node:path';
 import os from 'node:os';
 import https from 'node:https';
 import { execFileSync } from 'node:child_process';
-import { launch, startSite, reporter, assert, sleep, ROOT } from './lib.mjs';
+import { launch, startSite, reporter, assert, sleep, ROOT, xinput } from './lib.mjs';
 
 const R = reporter('youtube');
 const FIX = path.join(ROOT, 'tests', 'fixtures', 'yt');
@@ -66,7 +66,8 @@ const yt = https.createServer({ key: fs.readFileSync(path.join(tls, 'key.pem')),
     return res.end("window.google_ad_status = 1; window.__adStatusFrom = 'Google';");
   }
   const page = u.pathname === '/watch' || u.pathname.startsWith('/embed/') ? 'watch.html'
-    : u.pathname.startsWith('/shorts/') ? 'shorts.html'
+    : u.pathname.startsWith('/shorts/space') ? 'shorts-space.html'
+      : u.pathname.startsWith('/shorts/') ? 'shorts.html'
       : u.pathname === '/' || u.pathname === '/results' ? 'feed.html' : null;
   if (!page) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
@@ -229,6 +230,56 @@ try {
     // No gap where the ad was: the next video takes its place.
     const x = await t.guest('?feed=1', '[1, 2].map((n) => Math.round(document.getElementById("ok-" + n).getBoundingClientRect().x))');
     assert(x[1] - x[0] === 216, 'a gap in the feed: ' + x.join(', '));
+  });
+
+  await R.step('Shorts: Space plays and pauses the Short on screen wherever the keyboard is in the page (YouTube only hears it in its player), once even when its player has it; a space in the search box, a button’s own Space; K as before', async () => {
+    const x = xinput();
+    try {
+      await open('https://www.youtube.com/shorts/space');
+      const S = (code) => t.guest('/shorts/space', code);
+      const state = () => S('({ paused: document.getElementById("sv").paused, toggles: window.__toggles, likes: window.__likes || 0, search: document.getElementById("search").value })');
+      await until(() => S('!document.getElementById("sv").paused'), 8000, 'the Short playing');
+      await until(() => t.ui(() => { const W = window.__wbTest.state; const ws = W.workspaces.find((w) => w.id === W.activeWorkspaceId); const tb = W.tabs.find((y) => y.id === ws.activeTabId); return !!(tb && tb.url.includes('/shorts/space')); }), 6000, 'the Short’s tab in front');
+      await sleep(300);
+      // (a click on an empty part of the page: the keyboard on the page, on nothing in it)
+      const at = await t.main(async ({ webContents, BrowserWindow }) => {
+        const wc = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().includes('/shorts/space'));
+        const host = wc.hostWebContents;
+        const r = await host.executeJavaScript(`(() => { const v = [...document.querySelectorAll('webview')].find((w) => { try { return w.getWebContentsId() === ${wc.id}; } catch { return false; } }); const b = v.getBoundingClientRect(); return [b.x, b.y]; })()`);
+        const b = BrowserWindow.fromWebContents(host).getContentBounds();
+        return { x: Math.round(b.x + r[0] + 600), y: Math.round(b.y + r[1] + 300) };
+      });
+      await x.click(at.x, at.y);
+      await until(() => S('document.hasFocus() && document.activeElement === document.body'), 3000, 'the keyboard on the Short’s page');
+      await sleep(200);
+      await x.key('space'); await sleep(400);
+      let st = await state();
+      assert(st.paused && st.toggles === 0, 'Space didn’t pause it: ' + JSON.stringify(st));
+      await x.key('space'); await sleep(400);
+      st = await state();
+      assert(!st.paused, 'Space didn’t play it again: ' + JSON.stringify(st));
+      // Its player with the keyboard: one step, not two (YouTube's own doesn't go too).
+      await S('document.getElementById("shorts-player").focus(), 1');
+      await x.key('space'); await sleep(400);
+      st = await state();
+      assert(st.paused && st.toggles === 0, 'with its player chosen: ' + JSON.stringify(st));
+      await x.key('space'); await sleep(400);
+      // The search box: a space typed, the Short as it was.
+      await S('document.getElementById("search").focus(), 1');
+      await x.key('space'); await sleep(300);
+      st = await state();
+      assert(!st.paused && st.search === ' ', 'in the search box: ' + JSON.stringify(st));
+      // A button: its own.
+      await S('document.getElementById("like").focus(), 1');
+      await x.key('space'); await sleep(300);
+      st = await state();
+      assert(!st.paused && st.likes === 1, 'on a button: ' + JSON.stringify(st));
+      // K: YouTube's, as before.
+      await S('document.activeElement.blur(), 1');
+      await x.key('k'); await sleep(300);
+      st = await state();
+      assert(st.paused && st.toggles === 1, 'K: ' + JSON.stringify(st));
+    } finally { x.close(); }
   });
 
   await R.step('Shorts: the reels marked as ads are taken out of what YouTube sends, read as JSON or as text', async () => {

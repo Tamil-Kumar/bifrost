@@ -79,7 +79,7 @@ player data, the player's answers, a watch page asked for) with nothing else cha
 player's check for a video without ads passing, nothing it asks for blocked (Google's ad status script) while
 other sites still are, its "abnormality" callback and 17-second wait quiet and looking untouched, its service
 worker gone past; video ads that get through covered and skipped, whatever kind; the ads in its pages hidden;
-ads taken out of Shorts; embedded players; the settings that turn it off),
+ads taken out of Shorts; Space playing and pausing a Short; embedded players; the settings that turn it off),
 `blocking` (the ad blocker's domain list, HaGeZi's, here tests/fixtures/domains-test.txt, against local
 stand-in sites: what pages load from listed domains blocked, never the site you're on nor a company's own
 services on its own sites, its exceptions scoped to it, your own @@ rules and uBlock's stand-ins, the list off

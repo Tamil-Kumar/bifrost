@@ -435,6 +435,7 @@ if (isTop && /^https?:$/.test(location.protocol)) {
 }
 
 if (isTop) setupKeys();
+if (isTop && /(^|\.)youtube\.com$/i.test(location.hostname)) setupShortsSpace();
 
 function setupKeys() {
   let cfg = null;           // { shortcuts: [{id, chord}], vim: {...}, keys: {action: seq}, pass: null|true|[keys] }
@@ -879,4 +880,40 @@ if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
   window.addEventListener('pageshow', () => soon(0));
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') soon(50); });
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => soon(150)); } catch { /* old */ }
+}
+
+// ------------------------------------------------------------ YouTube Shorts
+// Space plays and pauses the Short on screen, as it does a video on YouTube's other pages. Shorts only hear it
+// while their player has the keyboard (K works from anywhere): otherwise Space lands on the page, which can't
+// scroll, and nothing happens. Not while you're typing, or with a button (or the like) chosen: Space is theirs.
+function setupShortsSpace() {
+  const THEIRS = 'input, textarea, select, button, summary, a[href], [role="button"], [role="checkbox"], [role="switch"], ' +
+    '[role="radio"], [role="tab"], [role="menuitem"], [role="option"], [role="slider"], [role="textbox"], [role="combobox"]';
+  const focused = () => { let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return a; };
+  const onScreen = (v) => { const r = v.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight; };
+  // The Short on screen: the active reel's video, else the Shorts player's (one player goes from reel to reel).
+  const shortVideo = () => {
+    for (const sel of ['ytd-reel-video-renderer[is-active] video', '[is-active] video', '#shorts-player video']) {
+      for (const v of document.querySelectorAll(sel)) if (v.closest('ytd-shorts') && onScreen(v)) return v;
+    }
+    return null;
+  };
+  let ours = false;
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || !e.isTrusted || e.isComposing || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    if (!location.pathname.startsWith('/shorts/')) return;
+    const a = focused();
+    if (a && (a.isContentEditable || (a !== document.body && a.closest && a.closest(THEIRS)))) return;
+    const v = shortVideo();
+    if (!v) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    ours = true;
+    if (e.repeat) return;
+    try {
+      if (v.paused) { const p = v.play(); if (p && p.catch) p.catch(() => {}); } else v.pause();
+    } catch { /* left as it was */ }
+  }, true);
+  // (and its coming up, which YouTube could take for Space too)
+  window.addEventListener('keyup', (e) => { if (e.code === 'Space' && ours) { ours = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 }
