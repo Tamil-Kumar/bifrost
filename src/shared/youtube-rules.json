@@ -1,0 +1,72 @@
+{
+  "format": 1,
+  "version": 2026111601,
+  "notes": "How YouTube's ads are taken out of what it sends (main/youtube-edit.js reads this; main/youtube-rules.js keeps it up to date from the repository, so a change YouTube makes can be answered here without a new version of Bifrost). Raise version with every change.",
+  "hold": [
+    "/youtubei/v1/player*",
+    "/youtubei/v1/get_watch*",
+    "/youtubei/v1/reel/*",
+    "/watch?*",
+    "/playlist?*",
+    "/s/player/*base.js*"
+  ],
+  "answers": [
+    { "kind": "player", "path": "^/youtubei/v1/(player|get_watch)(/|$)" },
+    { "kind": "reels", "path": "^/youtubei/v1/reel/" },
+    { "kind": "page", "path": "^/(watch|playlist)$", "from": "page" },
+    { "kind": "player", "path": "^/(watch|playlist)$", "from": "data" },
+    { "kind": "script", "path": "^/s/player/.*/base\\.js$" }
+  ],
+  "edits": {
+    "player": [
+      { "do": "rename", "keys": ["adPlacements", "adSlots", "playerAds"], "to": "no_ads" }
+    ],
+    "page": [
+      { "do": "inside", "after": "ytInitialPlayerResponse", "edits": [
+        { "do": "rename", "keys": ["adPlacements", "adSlots", "playerAds"], "to": "no_ads" }
+      ] }
+    ],
+    "reels": [
+      { "do": "prune", "has": "adClientParams", "list": "entries", "where": ["command", "reelWatchEndpoint", "adClientParams", "isAd"] }
+    ],
+    "script": [
+      { "do": "replace", "has": ".adPlacements&&", "find": "if\\(!([\\w$]+)\\|\\|!\\1\\.adPlacements&&!\\1\\.adSlots\\)", "with": "if(!$1||0)" }
+    ]
+  },
+  "page": {
+    "skip": [
+      ".ytp-skip-ad-button",
+      ".ytp-ad-skip-button",
+      ".ytp-ad-skip-button-modern",
+      ".videoAdUiSkipButton",
+      "button[id^=\"skip-button\"]",
+      ".ytp-ad-skip-button-container button",
+      ".ytp-skip-ad button"
+    ],
+    "hide": [
+      "ytd-ad-slot-renderer",
+      "ytd-in-feed-ad-layout-renderer",
+      "ytd-display-ad-renderer",
+      "ytd-promoted-sparkles-web-renderer",
+      "ytd-promoted-sparkles-text-search-renderer",
+      "ytd-promoted-video-renderer",
+      "ytd-compact-promoted-video-renderer",
+      "ytd-search-pyv-renderer",
+      "ytd-video-masthead-ad-v3-renderer",
+      "ytd-primetime-promo-renderer",
+      "ytd-banner-promo-renderer",
+      "#masthead-ad",
+      "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-ads\"]",
+      "ytd-merch-shelf-renderer",
+      "yt-overlay-product-sticker",
+      "ytd-rich-item-renderer:has(ytd-ad-slot-renderer)",
+      "#shorts-inner-container > :has(> ytd-ad-slot-renderer)",
+      "#shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer)",
+      "ad-slot-renderer",
+      "ytm-promoted-sparkles-web-renderer",
+      "ytm-promoted-video-renderer",
+      "ytm-companion-ad-renderer",
+      "ytm-rich-item-renderer:has(> ad-slot-renderer)"
+    ]
+  }
+}

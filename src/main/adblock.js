@@ -476,7 +476,9 @@ class AdBlock extends EventEmitter {
     // lists (so also in the seconds after a start while they load). Its pages' ads are hidden with element
     // hiding on.
     const ytHere = isYouTube(hostOf(url));
-    const youtube = first && ytHere && s.youtubeSkip !== false ? { hide: !!s.cosmetic, stuckMs: YT_STUCK_MS || undefined } : null;
+    // (what's hidden and pressed in its pages comes from the rules in use: youtube-rules.js)
+    const yt = ctx.youtubeRules ? ctx.youtubeRules.current() : null;
+    const youtube = first && ytHere && s.youtubeSkip !== false ? { hide: !!s.cosmetic, stuckMs: YT_STUCK_MS || undefined, skip: yt ? yt.page.skip : [], pageAds: yt ? yt.page.hide : [], rules: yt ? yt.version : 0 } : null;
     if (!this.engine) return youtube ? { styles: '', scripts: [], watch: false, youtube } : null;
     // Request works out the host and its registrable domain (sub.example.co.uk -> example.co.uk).
     const { Request } = blockerModule();
@@ -485,7 +487,7 @@ class AdBlock extends EventEmitter {
     // None of the lists' page scripts on YouTube.
     const scriptlets = first && !(ytHere || isYouTube(host));
     // The first answer for a site (its own rules and scriptlets) is the same every time: keep it a minute.
-    const cacheKey = first ? [isTop ? 'T' : 'F', hostname, s.cosmetic ? 1 : 0, scriptlets ? 1 : 0, youtube ? 1 : 0].join('|') : null;
+    const cacheKey = first ? [isTop ? 'T' : 'F', hostname, s.cosmetic ? 1 : 0, scriptlets ? 1 : 0, youtube ? youtube.rules || 1 : 0].join('|') : null;
     if (cacheKey) {
       if (this.cosmeticCache && this.cosmeticCache.engine === this.engine) {
         const hit = this.cosmeticCache.map.get(cacheKey);

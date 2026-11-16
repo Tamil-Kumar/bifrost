@@ -822,7 +822,10 @@ function adblockStatus() {
     const s = await wb.invoke('adblock:status').catch(() => null);
     if (!s) { line.textContent = ''; return; }
     const lists = s.listsUpdated ? 'lists updated ' + new Date(s.listsUpdated).toLocaleString() : 'using the lists that came with Bifrost' + (s.bundled ? ' (' + new Date(s.bundled).toLocaleDateString() + ')' : '');
-    line.textContent = `${s.enabled ? (s.ready ? 'Active' : s.loading ? 'Loading…' : 'Starting…') : 'Off'} · ${Number(s.total || 0).toLocaleString()} blocked so far · ${lists}`;
+    // (the rules YouTube's ads are taken out by: their version is the day they're from, and a count)
+    const y = s.youtube && /^\d{10}$/.test(String(s.youtube.version)) ? String(s.youtube.version) : '';
+    const yt = y ? ' · YouTube ad rules of ' + new Date(Number(y.slice(0, 4)), Number(y.slice(4, 6)) - 1, Number(y.slice(6, 8))).toLocaleDateString() + (s.youtube.downloaded ? ' (updated since this version of Bifrost)' : '') : '';
+    line.textContent = `${s.enabled ? (s.ready ? 'Active' : s.loading ? 'Loading…' : 'Starting…') : 'Off'} · ${Number(s.total || 0).toLocaleString()} blocked so far · ${lists}${yt}`;
   };
   btn.addEventListener('click', async () => {
     btn.disabled = true;
@@ -1835,7 +1838,7 @@ function sections() {
       { title: 'Style', id: 'style', items: [
         I.seg('appearance.chrome', 'Window background', 'Aurora lights the window around the page with the theme’s colors.', [['aurora', 'Aurora'], ['gradient', 'Gradient'], ['flat', 'Flat']], { keywords: 'background glow aurora gradient color depth window chrome sidebar' }),
         I.seg('appearance.blend', 'Sidebar and toolbar', 'Match the page: they take the color of the page you’re on (Bifrost’s own pages too), with no edge between them and it, so the page and the window blend into one. Blur the page: they show a blurred picture of it, like frosted glass.', [['window', 'Window background'], ['page', 'Match the page'], ['blur', 'Blur the page']], { keywords: 'blend match page color tint seamless sidebar toolbar website theme-color arc zen safari blur frosted glass acrylic transparent see-through' }),
-        I.seg('appearance.blendTone', 'Bright pages', 'With “Match the page” and a dark theme, next to a bright page. Stay dark: your theme’s shade, tinted with the page’s color. Go light: the page’s color, with your light theme’s text and colors. Exactly the page’s: its color, however bright or vivid.', [['soft', 'Stay dark'], ['light', 'Go light'], ['exact', 'Exactly the page’s']], { when: (st) => st.appearance.blend === 'page', keywords: 'blend match page color bright white vivid neon contrast readable overpower glare soften tone down dim tint dark light sidebar toolbar' }),
+        I.seg('appearance.blendTone', 'Bright pages', 'With “Match the page” or “Blur the page” and a dark theme, next to a bright page. Stay dark: your theme’s shade, with a touch of the page’s color. Go light: the page’s color, with your light theme’s text. Exactly the page’s: its color, however bright.', [['soft', 'Stay dark'], ['light', 'Go light'], ['exact', 'Exactly the page’s']], { when: (st) => st.appearance.blend === 'page' || st.appearance.blend === 'blur', keywords: 'blend match blur page color bright white vivid neon contrast readable overpower glare soften tone down dim tint dark light glass sidebar toolbar' }),
         I.range('appearance.blendBlur', 'How blurred', 'With “Blur the page”.', { min: 10, max: 100, step: 2, fmt: (v) => v + ' px', when: (st) => st.appearance.blend === 'blur', keywords: 'blur strength frosted glass amount radius' }),
         I.toggle('appearance.texture', 'Fine texture', 'A faint grain on the window around the page.', { keywords: 'grain noise texture film' }),
         I.seg('appearance.shadows', 'Shadows', 'Under the page, tabs, menus and dialogs.', [['none', 'None'], ['subtle', 'Subtle'], ['normal', 'Normal'], ['strong', 'Strong']], { keywords: 'shadow depth elevation flat' }),
@@ -2127,7 +2130,7 @@ function sections() {
       { title: 'Ad and tracker blocking', id: 'adblock', items: [
         I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy, uBlock Origin’s lists and HaGeZi’s DNS blocklists.', { keywords: 'adblock ublock hagezi' }),
         I.toggle('privacy.adblock.cosmetic', 'Hide leftover ad spaces', 'Removes empty boxes and runs uBlock’s anti-adblock fixes.', { when: (st) => st.privacy.adblock.enabled }),
-        I.toggle('privacy.adblock.youtubeSkip', 'Block YouTube ads', 'Video ads are taken out of what YouTube sends before its page sees it, as AdGuard does, and nothing YouTube asks for is blocked, so it doesn’t notice. An ad that gets through anyway is covered, muted and skipped; the ads in its pages are hidden, and Shorts’ ad reels taken out.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads skip video shorts adguard detected detection' }),
+        I.toggle('privacy.adblock.youtubeSkip', 'Block YouTube ads', 'Video ads are taken out of what YouTube sends before its page sees it, as AdGuard does, and nothing YouTube asks for is blocked, so it doesn’t notice. An ad that gets through anyway is covered, muted and skipped; the ads in its pages are hidden, and Shorts’ ad reels taken out. How it’s done is kept up to date by itself, between versions of Bifrost, for when YouTube changes something.', { when: (st) => st.privacy.adblock.enabled, keywords: 'youtube ads skip video shorts adguard detected detection' }),
         I.toggle('privacy.adblock.lists.ads', 'Ads', '', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.lists.tracking', 'Trackers', '', { when: (st) => st.privacy.adblock.enabled }),
         I.toggle('privacy.adblock.lists.annoyances', 'Annoyances', 'Newsletter popups, “open in app” banners and similar.', { when: (st) => st.privacy.adblock.enabled }),

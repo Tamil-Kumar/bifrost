@@ -176,6 +176,7 @@ export function build() {
   };
   placeCaption();
   update();
+  fit();
   centerAddress();
   emit('toolbar-built');
 }
@@ -190,8 +191,44 @@ let centerRO = null, centerRaf = 0;
 const MIN_CENTERED = { pill: 160, bar: 320 };   // narrower than this, it moves off the middle instead
 const MAX_WIDTH = { pill: 640, bar: 900 };      // as in browser.css
 
+// ------------------------------------------------------------------ fitting
+// A toolbar with more in it than there's room for (a small window with its sidebar open): what's past its end
+// would be the window's own buttons, or with Windows' buttons drawn over it, the menu under them. So the
+// buttons that matter least step aside, one at a time, until the rest fits and the address bar has room to
+// show an address: extension icons first, then the buttons after the address bar (never the menu), then the
+// ones before it, Reload, Forward and Back last. The window's buttons, the menu and the address bar always
+// stay; the others are back as soon as there's room (and all of them are in the menu meanwhile).
+const ADDRESS_ROOM = 170, ADDRESS_LEAST = 110;   // (what it's given if it can be; what Reload, Forward and Back give way for)
+function fit() {
+  const box = toolbarEl.querySelector('.tb-address');
+  if (!box) return;
+  const over = () => toolbarEl.scrollWidth > toolbarEl.clientWidth + 1;
+  const tight = () => box.getBoundingClientRect().width < ADDRESS_ROOM;
+  const aside = toolbarEl.querySelectorAll('.tb-fit');
+  if (aside.length || over() || tight()) {
+    for (const el of aside) el.classList.remove('tb-fit');
+    const kids = (sel) => [...toolbarEl.querySelectorAll(sel)];
+    const id = (el) => el.dataset.tb || '';
+    const last = ['reload', 'forward', 'back'];
+    const left = kids('.tb-group.left > *'), right = kids('.tb-group.right > *');
+    const first = [
+      ...kids('#ext-actions > *'),
+      ...right.filter((el) => id(el) !== 'menu'),
+      ...left.filter((el) => !last.includes(id(el))).reverse(),
+    ];
+    for (const el of first) { if (!over() && !tight()) break; el.classList.add('tb-fit'); }
+    const cramped = () => box.getBoundingClientRect().width < ADDRESS_LEAST;
+    for (const name of last) { if (!over() && !cramped()) break; for (const el of left) if (id(el) === name) el.classList.add('tb-fit'); }
+  }
+  // …and in an address bar with little room, the address comes before the buttons at its end.
+  const w = box.getBoundingClientRect().width;
+  box.classList.toggle('narrow', w > 0 && w < 240);
+  box.classList.toggle('tiny', w > 0 && w < 165);
+}
+
 function watchCenter() {
-  if (!centerRO) centerRO = new ResizeObserver(() => centerAddress());
+  // (the fitting a frame later: it changes the sizes this is told of)
+  if (!centerRO) centerRO = new ResizeObserver(() => { centerAddress(); scheduleCenter(); });
   centerRO.disconnect();
   centerRO.observe(toolbarEl);
   const box = toolbarEl.querySelector('.tb-address');
@@ -200,7 +237,7 @@ function watchCenter() {
 
 export function scheduleCenter() {
   if (centerRaf) return;
-  centerRaf = requestAnimationFrame(() => { centerRaf = 0; centerAddress(); });
+  centerRaf = requestAnimationFrame(() => { centerRaf = 0; fit(); centerAddress(); });
 }
 
 export function centerAddress() {

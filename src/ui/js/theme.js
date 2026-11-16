@@ -148,9 +148,10 @@ export function applyBlend() {
   root.classList.toggle('see-through', see);
   root.classList.toggle('frosted', see && a.blend === 'blur');
   applyNtpBackground(see && isNewTab(t.url));
-  // (what the bars take from a bright or vivid page: Look & feel → "Bright pages"; behind a blurred picture
-  // of the page it's the picture that shows, so the color is the page's)
-  const tone = a.blend === 'blur' ? 'exact' : ['soft', 'light', 'exact'].includes(a.blendTone) ? a.blendTone : 'soft';
+  // (what the bars take from a bright or vivid page: Look & feel → "Bright pages". With "Blur the page" it's
+  // the color of the veil over the page's blurred picture, which is thicker where it isn't the page's own:
+  // browser.css)
+  const tone = ['soft', 'light', 'exact'].includes(a.blendTone) ? a.blendTone : 'soft';
   // Your theme for the other side (the light one, with a dark theme): bars that end up there take its colors.
   const ws = curWs();
   const otherKey = theme.dark ? a.lightTheme || 'latte' : a.darkTheme || 'mocha';
@@ -170,7 +171,7 @@ export function applyBlend() {
   style.textContent = blendVars ? `:root.blend { --page-tint: ${tint}; --bar-tint: ${blendVars['--bar-tint']}; }\n:root.blend #sidebar, :root.blend #topbar, :root.blend #panel-strip { ${decl} }` : '';
   root.classList.toggle('blend', !!blendVars);
   // (bars that aren't the page's color: the page sits in them, with its frame)
-  root.classList.toggle('blend-apart', !!blendVars && !!blendVars.apart && !thumb);
+  root.classList.toggle('blend-apart', !!blendVars && !!blendVars.apart);
   root.dataset.blendScheme = blendVars ? (blendVars.dark ? 'dark' : 'light') : '';
   syncCaption();
 }

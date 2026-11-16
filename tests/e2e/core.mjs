@@ -258,6 +258,40 @@ try {
     await set('appearance.tabLayout', 'vertical');
     await sleep(500);
   });
+
+  await R.step('a small window with its sidebar open: the window’s buttons, the menu and the address bar stay in the window; the other toolbar buttons step aside, and are back when there’s room', async () => {
+    const until = async (fn, ms, label) => { const end = Date.now() + ms; let v; while (Date.now() < end) { v = await fn(); if (v) return v; await sleep(120); } throw new Error('timed out waiting for ' + label); };
+    const size = (width, height) => t.main(({ BrowserWindow }, [width, height]) => { const w = BrowserWindow.getAllWindows()[0]; if (w.isMaximized()) w.unmaximize(); w.setContentBounds({ x: 0, y: 0, width, height }); }, [width, height]);
+    const bar = () => t.ui(() => {
+      const tb = document.getElementById('toolbar'); const W = window.innerWidth;
+      const box = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width ? { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) } : null; };
+      const shown = [...tb.querySelectorAll('.tb-group [data-tb]')].filter((e) => e.getBoundingClientRect().width > 0).map((e) => e.dataset.tb);
+      const right = tb.getBoundingClientRect().right;
+      const parts = { caption: box(document.getElementById('caption')), menu: box(tb.querySelector('[data-tb="menu"]')), address: box(tb.querySelector('.tb-address')), star: box(tb.querySelector('.addr-btn.star')) };
+      return { W, right: Math.round(right), over: tb.scrollWidth - tb.clientWidth, shown, aside: tb.querySelectorAll('.tb-fit').length, ...parts };
+    });
+    const wide = await bar();
+    assert(wide.aside === 0 && wide.shown.includes('back') && wide.shown.includes('reload') && wide.shown.includes('menu'), 'at full size: ' + JSON.stringify(wide));
+    for (const [w, h] of [[760, 560], [620, 480], [540, 400]]) {
+      await size(w, h);
+      let b;
+      // (fitted a frame after the window's new size is known)
+      try { b = await until(async () => { const x = await bar(); return x.W === w && x.over <= 1 && x.aside > 0 ? x : null; }, 5000, 'the toolbar to fit'); } catch { throw new Error('the toolbar doesn’t fit a window ' + w + ' wide: ' + JSON.stringify(await bar())); }
+      await sleep(250);
+      b = await bar();
+      // (the window's own buttons: drawn here on Linux; on Windows their place, which the system draws them over)
+      assert(b.caption && b.caption.r <= w + 1 && b.caption.l >= b.menu.r - 1, w + ' wide: the window’s buttons ' + JSON.stringify(b));
+      assert(b.menu && b.menu.r <= b.caption.l + 1 && b.shown.includes('menu'), w + ' wide: the menu ' + JSON.stringify(b));
+      assert(b.address && b.address.w >= (w >= 620 ? 110 : 64) && b.address.r <= b.menu.l + 1, w + ' wide: the address bar ' + JSON.stringify(b));
+      assert(b.aside > 0 && b.shown.length < wide.shown.length, w + ' wide: nothing stepped aside ' + JSON.stringify(b));
+      // (and a button at the address bar's end isn't drawn over the ones after it)
+      assert(!b.star || b.star.r <= b.address.r + 1, w + ' wide: the star runs out of the address bar ' + JSON.stringify(b));
+      if (w === 620) await t.shot('core-toolbar-narrow');
+    }
+    await size(1440, 900);
+    const back = await until(async () => { const x = await bar(); return x.W === 1440 && x.aside === 0 ? x : null; }, 5000, 'the buttons back');
+    assert(back.shown.join() === wide.shown.join(), 'back at full size: ' + back.shown.join() + ' (were ' + wide.shown.join() + ')');
+  });
 } finally {
   x.close();
   const errs = (await t.pageLogs()).filter((l) => /pageerror|Uncaught/i.test(l));

@@ -13,8 +13,9 @@ your computers through a cloud folder, and a lot of settings — every animation
 src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads,
                 ad blocker (adblock.js; domain-list.js: HaGeZi's lists and what keeps them from breaking
                 sites; youtube-ads.js: YouTube's ads taken out of what it sends, a YouTube tab's answers held
-                through its DevTools protocol session, tab-debugger.js, and youtube-edit.js: what becomes of
-                them), dangerous-site warnings (safety.js), extensions (extensions/), imports from
+                through its DevTools protocol session, tab-debugger.js; youtube-edit.js: what becomes of
+                them, by rules that are data; youtube-rules.js: those rules kept up to date from this
+                repository), dangerous-site warnings (safety.js), extensions (extensions/), imports from
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
                 the fingers on the touchpad (touchpad.js: when they lift, for swipes), which Google account
                 Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
@@ -29,7 +30,8 @@ src/ui          the browser window (bifrost://ui): browser.html, browser.css, js
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
 src/shared      defaults.js (every setting and command), themes.js (the themes, and the sidebar's and
-                toolbar's colors with "Match the page"), engine.js (launcher ranking),
+                toolbar's colors with "Match the page"), youtube-rules.json (how YouTube's ads are taken
+                out: see "YouTube's ads" below), engine.js (launcher ranking),
                 launcher-settings.js (the launcher's settings files, Waypoint's included, and its keys),
                 google-accounts.js (which pages get which Google account, and Google's list of your accounts),
                 usercss.js (userstyles: their header and variables, which pages each part is for, Stylus backups),
@@ -62,16 +64,19 @@ End to end (as a normal user, under Xvfb):
 xvfb-run -a -s '-screen 0 1920x1080x24' node tests/e2e/core.mjs
 ```
 
-Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads,
+Suites: `core` (tab close buttons in every layout, Glass menus, palette, launcher, error pages, downloads, a
+small window's toolbar keeping the window's buttons, the menu and the address bar in the window,
 task manager), `behavior` (settings that change behavior, the Launcher section's included, how long the downloads box stays (with the real pointer: what holds it open, and its close button), one press of the mouse's Back button one page back however many ways it arrives (and with the window busy in between), links opened in a new tab in front or behind; the settings page opening with what
-you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button; "Match the page": a dark page's color taken as it is, the bars staying dark next to a bright one with the page in its frame, or going light, or taking it exactly, with text that reads on each), `everyday` (video, full screen and what shows
+you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button; "Match the page": a dark page's color taken as it is, the bars staying dark next to a bright one with the page in its frame, or going light, or taking it exactly, with text that reads on each; "Blur the page": the page's picture behind the bars, under dark glass next to a bright page), `everyday` (video, full screen and what shows
 over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
 questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar; its buttons and
 the sidebar's bottom row evenly spaced, collapsed and open), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
-usercss theme on a local YouTube stand-in, site styles), `daily`, `gestures` (two-finger swipes: the arrow, on
+usercss theme on a local YouTube stand-in, site styles), `daily` (the address bar, unsaved changes, downloads,
+pages' dialogs, tabs back after a restart, and the window working while Bifrost is still starting: its own
+pages at once, web pages once it has started), `gestures` (two-finger swipes: the arrow, on
 either side, and turning back taking it out at once; going only once the fingers lift, said by the touchpad watcher, played here by
 tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; coasting; the swipes that
 don't count; settings), `hidpi` (a 150% display:
@@ -84,7 +89,8 @@ player data, the player's answers, a watch page asked for) with nothing else cha
 player's check for a video without ads passing, nothing it asks for blocked (Google's ad status script) while
 other sites still are, its "abnormality" callback and 17-second wait quiet and looking untouched, its service
 worker gone past; video ads that get through covered and skipped, whatever kind; the ads in its pages hidden;
-ads taken out of Shorts; Space playing and pausing a Short; embedded players; the settings that turn it off),
+ads taken out of Shorts; Space playing and pausing a Short; embedded players; the settings that turn it off;
+newer rules fetched and taken at once, in open tabs too, and rules that aren't right refused),
 `blocking` (the ad blocker's domain list, HaGeZi's, here tests/fixtures/domains-test.txt, against local
 stand-in sites: what pages load from listed domains blocked, never the site you're on nor a company's own
 services on its own sites, its exceptions scoped to it, your own @@ rules and uBlock's stand-ins, the list off
@@ -123,7 +129,8 @@ reading Google's list of your accounts (both its forms) and which pages get whic
 headers, variables and @-moz-document parts and the pages they match, Stylus backups and files for importing into
 Stylus, `less` the LESS compiler against what less.js makes of the same LESS (and Catppuccin's library),
 `youtube-edit` YouTube's answers without their ads (its player data, a watch page's, Shorts' reels, the
-player's check), and which answers those are, `catppuccin` a theme as Catppuccin's colors, the filters for them (as close as Catppuccin's own) and
+player's check), which answers those are, and which rules for it are taken (newer ones that follow what
+YouTube changed) and which refused, `catppuccin` a theme as Catppuccin's colors, the filters for them (as close as Catppuccin's own) and
 Catppuccin's library with them in it, `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
@@ -137,6 +144,20 @@ of the Waypoint extension has a place in Settings → Launcher, that its setting
 what Enter and the launcher's other keys do; `side-bar` the side bar's order, yours or the usual one;
 `touchpad` the touchpad watcher, counting fingers in made-up touchpad reports and running the program
 itself, both under Wine; it's skipped without llvm-mingw and Wine).
+
+### YouTube's ads
+
+How YouTube's ads are taken out is in `src/shared/youtube-rules.json`: which of its answers are held
+(`hold`), which kind each is (`answers`), what's done to each kind (`edits`: `rename` JSON keys, `prune` items
+from lists, `replace` a pattern in the player's script, `inside` the object a script names), and what's hidden
+and pressed in its pages (`page`). Bifrost looks at this file on `main` a minute after it starts and every six
+hours (and with Settings → Privacy & security → Update filter lists now), and takes a copy with a higher
+`version` at once, in tabs already open too. So when YouTube changes something (a key's name, an address, the
+wording of its player's check), change the file, raise `version` (the date and a count: 2026111601), run
+`node tests/unit/youtube-edit.test.mjs` and push to `main`: no new version of Bifrost is needed, and none is
+made (package.json hasn't changed). The rules are data, checked before they're used: a file with anything in
+it that a version of Bifrost doesn't know is refused whole, and that version keeps the rules it has. They
+only apply to YouTube's own sites.
 
 How fast (medians over several runs; compare two versions one after the other on the same machine, the
 numbers move with what else it's doing):

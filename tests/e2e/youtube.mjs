@@ -13,7 +13,9 @@
 //    hidden, silenced and passed;
 //  · a YouTube player embedded in another site gets the same (Google's ad servers blocked there as on the site
 //    it's in); other sites are left alone;
-//  · with element hiding off the pages' ads stay, and with the setting off YouTube is left as it is.
+//  · with element hiding off the pages' ads stay, and with the setting off YouTube is left as it is;
+//  · newer rules (src/shared/youtube-rules.json, fetched: here from the local site) are taken at once, in tabs
+//    already open too, and kept; rules that aren't right, or older, change nothing.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -45,6 +47,13 @@ const yt = https.createServer({ key: fs.readFileSync(path.join(tls, 'key.pem')),
   if (u.pathname === '/youtubei/v1/next') return json(SEQUENCE);
   // The player's data, with ads (as YouTube answers a viewer without Premium).
   if (u.pathname === '/youtubei/v1/player') return json(PLAYER_DATA);
+  // YouTube, changed: the player's data from a new address, its ads under a new name too.
+  if (u.pathname === '/youtubei/v2/player') return json(Object.assign({ adBreaks: [{ adBreakRenderer: {} }] }, PLAYER_DATA));
+  if (u.pathname === '/watch' && /^new/.test(u.searchParams.get('v') || '')) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(`<!doctype html><meta charset="utf-8"><title>YouTube, changed</title><link rel="icon" href="data:,"><div class="yt-new-ad" id="newad" style="height:40px">An ad of a new kind</div><p id="kept">A video</p>
+<script>window.__ask = () => fetch('/youtubei/v2/player?prettyPrint=false', { method: 'POST', body: '{}' }).then((r) => r.json()).then((j) => Object.keys(j).sort()); window.__ask().then((k) => { window.__v2 = k; }, (e) => { window.__v2 = [String(e)]; });</script>`);
+  }
   // A service worker that fetches everything for the pages it controls (as YouTube's may).
   if (u.pathname === '/sw.js') {
     res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' });
@@ -76,7 +85,10 @@ const yt = https.createServer({ key: fs.readFileSync(path.join(tls, 'key.pem')),
 await new Promise((r) => yt.listen(0, '127.0.0.1', r));
 const port = yt.address().port;
 
+// The rules for YouTube's ads, as Bifrost's repository would serve them (what it serves: set by the test).
+let rulesBody = '';
 const site = await startSite(path.join(ROOT, 'tests', 'site'), { routes: {
+  '/yt-rules.json': (req, res) => { if (!rulesBody) { res.writeHead(404); return res.end(); } res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(rulesBody); },
   '/embedder.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Embedder</title><h1>A page with a YouTube video</h1><iframe width="700" height="420" src="https://www.youtube-nocookie.com/embed/abc?mode=stream&skip=0"></iframe>'); },
   '/plain.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Plain</title><p>Not YouTube</p>'); },
   // Another site's link that sends you on to YouTube (a link shortener, a search result).
@@ -88,7 +100,8 @@ const t = await launch({
   profile: 'youtube',
   args: [`--host-resolver-rules=${HOSTS.map((h) => `MAP ${h} 127.0.0.1:${port}`).join(',')}`, '--ignore-certificate-errors'],
   // (a player that says "ad" for 8 seconds is taken as stuck saying it, instead of 2 minutes)
-  env: Object.assign({ BIFROST_YT_STUCK_MS: '8000' }, NO_PROXY),
+  // (and the rules for YouTube's ads are looked for at the local site, when the test asks)
+  env: Object.assign({ BIFROST_YT_STUCK_MS: '8000', BIFROST_YT_RULES_URL: site.url + '/yt-rules.json', BIFROST_YT_RULES_FIRST_MS: String(6 * 3600e3) }, NO_PROXY),
   settings: { onboarding: { done: true } },
 });
 const open = (url) => t.main((_, url) => global.__bifrost.registry.lastFocused().send('open-url', { url }), url);
@@ -388,6 +401,62 @@ try {
       const parsed = await until(() => t.guest('/shorts/off', 'window.__parsed'), 5000, 'the page');
       assert(parsed.join() === 'p1,p-ad,p2', 'parsed: ' + parsed.join());
     } finally { await setSetting('privacy.adblock.youtubeSkip', true); }
+  });
+
+  await R.step('newer rules for YouTube’s ads are fetched and taken at once (a new address, a new name for its ads, a new ad in its pages), in a tab already open too, and kept; rules that aren’t right, or older, change nothing', async () => {
+    const builtin = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'shared', 'youtube-rules.json'), 'utf8'));
+    const refresh = () => t.main(async () => { const y = global.__bifrost.youtubeRules; const found = await y.refresh(); return Object.assign({ found }, y.info()); });
+    const file = () => t.main(({ app }) => { const p = global.__require('node:path').join(app.getPath('userData'), 'youtube-rules.json'); const f = global.__require('node:fs'); return f.existsSync(p) ? JSON.parse(f.readFileSync(p, 'utf8')).version : null; });
+    const ads = (keys) => keys.filter((k) => /^ad|Ads$/.test(k));
+    // YouTube, changed: with the rules Bifrost came with, its new answers keep their ads.
+    await open('https://www.youtube.com/watch?v=new1');
+    let keys = await until(() => t.guest('v=new1', 'window.__v2'), 10000, 'the page’s data');
+    assert(ads(keys).join() === 'adBreaks,adPlacements,adSlots,playerAds', 'with the built-in rules: ' + keys.join());
+    assert(await t.guest('v=new1', 'getComputedStyle(document.getElementById("newad")).display') === 'block', 'the new kind of ad is hidden already');
+    let was = await t.main(() => global.__bifrost.youtubeRules.info());
+    assert(was.version === builtin.version && !was.downloaded, 'the rules in use at first: ' + JSON.stringify(was));
+    // None to be had (the server says so): nothing changes.
+    let r = await refresh();
+    assert(r.found === 'failed' && r.version === builtin.version && /404/.test(r.error), 'with none there: ' + JSON.stringify(r));
+    // Newer, but with something in them this version doesn't know; newer, but not rules; and older ones.
+    const next = JSON.parse(JSON.stringify(builtin));
+    next.version = builtin.version + 1;
+    next.hold.push('/youtubei/v2/player*');
+    next.answers.unshift({ kind: 'player', path: '^/youtubei/v2/player(/|$)' });
+    next.edits.player[0].keys.push('adBreaks');
+    next.page.hide.push('.yt-new-ad');
+    rulesBody = JSON.stringify(Object.assign({}, next, { edits: Object.assign({}, next.edits, { player: [{ do: 'run', code: 'x' }] }) }));
+    r = await refresh();
+    assert(r.found === 'failed' && r.version === builtin.version, 'rules with something unknown in them were taken: ' + JSON.stringify(r));
+    rulesBody = '<!doctype html><title>Not found</title>';
+    r = await refresh();
+    assert(r.found === 'failed' && r.version === builtin.version, 'a web page was taken for rules: ' + JSON.stringify(r));
+    rulesBody = JSON.stringify(Object.assign({}, next, { version: builtin.version - 1 }));
+    r = await refresh();
+    assert(r.found === 'same' && r.version === builtin.version && !r.downloaded && (await file()) === null, 'older rules: ' + JSON.stringify(r));
+    // Newer ones: taken, and kept for the next start.
+    rulesBody = JSON.stringify(next);
+    r = await refresh();
+    assert(r.found === 'newer' && r.version === next.version && r.downloaded && !r.error, 'newer rules: ' + JSON.stringify(r));
+    assert((await file()) === next.version, 'not kept: ' + await file());
+    // The tab already on YouTube: its next answers are without their ads.
+    keys = await until(() => t.guest('v=new1', 'window.__ask()').then((k) => !ads(k).length && k), 8000, 'the open tab’s next answer without ads');
+    assert(keys.includes('no_ads') && keys.includes('videoDetails'), 'the open tab’s answer: ' + keys.join());
+    // A page opened now: the same, and the new kind of ad in it is hidden (nothing else is).
+    await open('https://www.youtube.com/watch?v=new2');
+    keys = await until(() => t.guest('v=new2', 'window.__v2'), 10000, 'the page’s data');
+    assert(!ads(keys).length && keys.includes('no_ads'), 'a page opened after: ' + keys.join());
+    const shown = await t.guest('v=new2', '[getComputedStyle(document.getElementById("newad")).display, getComputedStyle(document.getElementById("kept")).display]');
+    assert(shown.join() === 'none,block', 'the new kind of ad in the page: ' + shown.join());
+    // …and what was held before still is.
+    await open('https://www.youtube.com/watch?v=data&after=rules');
+    const seen = await until(() => t.guest('after=rules', 'window.__seen && window.__seen.got && window.__seen'), 10000, 'the page’s data');
+    assert(!ads(seen.inline).length && !ads(seen.got.player).length && seen.check === 'passed', 'with the newer rules, what the old ones did: ' + JSON.stringify(seen));
+    // The same again: nothing to do. And at the next start they're the ones in use.
+    r = await refresh();
+    assert(r.found === 'same' && r.version === next.version, 'asked again: ' + JSON.stringify(r));
+    const atStart = await t.main(async () => { const { YouTubeRules } = global.__require('./youtube-rules'); const y = new YouTubeRules(); y.init(); clearTimeout(y.timer); await new Promise((res) => setTimeout(res, 400)); clearTimeout(y.timer); return y.info(); });
+    assert(atStart.version === next.version && atStart.downloaded, 'at the next start: ' + JSON.stringify(atStart));
   });
 
   await R.step('nothing on the pages broke', async () => {

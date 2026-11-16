@@ -232,6 +232,37 @@ try {
     assert(JSON.stringify(after.slice(0, before.length)) === JSON.stringify(before), 'same tabs: ' + JSON.stringify({ before, after }));
     assert(/index\.html$/.test(await activeUrl()), 'the same tab active: ' + await activeUrl());
   });
+
+  await R.step('while Bifrost is still starting (Widevine isn’t there yet) the window already works: its tabs are listed, its own pages open at once, a web page asked for waits, and they all start once it has', async () => {
+    await sleep(1500);
+    await t.app.close();
+    // (a start that takes this much longer, as one that waits for Widevine does)
+    t = await launch({ profile: PROFILE, fresh: false, env: { BIFROST_TEST: '1', BIFROST_START_HOLD_MS: '14000' } });
+    quietDialogs();
+    const started = () => t.main(() => !!global.__bifrost.isStarted);
+    const guests = () => t.main(({ webContents }) => webContents.getAllWebContents().filter((w) => !w.isDestroyed() && w.getType() === 'webview').map((w) => w.getURL()));
+    const look = () => t.ui(() => { const S = window.__wbTest.state; return { ready: !!S.ready, tabs: document.querySelectorAll('.tab[data-id]').length, views: document.querySelectorAll('#views webview').length, address: (document.getElementById('address-input') || {}).value || '' }; });
+    let l = await look();
+    assert(!(await started()), 'Bifrost had started before the window could be looked at (a slow machine?)');
+    assert(l.ready && l.tabs >= 2, 'the window, with its tabs: ' + JSON.stringify(l));
+    assert(l.views === 0 && !(await guests()).length, 'a web page started before Bifrost had: ' + JSON.stringify([l, await guests()]));
+    // One of Bifrost's own pages: at once.
+    await cmd('openSettings');
+    await waitFor(async () => (await guests()).some((u) => u.startsWith('bifrost://settings')), 4000, 'Settings, while still starting');
+    assert(!(await started()), 'Bifrost had started by then');
+    // A web page asked for in it: once Bifrost has started.
+    await typeInAddress(site.url + '/next.html');
+    await sleep(700);
+    const mid = await guests();
+    assert(!(await started()), 'Bifrost had started by then');
+    assert(!mid.some((u) => /^https?:/.test(u)), 'a web page started before Bifrost had: ' + JSON.stringify(mid));
+    await waitFor(started, 20000, 'Bifrost started');
+    await waitFor(async () => (await guests()).some((u) => /next\.html$/.test(u)), 8000, 'the page asked for while starting');
+    assert(/next\.html$/.test(await activeUrl()), 'the tab it was asked for in: ' + await activeUrl());
+    // …and the tabs that were there: theirs too, when you go to one.
+    await cmd('prevTab');
+    await waitFor(async () => (await guests()).some((u) => /index\.html$/.test(u)), 8000, 'a tab from before, loaded');
+  });
 } finally {
   const failed = R.summary();
   if (process.env.TRACE2) console.log((await t.ui(() => window.__dlog || []).catch(() => [])).join('\n'));

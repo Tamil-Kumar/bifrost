@@ -41,8 +41,9 @@ function register() {
   // --------------------------------------------------------------- window/UI
   ipc.handle('ui:init', 'ui', async (event) => {
     require('./timing').once('ui-asked');
-    // (the first window opens while Bifrost is still starting: its tabs wait for that, index.js)
-    if (ctx.started) await ctx.started;
+    // (the first window opens while Bifrost is still starting: its UI waits for what it asks about to be
+    // there, index.js ctx.ready; its web pages for the rest, 'ui:started')
+    if (ctx.ready) await ctx.ready;
     const ctl = ctlOf(event);
     if (!ctl) throw new Error('unknown window');
     require('./timing').once('ui-init');
@@ -59,8 +60,12 @@ function register() {
       firstRun: !ctx.settings.get('onboarding.done'),
       commands: COMMANDS, vimKeys: VIM_KEYS,
       maximized: ctl.win.isMaximized(), fullscreen: ctl.win.isFullScreen(),
+      // (a window opened once Bifrost has started: its web pages don't wait)
+      started: !!ctx.isStarted || !ctx.started,
     };
   });
+  // Bifrost has started (the ad blocker's lists read back, Widevine there or waited for): web pages can.
+  ipc.handle('ui:started', 'ui', async () => { if (ctx.started) await ctx.started; return true; });
   ipc.on('ui:ready', 'ui', (event) => { const ctl = ctlOf(event); if (ctl) ctl.uiReady = true; require('./timing').once('ui-ready'); });
   ipc.on('ui:response', 'ui', (event, { id, error, result }) => { const ctl = ctlOf(event); if (ctl) ctl.resolveRequest(id, error, result); });
   ipc.on('session:save', 'ui', (event, ui) => {
@@ -335,14 +340,18 @@ function register() {
   });
 
   // ------------------------------------------------------------------ adblock
-  ipc.handle('adblock:status', 'internal', () => (ctx.adblock ? ctx.adblock.status() : { enabled: false }));
+  ipc.handle('adblock:status', 'internal', () => Object.assign(ctx.adblock ? ctx.adblock.status() : { enabled: false }, { youtube: ctx.youtubeRules ? ctx.youtubeRules.info() : null }));
   ipc.handle('adblock:set-site', 'internal', (event, host, allowed) => { ctx.adblock.setAllowed(String(host), !!allowed); return true; });
   // A dangerous site you chose to visit anyway (until Bifrost quits); the warnings' lists.
   ipc.handle('safety:allow', 'ui', (event, url) => !!(ctx.safety && ctx.safety.allow(String(url))));
   ipc.handle('safety:status', 'internal', () => (ctx.safety ? ctx.safety.status() : null));
   ipc.handle('safety:update', ['settings'], () => (ctx.safety ? ctx.safety.update().then(() => ctx.safety.status()) : null));
   ipc.handle('adblock:count', 'ui', (event, wcId) => (ctx.adblock ? ctx.adblock.countFor(wcId) : 0));
-  ipc.handle('adblock:update', ['settings'], () => ctx.adblock.updateLists());
+  // (the lists, and the rules for YouTube's ads with them)
+  ipc.handle('adblock:update', ['settings'], async () => {
+    const yt = ctx.youtubeRules && ctx.youtubeRules.wanted ? ctx.youtubeRules.refresh() : null;
+    try { return await ctx.adblock.updateLists(); } finally { if (yt) await yt.catch(() => {}); }
+  });
 
   // --------------------------------------------------------------- extensions
   ipc.handle('extensions:list', 'internal', () => (ctx.extensions ? ctx.extensions.list() : []));

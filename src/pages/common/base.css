@@ -63,7 +63,7 @@ mark { background: none; color: var(--accent); font-weight: 700; }
 .letter.globe { background: none; color: var(--overlay); }
 .letter.globe svg.i { width: 15px; height: 15px; stroke-width: 1.8; }
 
-.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: calc(var(--r-btn) + 1px); background: var(--mantle); }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; border-radius: calc(var(--r-btn) + 1px); background: var(--mantle); }
 .seg-btn { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 0; border-radius: max(0px, calc(var(--r-btn) - 1px)); background: none; color: var(--subtext); font-size: .9rem; font-weight: 600; }
 .seg-btn svg.i { width: 15px; height: 15px; }
 .seg-btn:hover { color: var(--text); }
@@ -185,7 +185,7 @@ select.field, select.select-sm {
 select.field:disabled, select.select-sm:disabled { opacity: .55; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  height: 32px; padding: 0 14px;
+  height: 32px; padding: 0 14px; white-space: nowrap;   /* (a label on two lines doesn't fit its height) */
   border: 1px solid var(--s1); border-radius: var(--r-btn);
   background: var(--s0); color: var(--text);
   font-weight: 600;

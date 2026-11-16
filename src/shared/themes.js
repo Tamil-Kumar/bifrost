@@ -74,11 +74,25 @@
   }
 
   // CSS custom properties for a palette plus appearance settings.
+  // A theme's faintest text (shortcuts in menus, placeholders, the lines under a setting's name): its own
+  // color for it, a shade lighter (darker, in a light theme) where that's too faint to read on the theme's own
+  // surfaces (Nord's, Tokyo Night's and Catppuccin Latte's were under 3 to 1). The same color still.
+  const FAINT_LEAST = 3;
+  function faintText(t) {
+    const o = toOklch(t.overlay);
+    if (!o || !hexToRgb(t.base) || !hexToRgb(t.mantle)) return t.overlay;
+    const ok = (c) => contrast(c, t.base) >= FAINT_LEAST && contrast(c, t.mantle) >= FAINT_LEAST;
+    if (ok(t.overlay)) return t.overlay;
+    const step = t.dark === false ? -0.005 : 0.005;
+    for (let i = 1; i <= 60; i++) { const c = fromOklch(o.L + step * i, o.C, o.h); if (ok(c)) return c; }
+    return t.overlay;
+  }
+
   function cssVars(t, appearance) {
     const a = appearance || {};
     const vars = {
       '--base': t.base, '--mantle': t.mantle, '--crust': t.crust,
-      '--s0': t.s0, '--s1': t.s1, '--s2': t.s2, '--overlay': t.overlay,
+      '--s0': t.s0, '--s1': t.s1, '--s2': t.s2, '--overlay': faintText(t),
       '--subtext': t.subtext, '--text': t.text, '--accent': t.accent,
       '--red': t.red, '--peach': t.peach, '--yellow': t.yellow, '--green': t.green,
       '--teal': t.teal, '--blue': t.blue, '--pink': t.pink, '--lavender': t.lavender,
@@ -301,5 +315,5 @@
     return vars;
   }
 
-  return { THEMES, ACCENT_KEYS, resolve, cssVars, mix, hexToRgb, rgba, luminance, contrast, toOklch, fromOklch, barColor, blendVars };
+  return { THEMES, ACCENT_KEYS, resolve, cssVars, faintText, mix, hexToRgb, rgba, luminance, contrast, toOklch, fromOklch, barColor, blendVars };
 });

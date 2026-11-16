@@ -13,13 +13,17 @@
 const { app } = require('electron');
 const ctx = require('./context');
 const TD = require('./tab-debugger');
-const Y = require('./youtube-edit');
+const { compile } = require('./youtube-edit');
 
-// The answers held: YouTube's player data, Shorts' reels, its watch pages and playlists, the player's script.
-const PATTERNS = ['youtube.com', 'youtube-nocookie.com', 'youtubekids.com'].flatMap((d) => [
-  `*${d}/youtubei/v1/player*`, `*${d}/youtubei/v1/get_watch*`, `*${d}/youtubei/v1/reel/*`,
-  `*${d}/watch?*`, `*${d}/playlist?*`, `*${d}/s/player/*base.js*`,
-]).map((urlPattern) => ({ urlPattern, requestStage: 'Response' }));
+// Which answers are held and what becomes of them: the rules in use (youtube-rules.js keeps them up to date;
+// the built-in ones, without it).
+let builtin = null;
+const rules = () => (ctx.youtubeRules ? ctx.youtubeRules.current() : builtin || (builtin = compile(require('../shared/youtube-rules.json'))));
+// The answers held: YouTube's player data, Shorts' reels, its watch pages and playlists, the player's script
+// (as the rules say), from YouTube's own sites.
+const patterns = () => ['youtube.com', 'youtube-nocookie.com', 'youtubekids.com']
+  .flatMap((d) => rules().hold.map((p) => `*${d}${p}`))
+  .map((urlPattern) => ({ urlPattern, requestStage: 'Response' }));
 const MAX_BODY = 16 * 1024 * 1024;
 // A page on YouTube (its short links included: a tab going to one is going to YouTube).
 const YT_PAGE = /^https?:\/\/([^/?#@]*\.)?(youtube\.com|youtube-nocookie\.com|youtubekids\.com|youtu\.be)(:\d+)?([/?#]|$)/i;
@@ -55,14 +59,15 @@ async function paused(t, p) {
     const url = (p.request && p.request.url) || '';
     // (a page is a page whoever asks for it)
     const page = p.resourceType === 'Document' || /^\s*text\/html/i.test(header(p.responseHeaders, 'content-type'));
-    const kind = !p.responseErrorReason && status >= 200 && status < 300 && status !== 204 ? Y.kindOf(url, page ? 'Document' : p.resourceType) : '';
+    const R = rules();
+    const kind = !p.responseErrorReason && status >= 200 && status < 300 && status !== 204 ? R.kindOf(url, page ? 'Document' : p.resourceType) : '';
     // (the site you're on: for a page, the one it is)
     if (!kind || !wanted() || allowed(page ? url : wc.getURL())) return onAsItCame();
     if (Number(header(p.responseHeaders, 'content-length')) > MAX_BODY) return onAsItCame();
     const { body, base64Encoded } = await send('Fetch.getResponseBody', { requestId: p.requestId });
     const text = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
     if (text.length > MAX_BODY) return onAsItCame();
-    const out = Y.edit(kind, text);
+    const out = R.edit(kind, text);
     if (out === text) return onAsItCame();
     // (the body as the page will read it: not compressed, its length its own)
     const headers = (p.responseHeaders || []).filter((h) => !/^(content-length|content-encoding)$/i.test(h.name));
@@ -82,7 +87,7 @@ function turnOn(t) {
   try { TD.use(wc, 'youtube'); } catch { return; }   // (DevTools has its session: when they close)
   t.on = true;
   const send = (method, args) => wc.debugger.sendCommand(method, args).catch(() => {});
-  send('Fetch.enable', { patterns: PATTERNS });
+  send('Fetch.enable', { patterns: patterns() });
   // (what it'd hear of requests isn't kept: nothing here reads it)
   send('Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0, maxPostDataSize: 0 });
   send('Network.setBypassServiceWorker', { bypass: true });
@@ -136,9 +141,18 @@ function init() {
     if (p && !p.startsWith('privacy')) return;
     for (const t of tabs.values()) sync(t);
   });
+  // Newer rules: the tabs on YouTube hold what those say, from their next request on.
+  if (ctx.youtubeRules) {
+    ctx.youtubeRules.on('changed', () => {
+      for (const t of tabs.values()) {
+        if (!t.on || t.wc.isDestroyed()) continue;
+        try { if (t.wc.debugger.isAttached()) t.wc.debugger.sendCommand('Fetch.enable', { patterns: patterns() }).catch(() => {}); } catch { /* gone */ }
+      }
+    });
+  }
 }
 
 // (for the tests: whether a tab's answers are being held)
 const isOn = (wc) => { const t = wc && tabs.get(wc.id); return !!(t && t.on); };
 
-module.exports = { init, PATTERNS, isOn };
+module.exports = { init, patterns, isOn };

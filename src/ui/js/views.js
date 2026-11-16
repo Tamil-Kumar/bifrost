@@ -38,6 +38,31 @@ export function waitForWc(tab, timeout = 10000) {
   });
 }
 
+// ----------------------------------------------------------------- start
+// The window opens, and can be used, while Bifrost is still starting; web pages start once it has (the ad
+// blocker's lists read back, and Widevine there, which a page that plays protected video needs before it
+// starts: main/index.js ctx.started). Until then a tab's view is made but not put in the window (which is
+// what would start its page), and a web page asked for in a view that's already in it (Bifrost's own pages
+// start at once) is asked for then.
+let live = false;
+let nowLive;
+const livePromise = new Promise((resolve) => { nowLive = resolve; });
+const waiting = new Set();   // views made, not in the window yet
+const later = new Map();     // tab id → { url, typed }: asked for in a view that's in the window
+export const whenLive = () => livePromise;
+export function goLive() {
+  if (live) return;
+  live = true;
+  const held = waiting.size + later.size;
+  for (const el of waiting) viewsEl.appendChild(el);
+  waiting.clear();
+  const asked = [...later];
+  later.clear();
+  for (const [id, o] of asked) { const tab = S.tabs.find((t) => t.id === id); if (tab) loadUrl(tab, o.url, { typed: o.typed }); }
+  nowLive();
+  if (held) layout();
+}
+
 // ---------------------------------------------------------------- create
 export function ensureView(tab) {
   if (tab.wv) return tab.wv;
@@ -54,10 +79,13 @@ export function ensureView(tab) {
   tab.lazy = false;
   wire(tab, el);
   // Restoring tabs start empty (main sees this marker), then get their history restored.
-  el.setAttribute('src', restore ? 'about:blank#wb-restore' : fixupUrl(tab.url || NEWTAB_URL));
-  viewsEl.appendChild(el);
+  const src = restore ? 'about:blank#wb-restore' : fixupUrl(tab.url || NEWTAB_URL);
+  el.setAttribute('src', src);
+  if (live || (!restore && isInternal(src))) viewsEl.appendChild(el); else waiting.add(el);
   ensurePane(tab);
   emit('tab', tab, { sleeping: false });
+  // (on its way, as its tab shows)
+  if (waiting.has(el)) setTab(tab, { loading: true });
   return el;
 }
 
@@ -66,6 +94,8 @@ export function destroyView(tab) {
   if (!el) return;
   tab.wv = null;
   clearTimeout(tab.audioTimer);
+  waiting.delete(el);
+  later.delete(tab.id);
   el.remove();
   if (tab.pane) { tab.pane.el.remove(); tab.pane = null; }
   setTab(tab, { wcId: null, loading: false, audible: false });
@@ -217,6 +247,22 @@ export function loadUrl(tab, url, { typed = false } = {}) {
     layout();
     return;
   }
+  if (waiting.has(tab.wv)) {
+    // (its view isn't in the window yet: this is the page it starts with)
+    tab.history = null;
+    tab.restoring = null;
+    tab.wv.setAttribute('src', url);
+    tab.wv.classList.toggle('internal', isInternal(url));
+    setTab(tab, { url, pendingUrl: null, error: null, crashed: null });
+    if (isInternal(url)) { waiting.delete(tab.wv); viewsEl.appendChild(tab.wv); layout(); }
+    return;
+  }
+  if (!live && !isInternal(url)) {
+    later.set(tab.id, { url, typed });
+    setTab(tab, { pendingUrl: url, error: null, crashed: null, loading: true });
+    return;
+  }
+  later.delete(tab.id);
   setTab(tab, { pendingUrl: url, error: null, crashed: null });
   if (typed) guest(tab, 'typed', { url }).catch(() => {});
   const p = call(tab, 'loadURL', url);

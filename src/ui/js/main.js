@@ -280,6 +280,7 @@ async function start() {
   S.ownCaption = !!init.ownCaption;
   compileKeys();
   Theme.init();
+  if (init.started) V.goLive();
 
   if (!(init.restore && restore(init.restore))) normalize();
 
@@ -314,6 +315,8 @@ async function start() {
   syncSoon();
   saveSoon();
   wb.send('ui:ready');
+  // Web pages start once Bifrost has started (the first window doesn't wait for that: views.js).
+  if (!init.started) wb.invoke('ui:started').catch(() => {}).then(() => V.goLive());
   // Hooks for automated tests and debugging from the window's DevTools.
   window.__wbTest = { command: (id, args) => Cmd.run(id, args || {}), state: S, render: () => emit('structure'), tabSwitch: () => TabSwitch._state(), flyouts: () => Flyouts._state(), swipe: () => Swipe._state(), swipeLast: () => Swipe._last(), panels: () => Panels._state() };
   requestAnimationFrame(() => root.classList.add('ready'));

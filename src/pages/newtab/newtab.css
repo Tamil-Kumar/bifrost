@@ -93,8 +93,9 @@ body.on-image #clock.grad #time { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, .
 #search-box:focus-visible, #search-box.focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow-1); }
 #search-lens { color: var(--accent); display: grid; }
 #search-lens svg.i { width: 20px; height: 20px; stroke-width: 2.2; }
-#search-text { flex: 1; }
-#search-keys { display: flex; gap: 4px; }
+#search-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#search-keys { flex: none; display: flex; gap: 4px; }
+@media (max-width: 460px) { #search-keys { display: none; } }
 
 /* The shortcuts: as many to a row as Settings says, centered under the search box (a row that isn't full, a
    few shortcuts on a new profile, sat to the left of it). */

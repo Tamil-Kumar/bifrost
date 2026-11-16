@@ -516,7 +516,7 @@ try {
     assert(!o.see && !o.ntp, 'still see-through: ' + JSON.stringify(o));
   });
 
-  await R.step('“Blur the page”: a blurred picture of the page behind the sidebar and toolbar; over Bifrost’s own pages they’re frosted glass', async () => {
+  await R.step('“Blur the page”: a blurred picture of the page behind the sidebar and toolbar (dark glass over a bright page’s, next to the dark theme); over Bifrost’s own pages they’re frosted glass', async () => {
     const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(150); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
     const blur = () => t.ui(() => {
       const r = document.documentElement; const on = document.querySelector('#backdrop > div.on');
@@ -545,6 +545,21 @@ try {
       return { blur: document.documentElement.classList.contains('blend-blur'), opacity: on ? getComputedStyle(on).opacity : null, body: getComputedStyle(document.body).backgroundColor };
     });
     assert(first.blur && first.opacity === '1' && !/rgba\(.*, 0(\.\d+)?\)$/.test(first.body), 'switching back faded in: ' + JSON.stringify(first));
+    // The veil over the picture, in the bars' color: thin over a dark page's (the picture shows); over a bright
+    // page's, next to the dark theme, thick and dark (dark glass the page glows through: no glare, and the
+    // bars' text reads), with the page in its frame.
+    const lightOf = (c) => { const m = String(c).match(/[\d.]+/g) || []; return (Number(m[0]) + Number(m[1]) + Number(m[2])) / 3; };
+    const veil = () => t.ui(() => { const cs = getComputedStyle(document.getElementById('backdrop'), '::after'); const title = document.querySelector('#tablist .tab.active .tab-title'); return { apart: document.documentElement.classList.contains('blend-apart'), opacity: cs.opacity, color: cs.backgroundColor, text: title ? getComputedStyle(title).color : '', frame: getComputedStyle(document.getElementById('stage')).boxShadow }; });
+    let v = await until(async () => { const x = await veil(); return x.opacity === '0.42' ? x : null; }, 4000, 'a thin veil over the dark page’s picture');
+    assert(!v.apart && lightOf(v.text) > 170, 'over a dark page: ' + JSON.stringify(v));
+    await t.ui(() => { const S = window.__wbTest.state; const mine = S.tabs.filter((x) => x.workspaceId === S.activeWorkspaceId); window.__wbTest.command('tab' + (mine.findIndex((x) => x.url.endsWith('/a.html')) + 1)); });
+    v = await until(async () => { const x = await veil(); return x.apart && x.opacity === '0.86' ? x : null; }, 6000, 'a thick veil over the bright page’s picture');
+    assert(lightOf(v.color) < 60 && lightOf(v.text) > 170 && v.frame !== 'none', 'over a bright page: ' + JSON.stringify(v));
+    await t.shot('behavior-blur-bright');
+    // "Bright pages" → "Go light": the picture again, with dark text.
+    await set('appearance.blendTone', 'light');
+    v = await until(async () => { const x = await veil(); return !x.apart && x.opacity === '0.42' && lightOf(x.text) < 110 ? x : null; }, 4000, 'the bright page’s picture with dark text on it, with “Go light”');
+    await set('appearance.blendTone', 'soft');
     await set('appearance.blend', 'window');
     await until(async () => { const v = await blur(); return !v.blur && !v.frosted ? v : null; }, 3000, 'the plain window again');
   });

@@ -102,6 +102,8 @@ function start() {
     ctx.webStyles = new WebStyles();
     const { AdBlock } = require('./adblock');
     ctx.adblock = new AdBlock();
+    const { YouTubeRules } = require('./youtube-rules');
+    ctx.youtubeRules = new YouTubeRules();
     const { Safety } = require('./safety');
     ctx.safety = new Safety();
     const { GoogleAccounts } = require('./google-accounts');
@@ -121,10 +123,12 @@ function start() {
     timing.mark('made');
 
     // The window opens now, and its UI loads while the rest of Bifrost starts (a step at a time, so the
-    // window's own files are served in between). Its tabs wait for the rest (ctx.started, which the UI's first
-    // question waits for: api.js 'ui:init'): a page's requests go through the ad blocker and the rest from the
-    // very first one, and protected video needs Widevine there before its page starts.
-    let started;
+    // window's own files are served in between). The UI waits for the parts it asks about to be started
+    // (ctx.ready: api.js 'ui:init'), and can be used from then; its web pages wait for the rest
+    // (ctx.started: 'ui:started', ui/js/views.js): a page's requests go through the ad blocker from the very
+    // first one, and protected video needs Widevine there before its page starts.
+    let ready, started;
+    ctx.ready = new Promise((resolve) => { ready = resolve; });
     ctx.started = new Promise((resolve) => { started = resolve; });
     const urls = urlsFromArgv(process.argv);
     restoreOrOpen(urls);
@@ -145,7 +149,8 @@ function start() {
     await breathe();
 
     ctx.adblock.init();
-    // YouTube's ads, out of what it sends before its pages see it.
+    // YouTube's ads, out of what it sends before its pages see it (by rules kept up to date: youtube-rules.js).
+    ctx.youtubeRules.init();
     require('./youtube-ads').init();
     ctx.safety.init();
     timing.mark('blockers');
@@ -155,6 +160,7 @@ function start() {
     const extReady = ctx.extensions.init(ctx.mainSession);
     ctx.updater.init();
     timing.mark('session');
+    ready();
     // The ad blocker's lists, when they only have to be read back (built anew, which takes seconds, the
     // window doesn't wait: the first pages' ads show, as before).
     await ctx.adblock.whenRead();
@@ -162,7 +168,10 @@ function start() {
     // Widevine (protected content): there already unless this is the first start, or it's being updated.
     // (Automated tests run offline: they don't wait, unless they ask to.)
     await drm.waitBriefly(process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_DRM_WAIT_MS || 0) : 4000);
+    // (automated tests: a start that takes this much longer, to look at the window meanwhile)
+    if (process.env.BIFROST_TEST === '1' && process.env.BIFROST_START_HOLD_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.BIFROST_START_HOLD_MS) || 0));
     timing.mark('started');
+    ctx.isStarted = true;
     started();
     await extReady;
     timing.mark('extensions-ready');

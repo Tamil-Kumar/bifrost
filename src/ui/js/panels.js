@@ -477,9 +477,13 @@ function loadWeb(w) {
   wb.invoke('panels:web-attach', w.id, src).then((ok) => {
     if (webs.get(w.id) !== rec) return;
     if (!ok) { webs.delete(w.id); panelEl.classList.toggle('keep', webs.size > 0); return; }
-    el.setAttribute('src', src);
-    webHost.append(el);
-    renderStrip();
+    // (web pages start once Bifrost has: views.js)
+    V.whenLive().then(() => {
+      if (webs.get(w.id) !== rec) return;
+      el.setAttribute('src', src);
+      webHost.append(el);
+      renderStrip();
+    });
   }, () => { if (webs.get(w.id) === rec) { webs.delete(w.id); panelEl.classList.toggle('keep', webs.size > 0); } });
   return rec;
 }

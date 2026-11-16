@@ -264,19 +264,13 @@ const YT_COVER = `
 .ytp-ad-message-container, .ytp-ad-progress-list { visibility: hidden !important; }
 `;
 
-// The ads in YouTube's pages (with element hiding on). #player-ads, the box next to the video its companion
-// ads go in, is shrunk out of sight rather than taken out: uBlock Origin's lists leave it alone on YouTube, as
-// they do the player's own ad box (the cover above is over that one).
-const YT_PAGE_ADS = `
-ytd-ad-slot-renderer, ytd-in-feed-ad-layout-renderer, ytd-display-ad-renderer, ytd-promoted-sparkles-web-renderer,
-ytd-promoted-sparkles-text-search-renderer, ytd-promoted-video-renderer, ytd-compact-promoted-video-renderer,
-ytd-search-pyv-renderer, ytd-video-masthead-ad-v3-renderer, ytd-primetime-promo-renderer, ytd-banner-promo-renderer,
-#masthead-ad, ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-ads"], ytd-merch-shelf-renderer,
-yt-overlay-product-sticker, ytd-rich-item-renderer:has(ytd-ad-slot-renderer),
-#shorts-inner-container > :has(> ytd-ad-slot-renderer),
-#shorts-inner-container > .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer),
-ad-slot-renderer, ytm-promoted-sparkles-web-renderer, ytm-promoted-video-renderer, ytm-companion-ad-renderer,
-ytm-rich-item-renderer:has(> ad-slot-renderer) { display: none !important; }
+// The ads in YouTube's pages (with element hiding on): which ones comes with the rules (shared/youtube-rules.json
+// "page.hide", through main/adblock.js), a rule each, so one this Chromium can't read costs only itself.
+// #player-ads, the box next to the video its companion ads go in, is shrunk out of sight rather than taken out:
+// uBlock Origin's lists leave it alone on YouTube, as they do the player's own ad box (the cover above is over
+// that one).
+const selectorOk = (s) => typeof s === 'string' && s.length > 0 && s.length <= 300 && !/[{};@<\\\n\r]|\/\*/.test(s);
+const ytPageAds = (list) => (Array.isArray(list) ? list : []).filter(selectorOk).map((s) => s + ' { display: none !important; }').join('\n') + `
 #player-ads { visibility: hidden !important; width: 1px !important; height: 1px !important; min-height: 0 !important;
   margin: 0 !important; padding: 0 !important; overflow: hidden !important; }
 `;
@@ -285,9 +279,11 @@ ytm-rich-item-renderer:has(> ad-slot-renderer) { display: none !important; }
 const AD_REEL = ':scope > :is(:has(> ytd-ad-slot-renderer), .ytd-shorts:has(> .ytd-reel-video-renderer > ytd-ad-slot-renderer))';
 
 function youtubeAds(opts) {
-  try { webFrame.insertCSS(YT_COVER + (opts && opts.hide === false ? '' : YT_PAGE_ADS), { cssOrigin: 'user' }); } catch { /* frame gone */ }
+  try { webFrame.insertCSS(YT_COVER + (opts && opts.hide === false ? '' : ytPageAds(opts && opts.pageAds)), { cssOrigin: 'user' }); } catch { /* frame gone */ }
   quietDetection();
-  const SKIP = '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern, .videoAdUiSkipButton, button[id^="skip-button"], .ytp-ad-skip-button-container button, .ytp-skip-ad button';
+  // An ad's "Skip" button, under the names the rules give it ("page.skip").
+  const skips = (opts && Array.isArray(opts.skip) ? opts.skip : []).filter((s) => { if (!selectorOk(s)) return false; try { document.createDocumentFragment().querySelector(s); return true; } catch { return false; } });
+  const SKIP = skips.join(', ');
   const PLAYERS = '#movie_player, .html5-video-player';
   const isAd = (p) => p.classList.contains('ad-showing') || p.classList.contains('ad-interrupting');
   const watched = new WeakSet(), heard = new WeakSet(), mutedByUs = new WeakSet(), rateBefore = new WeakMap(), adSince = new WeakMap();
@@ -338,7 +334,7 @@ function youtubeAds(opts) {
       && (k.len > 0 ? d < k.len - 1 : k.kind === 'own-stream' && d <= 180)) {
       try { v.currentTime = d - 0.05; } catch { /* not seekable yet */ }
     }
-    const skip = p.querySelector(SKIP) || document.querySelector(SKIP);
+    const skip = SKIP ? p.querySelector(SKIP) || document.querySelector(SKIP) : null;
     if (skip) skip.click();
   };
   const restore = (v) => {

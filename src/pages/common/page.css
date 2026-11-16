@@ -19,7 +19,8 @@ h1, h2, h3 { letter-spacing: -.015em; }
 .pg { max-width: 1120px; margin: 0 auto; padding: 0 28px 64px; }
 .pg-head {
   position: sticky; top: 0; z-index: 5;
-  display: flex; align-items: center; gap: 14px;
+  /* (in a narrow window, what doesn't fit next to the title goes under it, at the right) */
+  display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 10px 14px;
   padding: 22px 0 16px;
   background: linear-gradient(var(--base) 80%, transparent);
 }
@@ -27,7 +28,8 @@ h1, h2, h3 { letter-spacing: -.015em; }
 .pg-title .pg-ico { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
 .pg-title svg.i { width: 20px; height: 20px; }
 .pg-spacer { flex: 1; }
-.pg-search { position: relative; width: min(360px, 40vw); }
+/* (the search box gives way before anything goes to a second row: as wide as there's room for, up to its own width) */
+.pg-search { position: relative; flex: 100 1 110px; min-width: 110px; max-width: min(360px, 40vw); }
 .pg-search svg.i { position: absolute; left: 10px; top: 50%; margin-top: -8px; width: 16px; height: 16px; color: var(--overlay); pointer-events: none; }
 .pg-search .field { padding-left: 34px; border-radius: calc(var(--r-btn) + 2px); }
 .pg-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
@@ -62,13 +64,16 @@ h1, h2, h3 { letter-spacing: -.015em; }
 .card-title:first-child { margin-top: 0; }
 .sec-title { margin: 6px 0 4px; font-size: 1.35rem; font-weight: 750; display: flex; align-items: center; gap: 10px; }
 .sec-desc { margin: 0 0 18px; color: var(--subtext); }
-.srow { display: flex; align-items: center; gap: 16px; min-height: 52px; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--s0) 55%, transparent); }
+/* A setting: its name and what it does, and its control next to them; under them, where there isn't room for
+   both (a narrow window: the text was squeezed into a column a few words wide). */
+.srow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; min-height: 52px; padding: 10px 0; border-bottom: 1px solid color-mix(in srgb, var(--s0) 55%, transparent); }
 .srow:last-child { border-bottom: 0; }
-.srow.stack { flex-direction: column; align-items: stretch; gap: 10px; }
-.srow-label { flex: 1; min-width: 0; }
+.srow.stack { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 10px; }
+.srow.stack > .srow-label { flex: none; }
+.srow-label { flex: 1 1 280px; min-width: 0; }
 .srow-label > b { display: block; font-weight: 600; }
 .srow-label > small { display: block; color: var(--subtext); font-size: .88rem; line-height: 1.4; margin-top: 2px; }
-.srow-ctl { flex: none; display: flex; align-items: center; gap: 8px; }
+.srow-ctl { flex: none; max-width: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .srow.hit { animation: hit 1.4s var(--ease); }
 @keyframes hit { 0%, 30% { background: var(--accent-soft); } 100% { background: transparent; } }
 .srow.disabled { opacity: .5; pointer-events: none; }

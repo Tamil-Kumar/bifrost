@@ -385,6 +385,7 @@ img.panel-ico { object-fit: contain; border-radius: 3px; }
 .panel-search-row { padding: 4px 8px 6px; }
 .panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 6px 10px; }
 .panel-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; }
+.panel-seg { flex-wrap: nowrap; }
 .panel-seg .seg-label { display: none; }
 .panel-seg .seg-btn.on .seg-label { display: inline; }
 .panel-seg { min-width: 0; overflow-x: auto; scrollbar-width: none; }
@@ -565,7 +566,11 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 :root.sidebar-collapsed #sidebar-bottom .tb-divider { width: calc(var(--btn-size) * .55); height: 1px; margin: 2px 0; }
 :root.sidebar-collapsed #sidebar-bottom .tb-spacer { display: none; }
 .tb-group.right { padding-right: 6px; }
-.tb-address { flex: 1; min-width: 120px; display: flex; justify-content: center; }
+.tb-address { flex: 1; min-width: 64px; display: flex; justify-content: center; }
+/* A toolbar too full for its window: the buttons that matter least step aside (toolbar.js fit), and an address
+   bar with little room keeps it for the address. */
+.tb-fit { display: none !important; }
+.tb-address.narrow .addr-actions > :not(.star), .tb-address.tiny .addr-actions { display: none; }
 .tb-badge { position: absolute; right: 1px; bottom: 2px; min-width: 15px; height: 13px; padding: 0 3px; border-radius: 6px; background: var(--accent); color: var(--accent-text); font-size: 9px; font-weight: 800; line-height: 13px; text-align: center; pointer-events: none; }
 .tb-badge:empty { display: none; }
 .tb-btn.off { color: var(--overlay); }
@@ -584,7 +589,7 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 /* Address bar. */
 .address {
   position: relative;
-  flex: 1; max-width: 900px;
+  flex: 1; min-width: 0; max-width: 900px;
   display: flex; align-items: center; gap: 4px;
   height: var(--addr-h); padding: 0 4px 0 3px;
   border-radius: var(--r-addr);
@@ -1327,7 +1332,11 @@ body { background: var(--chrome-bg); }
 }
 #backdrop > div.on { opacity: 1; }
 #backdrop.instant > div { transition: none; }
-:root.blend-blur #backdrop::after { content: ""; position: absolute; inset: 0; background: var(--page-tint); opacity: .42; }
+/* A veil over it, in the bars' color. Where that's the page's own (a dark page), a thin one: the picture shows.
+   Where it isn't (a bright page next to a dark theme, whose picture would glare and leave the bars' text
+   unreadable), a thick one: dark glass, with the page's light and colors glowing through. */
+:root.blend-blur #backdrop::after { content: ""; position: absolute; inset: 0; background: var(--bar-tint, var(--page-tint)); opacity: .42; }
+:root.blend-blur.blend-apart #backdrop::after { opacity: .86; }
 /* (the window's fine grain, over the picture: frosted glass rather than a smeared photo) */
 :root.blend-blur[data-texture="on"] #backdrop::before {
   content: ""; position: absolute; inset: 0; z-index: 2; opacity: .06; mix-blend-mode: overlay;
@@ -1365,9 +1374,11 @@ body { background: var(--chrome-bg); }
 :root[data-ntp-bg="image"][data-scheme="light"]:not(.frosted) :is(#sidebar, #toolbar, #hbar, #bookmarks-bar) svg.i { filter: drop-shadow(0 1px 1px rgba(255, 255, 255, .6)); }
 :root.blend-blur[data-layout="vertical"].sidebar-autohide #sidebar,
 :root.blend-blur.topbar-autohide #topbar {
-  background: color-mix(in srgb, var(--page-tint) 55%, transparent);
+  background: color-mix(in srgb, var(--bar-tint, var(--page-tint)) 55%, transparent);
   backdrop-filter: blur(var(--blend-blur, 40px)) saturate(1.3);
 }
+:root.blend-blur.blend-apart[data-layout="vertical"].sidebar-autohide #sidebar,
+:root.blend-blur.blend-apart.topbar-autohide #topbar { background: color-mix(in srgb, var(--bar-tint, var(--page-tint)) 88%, transparent); }
 :root.low-visuals #backdrop { display: none; }
 
 /* ============================================================ Ctrl+Tab's list of tabs (tabs.ctrlTabMenu) */
