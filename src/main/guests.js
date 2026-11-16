@@ -781,6 +781,11 @@ async function fullPageCapture(guest) {
 // What the page looks like right now, for "Match the page" and "Blur the page" (ui/js/ambient.js): the
 // colors along its edges (the one most of each edge shares), the average color of its left part (what a
 // blurred copy shows behind the sidebar), and with `thumb`, a small picture of it to blur.
+// An edge that isn't mostly one color (a gradient, a picture: a header image that fades into a blue page)
+// has no color the bars could take to be one surface with it. The one most of it shares was then a matter of
+// chance, often from its middle, matching no part of it. Such an edge gives the color at the end where the
+// bars meet the page (the top of a side, the left of the top), and says it's `mixed`: the page keeps its
+// frame (ui/js/theme.js).
 async function pageLook(guest, { thumb = false } = {}) {
   const img = await guest.capturePage();
   if (!img || img.isEmpty()) return null;
@@ -800,21 +805,32 @@ async function pageLook(guest, { thumb = false } = {}) {
       groups.set(k, g);
     }
     const best = [...groups.values()].sort((a, b) => b.n - a.n)[0];
-    return hex(best.s.map((v) => v / best.n));
+    return best.s.map((v) => v / best.n);
   };
-  const column = (x) => Array.from({ length: h - 2 }, (_, i) => rgb(x, i + 1));
-  const row = (y) => Array.from({ length: w - 2 }, (_, i) => rgb(i + 1, y));
+  // An edge's color: the one most of it shares, when most of it does (within a little: antialiasing, a
+  // texture); otherwise the one most of its first part shares (its end where the bars meet the page).
+  const near = (a, b) => Math.abs(a[0] - b[0]) <= 22 && Math.abs(a[1] - b[1]) <= 22 && Math.abs(a[2] - b[2]) <= 22;
+  const edge = (pts, firstPart) => {
+    const d = dominant(pts);
+    if (pts.filter((c) => near(c, d)).length >= pts.length * 0.6) return { color: hex(d), mixed: false };
+    return { color: hex(dominant(firstPart)), mixed: true };
+  };
+  const column = (x, part = 1) => Array.from({ length: Math.max(1, Math.round((h - 2) * part)) }, (_, i) => rgb(x, i + 1));
+  const row = (y, part = 1) => Array.from({ length: Math.max(1, Math.round((w - 2) * part)) }, (_, i) => rgb(i + 1, y));
   const mean = (x0, x1, y0 = 0, y1 = h) => {
     const s = [0, 0, 0];
     let n = 0;
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const c = rgb(x, y); s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; n++; }
     return hex(s.map((v) => v / n));
   };
+  const FIRST = 0.2;
+  const left = edge(column(0).concat(column(1)), column(0, FIRST).concat(column(1, FIRST)));
+  // (in from the right: the page's scrollbar is there)
+  const right = edge(column(w - 4).concat(column(w - 3)), column(w - 4, FIRST).concat(column(w - 3, FIRST)));
+  const top = edge(row(0).concat(row(1)), row(0, FIRST).concat(row(1, FIRST)));
   const out = {
-    left: dominant(column(0).concat(column(1))),
-    // (in from the right: the page's scrollbar is there)
-    right: dominant(column(w - 4).concat(column(w - 3))),
-    top: dominant(row(0).concat(row(1))),
+    left: left.color, right: right.color, top: top.color,
+    mixed: { left: left.mixed, right: right.mixed, top: top.mixed },
     ambient: { left: mean(0, Math.ceil(w * 0.3)), right: mean(Math.floor(w * 0.7), w), top: mean(0, w, 0, Math.ceil(h * 0.3)) },
   };
   // The picture behind the bars ("Blur the page"): small enough (a pixel per 30-70 px of page) that rows

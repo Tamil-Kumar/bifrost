@@ -20,6 +20,10 @@ const site = await startSite(undefined, { routes: {
   '/dl/file.zip': (req, res) => { res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="file.zip"' }); res.end(Buffer.alloc(1024)); },
   // A dark page whose color comes from a wrapper, not from <body> (as in many web apps).
   '/dark.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Dark</title><style>html,body{margin:0;height:100%}#app{position:fixed;inset:0;background:#13233a;color:#e8eef7;font:20px sans-serif;padding:40px}</style><div id="app">A dark app</div>'); },
+  // A mid steel blue page, and one whose left edge is a dark picture fading into it (as tabroom.com's is), with
+  // an orange icon: the bars on these were mid-tone, and the icons in them couldn't be told from them.
+  '/steel.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Steel</title><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Ccircle cx=%2216%22 cy=%2216%22 r=%2214%22 fill=%22%23d97757%22/%3E%3C/svg%3E"><style>html,body{margin:0;min-height:100%}body{background:#365d7e;color:#fff;font:20px sans-serif}</style><p style="margin:60px">Steel blue</p>'); },
+  '/fading.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Fading</title><style>html,body{margin:0;min-height:100%}body{background:linear-gradient(180deg,#22384b 0,#2c4457 25%,#3a5a77 55%,#4a7ca4 78%,#5d9ace 100%) fixed;color:#fff;font:20px sans-serif}</style><p style="margin:60px">Fading</p>'); },
   // Links, for opening in a new tab.
   '/links.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<!doctype html><title>Links</title><body style="font:22px sans-serif;margin:40px"><p><a id=l href="/b.html?ln">A link</a></p><p><a id=blank href="/b.html?lb" target="_blank">A link that opens a tab</a></p>'); },
   // A page to visit and then remove from history from the launcher.
@@ -474,6 +478,25 @@ try {
     assert(l.body === 'rgb(255, 247, 240)' && light(l.tab) < 110, 'exactly the page’s color: ' + JSON.stringify(l));
     await set('appearance.blendTone', 'soft');
     await until(async () => { const v = await look(); return v.blend && light(v.body) < 60; }, 4000, 'dark bars again');
+    // A page in the middle (a mid steel blue): the bars a deep shade of its blue, not the blue itself, with the
+    // page in its frame; an icon in them as clear as on the theme's own (an orange one was at 2 to 1).
+    const bars = () => t.ui(() => { const cs = getComputedStyle(document.getElementById('sidebar')); return { bar: cs.getPropertyValue('--mantle').trim(), tint: getComputedStyle(document.documentElement).getPropertyValue('--page-tint').trim(), apart: document.documentElement.classList.contains('blend-apart') }; });
+    const lum = (hex) => { const v = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))); return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]; };
+    const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    await open(site.url + '/steel.html', false);
+    let b = await until(async () => { const v = await bars(); return v.tint === '#365d7e' ? v : null; }, 6000, 'the steel blue page measured');
+    assert(b.apart && ratio(b.bar, '#ffffff') >= 10 && ratio(b.bar, '#d97757') >= 4, 'bars on a steel blue page: ' + JSON.stringify(b) + ', an orange icon at ' + ratio(b.bar, '#d97757').toFixed(2) + ':1');
+    l = await look();
+    assert(light(l.tab) > 170 && light(l.addr) > 150, 'light text on them: ' + JSON.stringify(l));
+    await t.shot('behavior-blend-steel');
+    // A left edge that's a dark picture fading into a mid blue: no one color the bars could take to be one
+    // surface with it, so they take the color where they meet the page (its top), and the page has its frame.
+    await open(site.url + '/fading.html', false);
+    // (its pixels: until they're looked at, the page's styles give a first guess, white for a body that's a
+    // gradient)
+    b = await until(async () => { const v = await bars(); return v.tint && v.tint !== '#365d7e' && v.tint !== '#ffffff' ? v : null; }, 6000, 'the fading page measured');
+    assert(lum(b.tint) < lum('#365d7e') && b.apart, 'the color at the top of the edge, the page apart: ' + JSON.stringify(b));
+    assert(ratio(b.bar, '#d97757') >= 4, 'an orange icon on them at ' + ratio(b.bar, '#d97757').toFixed(2) + ':1');
     // Bifrost's own pages: see-through, sharing the window's background (the new tab page's glow too).
     const own = () => t.ui(() => ({ see: document.documentElement.classList.contains('see-through'), ntp: document.documentElement.dataset.ntpBg || '', stage: getComputedStyle(document.getElementById('stage')).backgroundColor }));
     await open('bifrost://settings/', false);
@@ -568,13 +591,18 @@ try {
   await R.step('Settings: its side navigation, taller than the window, scrolls on its own (the wheel over it moves it, not the page, to its end and past it), its items as they were, and the section you’re at stays in sight in it', async () => {
     const until = async (fn, ms, label) => { const end = Date.now() + ms; let last; while (Date.now() < end) { try { last = await fn(); if (last) return last; } catch (e) { last = e.message; } await sleep(150); } throw new Error('timed out waiting for ' + label + ' (last: ' + JSON.stringify(last) + ')'); };
     const size = (to) => t.main(({ BrowserWindow }, to) => { const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().startsWith('bifrost://ui')); const was = w.getSize(); if (to) w.setSize(to[0], to[1]); return was; }, to);
-    const guest = (js) => t.guest('bifrost://settings', js);
+    // (the Settings opened here: an earlier step's can still be open, in a tab behind it)
+    const guest = (js) => t.main(({ webContents }, js) => {
+      const wc = webContents.getAllWebContents().filter((w) => !w.isDestroyed() && w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings')).sort((a, b) => b.id - a.id)[0];
+      if (!wc) throw new Error('no Settings');
+      return wc.executeJavaScript(js, true);
+    }, js);
     const NAV = `(() => { const n = document.getElementById('nav'), items = [...n.querySelectorAll('.nav-item')], box = n.getBoundingClientRect(), last = items[items.length - 1].getBoundingClientRect(), on = n.querySelector('.nav-item.on'), lit = on ? on.getBoundingClientRect() : null;
       return { n: items.length, top: n.scrollTop, max: n.scrollHeight - n.clientHeight, box: [box.top, box.bottom], vh: innerHeight, page: scrollY, first: items[0].getBoundingClientRect().top, h: items[0].getBoundingClientRect().height, last: [last.top, last.bottom], lit: on ? items.indexOf(on) : -1, litAt: lit ? [lit.top, lit.bottom] : null }; })()`;
     const seen = (v) => v.litAt && v.litAt[0] >= v.box[0] && v.litAt[1] <= v.box[1];
     // (a notch of a mouse's wheel at a time, over the navigation)
     const wheel = (at, notches) => t.main(async ({ webContents }, o) => {
-      const wc = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings'));
+      const wc = webContents.getAllWebContents().filter((w) => !w.isDestroyed() && w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings')).sort((a, b) => b.id - a.id)[0];
       for (let i = 0; i < o.notches; i++) {
         wc.sendInputEvent({ type: 'mouseWheel', x: o.x, y: o.y, deltaX: 0, deltaY: -120, wheelTicksX: 0, wheelTicksY: -1, hasPreciseScrollingDeltas: false, canScroll: true });
         await new Promise((r) => setTimeout(r, 40));

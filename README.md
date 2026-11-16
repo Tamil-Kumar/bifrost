@@ -135,7 +135,8 @@ Catppuccin's library with them in it, `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
 what local pages may load, `blend` the colors of "Match the page" (on every page color with every theme: text
-that reads on the bars, a dark page's color as it is, a deeper shade of a vivid one, the theme's own shade next
+that reads on the bars, never a mid-tone the sites' icons can't be seen on, a dark page's color as it is, a deep
+shade of one in the middle, the theme's own shade next
 to a bright one, "Go light" and "Exactly the page's"), `settings-migrate` what settings saved by older versions
 turn into, `ui-preload`
 that browser.html preloads every script the window's UI imports, `ranking` the launcher's ranking (what you

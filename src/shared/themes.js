@@ -193,21 +193,26 @@
 
   // "Match the page" (Look & feel → Sidebar and toolbar): the color the sidebar and toolbar take from the page's
   // own, `tint`. What looks right next to a page is its color exactly (one surface) or one well apart from it
-  // (a frame around it); a shade in between, a white page's gray, a pastel's dustier pastel, looks dirty. So:
-  //   a dark page                       its color, as it is: nothing glares, and light text reads on it
-  //   a color in the middle, on which   a deeper shade of itself, as vivid as it was, that light text reads
-  //   neither black nor white text      on (with a light theme: a pastel of it, for dark text; a navy a
-  //   reads (a full red, a mid blue)    shade from reading stays a navy)
-  //   a bright page, a dark theme       the theme's own shade, tinted with the page's color: the bars stay
-  //                                     dark and the page sits in them ('light', Look & feel → "Bright pages":
-  //                                     the page's color instead, as with a light theme)
-  //   a bright page, a light theme      its color as it is; a vivid one (a neon yellow), a pastel of it
+  // (a frame around it); a shade in between, a white page's gray, a pastel's dustier pastel, looks dirty. And
+  // what can't be seen on them is a bar in the middle of the range of lightness: the sites' icons in them (most
+  // are mid-tone colors, made to show on white and on dark gray) and the theme's colors are mid-tones too, and
+  // have nothing to stand out against (on a mid steel blue, a site's blue or orange icon was at 2 to 1). So
+  // the bars are dark or light, never in between:
+  //   a dark page (as dark as Chrome's       its color, as it is: one surface with the page
+  //   dark tab strip, or darker)
+  //   any other page, with a dark theme      a deep shade of its color, as dark as that, the page in its
+  //                                          frame; a bright page, the theme's own shade with a touch of its
+  //                                          color ('light', Look & feel → "Bright pages": its color, as a
+  //                                          light theme takes it)
+  //   with a light theme                     a light page's color, as it is (a vivid or a mid one, a pale
+  //                                          shade of it); a darker one (a navy), a deep shade, as above
   // 'exact': the page's color, whatever it is.
-  const VIVID_MOST = 0.105;   // a light bar: as vivid as a pastel at most
-  const RICH_MOST = 0.19;     // a deeper shade of a vivid color
+  const DEEP_MOST = 0.31;     // (lightness) a dark bar: as light as this at most
+  const PALE_LEAST = 0.9;     // a light bar: as light as this at least
+  const RICH_MOST = 0.11;     // a deep shade's vividness, at most
+  const VIVID_MOST = 0.085;   // a pale shade's, at most (a pastel)
   const TINT_MOST = 0.042, TINT_PART = 0.42;    // the theme's shade, tinted
-  const READS = 7, NEAR = 3;
-  const MID_TOP = 0.66, BRIGHT_FROM = 0.8;   // (lightness: up to here a deeper shade; from here the theme's shade; between, between)
+  const MID_TOP = 0.66, BRIGHT_FROM = 0.8;   // (lightness: up to here a deep shade; from here the theme's shade; between, between)
   const onWhite = (hex) => contrast(hex, '#ffffff'), onBlack = (hex) => contrast(hex, '#000000');
   // The theme's sidebar color in the page's hue (a page with no color of its own, white or gray, leaves it).
   function themeTinted(c, t) {
@@ -232,28 +237,22 @@
   function barColor(tint, t, how) {
     const c = toOklch(tint);
     if (!c || how === 'exact') return tint;
-    if (onWhite(tint) >= READS) return tint;
     const dark = !t || t.dark !== false;
-    const toward = (step, C, ok) => { let L = c.L; for (let i = 1; i <= 70; i++) { L += step; if (L < 0 || L > 1) break; const o = fromOklch(L, C, c.h); if (ok(o)) return { o, i }; } return null; };
-    const deeper = toward(-0.01, Math.min(c.C, RICH_MOST), (o) => onWhite(o) >= READS);
-    const lighter = () => toward(0.01, Math.min(c.C, VIVID_MOST), (o) => onBlack(o) >= READS);
-    // (as a light bar: itself, a vivid one a pastel of itself)
-    const light = () => {
-      if (onBlack(tint) < READS) { const l = lighter(); return l ? l.o : tint; }
-      if (c.C <= VIVID_MOST) return tint;
-      const o = fromOklch(c.L, VIVID_MOST, c.h);
-      if (onBlack(o) >= READS) return o;
-      const l = lighter();
-      return l ? l.o : o;
+    // A deep shade of it: as dark as a dark bar may be, and less vivid the further it had to go (a page just
+    // past that keeps its color; a full red is a deep red, not a neon one).
+    const deep = () => {
+      if (c.L <= DEEP_MOST) return tint;
+      const C = c.C <= RICH_MOST ? c.C : RICH_MOST + (c.C - RICH_MOST) * Math.max(0, 1 - (c.L - DEEP_MOST) / 0.08);
+      return fromOklch(DEEP_MOST, C, c.h);
     };
-    const bright = onBlack(tint) >= READS;
-    if (!dark) return !bright && deeper && deeper.i <= NEAR ? deeper.o : light();
-    const shade = deeper ? deeper.o : tint;
-    if (how === 'light') return bright ? light() : shade;
+    // A pale one: as light as a light bar must be, a pastel at most.
+    const pale = () => (c.L >= PALE_LEAST && c.C <= VIVID_MOST ? tint : fromOklch(Math.max(c.L, PALE_LEAST), Math.min(c.C, VIVID_MOST), c.h));
+    if (!dark) return c.L < 0.5 ? deep() : pale();
+    if (how === 'light' && c.L >= MID_TOP) return pale();
     const themed = themeTinted(c, t);
-    if (!themed) return shade;
+    if (!themed) return deep();
     const k = Math.max(0, Math.min(1, (c.L - MID_TOP) / (BRIGHT_FROM - MID_TOP)));
-    return k <= 0 ? shade : k >= 1 ? themed : mixOklch(shade, themed, k * k * (3 - 2 * k));
+    return k <= 0 ? deep() : k >= 1 ? themed : mixOklch(deep(), themed, k * k * (3 - 2 * k));
   }
 
   // …and the bars in that color: their surfaces come from it; text reads on it, each kind at least as clearly
@@ -261,8 +260,9 @@
   // orange, a folder's yellow, a tab group's) are the theme's, made deeper or lighter (the same color still)
   // where they wouldn't show. Bars that end up on the other side from the theme (light ones, with a dark
   // theme) take the text and colors of `other`, your theme for that side, where there's one.
-  // `--page-tint` stays the page's own color, for what's behind the page itself.
-  function blendVars(tint, t, how, other) {
+  // `--page-tint` stays the page's own color, for what's behind the page itself. `mixed`: the page's edge
+  // isn't one color (a gradient, a picture), so the bars can't be one surface with it whatever they take.
+  function blendVars(tint, t, how, other, mixed) {
     if (!hexToRgb(tint)) return null;
     const bar = barColor(tint, t, how || 'soft');
     const dark = onWhite(bar) >= onBlack(bar);
@@ -288,15 +288,16 @@
     // (the theme's own text colors on bars of its side; mixes of the bar's color and the ink otherwise)
     const own = (key, k) => (pal && hexToRgb(pal[key]) ? pal[key] : m(k));
     const from = pal || t;
-    const accent = least(from.accent, 3);
-    const accent2 = least(from.accent2 || from.accent, 3);
+    // (thin lines and small icons need more than text of the same color: the floors are above the usual ones)
+    const accent = least(from.accent, 4);
+    const accent2 = least(from.accent2 || from.accent, 4);
     const vars = {
       '--page-tint': tint, '--bar-tint': bar,
       '--mantle': bar, '--chrome-low': bar,
       '--crust': mix(bar, '#000000', dark ? 0.25 : 0.06),
       '--base': base,
       '--s0': m(dark ? 0.13 : 0.11), '--s1': m(dark ? 0.2 : 0.16), '--s2': m(dark ? 0.27 : 0.22),
-      '--overlay': least(own('overlay', dark ? 0.46 : 0.45), 3), '--subtext': least(own('subtext', dark ? 0.7 : 0.64), 4.5), '--text': least(own('text', dark ? 0.92 : 0.86), 7),
+      '--overlay': least(own('overlay', dark ? 0.5 : 0.48), 4.5), '--subtext': least(own('subtext', dark ? 0.72 : 0.66), 5.5), '--text': least(own('text', dark ? 0.92 : 0.86), 7),
       '--hover': m(dark ? 0.07 : 0.06), '--active': m(dark ? 0.12 : 0.1),
       '--surface-hi': m(dark ? 0.035 : 0.02),
       '--border-tint': m(dark ? 0.14 : 0.12),
@@ -309,9 +310,9 @@
       '--accent-glow': rgba(accent, dark ? 0.38 : 0.28),
       dark,
       // (the page isn't the bars' color: it sits in them, with its frame)
-      apart: contrast(bar, tint) > 1.12,
+      apart: !!mixed || contrast(bar, tint) > 1.12,
     };
-    for (const k of ['red', 'peach', 'yellow', 'green', 'teal', 'blue', 'pink', 'lavender']) if (hexToRgb(from[k])) vars['--' + k] = least(from[k], 3.5);
+    for (const k of ['red', 'peach', 'yellow', 'green', 'teal', 'blue', 'pink', 'lavender']) if (hexToRgb(from[k])) vars['--' + k] = least(from[k], 4.5);
     return vars;
   }
 

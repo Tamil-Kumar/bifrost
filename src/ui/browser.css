@@ -183,7 +183,8 @@ body {
 }
 .tab:hover { background: var(--hover); color: var(--text); }
 .tab.active { background: var(--base); color: var(--text); box-shadow: var(--shadow-1); }
-:root[data-scheme="light"] .tab.active { background: #fff; }
+/* (with a light theme: white. Not where "Match the page" has made the bars dark: light text on white.) */
+:root[data-scheme="light"]:not([data-blend-scheme="dark"]) .tab.active { background: #fff; }
 .tab.in-view { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text); }
 .tab.selected { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
 .tab.selected.active { box-shadow: var(--shadow-1), inset 0 0 0 1.5px var(--accent); }
@@ -598,7 +599,7 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 }
 .address:hover { background: color-mix(in srgb, var(--text) 9%, transparent); }
 .address.focused { background: var(--base); box-shadow: 0 0 0 1.5px var(--accent), var(--shadow-1); }
-:root[data-scheme="light"] .address.focused { background: #fff; }
+:root[data-scheme="light"]:not([data-blend-scheme="dark"]) .address.focused { background: #fff; }
 .address.dropped { border-bottom-left-radius: var(--r-addr); border-bottom-right-radius: var(--r-addr); }
 .addr-site { flex: none; width: calc(var(--addr-h) - 6px); height: calc(var(--addr-h) - 6px); display: grid; place-items: center; border: 0; border-radius: max(0px, calc(var(--r-addr) - 2px)); background: none; color: var(--overlay); }
 .addr-site:hover { background: var(--hover); color: var(--text); }
@@ -1040,7 +1041,7 @@ webview.js-dialog-hide { visibility: hidden !important; }
   border-radius: calc(var(--r-addr) + 2px); background: var(--base); border: 1px solid var(--s0); box-shadow: var(--shadow-2);
   overflow: hidden;
 }
-:root[data-scheme="light"] .omni-drop { background: #fff; }
+:root[data-scheme="light"]:not([data-blend-scheme="dark"]) .omni-drop { background: #fff; }
 .o-results .rrow { padding: 5px 10px 5px 12px; }
 .o-results .r-ico { width: 26px; height: 26px; }
 
@@ -1267,9 +1268,9 @@ body { background: var(--chrome-bg); }
 
 /* The current tab: lit from its accent side, with a glowing two-color rail. */
 .tab.active { background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 12%, var(--base)) 0%, var(--base) 62%); box-shadow: var(--shadow-1), inset 0 0 0 1px color-mix(in srgb, var(--accent) 14%, transparent); }
-:root[data-scheme="light"] .tab.active { background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 9%, #fff) 0%, #fff 62%); }
+:root[data-scheme="light"]:not([data-blend-scheme="dark"]) .tab.active { background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 9%, #fff) 0%, #fff 62%); }
 #htabs .tab.active { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--base)) 0%, var(--base) 100%); }
-:root[data-scheme="light"] #htabs .tab.active { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, #fff) 0%, #fff 100%); }
+:root[data-scheme="light"]:not([data-blend-scheme="dark"]) #htabs .tab.active { background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 7%, #fff) 0%, #fff 100%); }
 #tablist .tab.active::before { background: var(--accent-grad); box-shadow: 0 0 10px var(--accent-glow); }
 #htabs .tab.active::after { background: var(--accent-grad); box-shadow: 0 0 8px var(--accent-glow); }
 #pinned .tab.active { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--base)), var(--base)); }

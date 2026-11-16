@@ -60,37 +60,60 @@ for (const [name, theme] of Object.entries(T.THEMES)) {
   WAYS.push([name, theme, 'soft', null], [name + ' (with ' + other.name + ')', theme, 'soft', other], [name + ', going light', theme, 'light', other]);
 }
 
-check('on any page color, with any theme: text reads on the bars (7:1), quieter text (4.5:1), the faintest (3:1)', () => {
+// The bars are dark or light, never in between: the sites' icons in them, and the theme's colors, are mostly
+// mid-tones, made to show on white and on dark gray, and nothing shows them against a mid-tone. (A user's
+// sidebar on a mid steel blue page: a site's light blue icon at 2.7 to 1, an orange one at 2.2 to 1.)
+const FAVICONS = ['#d97757', '#66a8e1', '#1877f2', '#ff0000', '#4285f4', '#ff4500', '#9146ff', '#1db954', '#fbbc05', '#e1306c'];
+check('the bars are never mid-tone, on any page color with any theme: the usual site icons show on them', () => {
+  for (const [name, theme, how, other] of WAYS) {
+    for (const c of [...PAGES, ...SWEEP]) {
+      const bar = T.blendVars(c, theme, how, other)['--mantle'];
+      assert(L(bar) <= 0.315 || L(bar) >= 0.895, `${name} on ${c}: bars ${bar} at lightness ${L(bar).toFixed(3)}`);
+      // (on a dark bar, the dimmest of these, a purple, is at 2.7 to 1 or more, and then on a deep green that
+      // sets it off by its color; on a light one, a yellow is the one that can't show, on any light surface)
+      const worst = Math.min(...FAVICONS.map((f) => T.contrast(f, bar)));
+      assert(L(bar) >= 0.895 || worst >= 2.7, `${name} on ${c}: bars ${bar}, the dimmest site icon at ${worst.toFixed(2)}:1`);
+    }
+  }
+  // The page in the screenshot: a dark header picture fading into a mid blue; and the mid blues and purples
+  // sites are made of.
+  for (const c of ['#365d7e', '#5d99ce', '#3b5998', '#1877f2', '#6441a5', '#9146ff', '#464775', '#0d6efd', '#8a8f98']) {
+    const bar = T.blendVars(c, T.THEMES.mocha)['--mantle'];
+    assert(T.contrast('#d97757', bar) >= 4 && T.contrast('#66a8e1', bar) >= 4, `mocha on ${c}: bars ${bar}, an orange icon at ${T.contrast('#d97757', bar).toFixed(2)}:1, a blue one at ${T.contrast('#66a8e1', bar).toFixed(2)}:1`);
+  }
+});
+
+check('on any page color, with any theme: text reads on the bars (7:1), quieter text (5.5:1), the faintest (4.5:1)', () => {
   for (const [name, theme, how, other] of WAYS) {
     for (const c of [...PAGES, ...SWEEP]) {
       const v = T.blendVars(c, theme, how, other);
       const bar = v['--mantle'];
       const at = (k) => T.contrast(v[k], bar);
       assert(at('--text') >= 7, `${name} on ${c} (bars ${bar}): text ${v['--text']} at ${at('--text').toFixed(2)}:1`);
-      assert(at('--subtext') >= 4.5, `${name} on ${c} (bars ${bar}): secondary text ${v['--subtext']} at ${at('--subtext').toFixed(2)}:1`);
-      assert(at('--overlay') >= 3, `${name} on ${c} (bars ${bar}): faint text ${v['--overlay']} at ${at('--overlay').toFixed(2)}:1`);
+      assert(at('--subtext') >= 5.5, `${name} on ${c} (bars ${bar}): secondary text ${v['--subtext']} at ${at('--subtext').toFixed(2)}:1`);
+      assert(at('--overlay') >= 4.5, `${name} on ${c} (bars ${bar}): faint text ${v['--overlay']} at ${at('--overlay').toFixed(2)}:1`);
       // (and on a field or a hovered tab in them)
       assert(T.contrast(v['--text'], v['--s1']) >= 4, `${name} on ${c}: text on a field at ${T.contrast(v['--text'], v['--s1']).toFixed(2)}:1`);
     }
   }
 });
 
-check('every theme’s accent and named colors (a warning’s orange, a folder’s yellow) show on them (3:1)', () => {
+check('every theme’s accent (4:1) and named colors (a warning’s orange, a folder’s yellow: 4.5:1) show on them', () => {
   for (const [name, theme, how, other] of WAYS) {
     for (const c of [...PAGES, ...SWEEP]) {
       const v = T.blendVars(c, theme, how, other);
       const bar = v['--mantle'];
-      assert(T.contrast(v['--accent'], bar) >= 2.9, `${name} on ${c}: accent ${v['--accent']} at ${T.contrast(v['--accent'], bar).toFixed(2)}:1`);
+      assert(T.contrast(v['--accent'], bar) >= 3.9, `${name} on ${c}: accent ${v['--accent']} at ${T.contrast(v['--accent'], bar).toFixed(2)}:1`);
       for (const k of NAMED) {
         assert(v['--' + k], `${name}: no --${k}`);
-        assert(T.contrast(v['--' + k], bar) >= 3, `${name} on ${c}: ${k} ${v['--' + k]} at ${T.contrast(v['--' + k], bar).toFixed(2)}:1`);
+        assert(T.contrast(v['--' + k], bar) >= 4.4, `${name} on ${c}: ${k} ${v['--' + k]} at ${T.contrast(v['--' + k], bar).toFixed(2)}:1`);
       }
     }
   }
 });
 
-check('a dark page’s color is taken as it is, however vivid; so is a calm light one by a light theme', () => {
-  for (const [theme, pages] of [['mocha', ['#0f0f0f', '#0d1117', '#181818', '#13233a', '#000000', '#4a154b', '#6c2bd9', '#0000c8']], ['latte', ['#ffffff', '#fff7f0', '#f6f8fa', '#dae0e6', '#0d1117', '#13233a', '#6c2bd9']]]) {
+check('a dark page’s color is taken as it is (as dark as a dark tab strip), however vivid; so is a calm light one by a light theme', () => {
+  for (const [theme, pages] of [['mocha', ['#0f0f0f', '#0d1117', '#181818', '#13233a', '#000000', '#4a154b', '#2a1c5c', '#00006e', '#2b2d31']], ['latte', ['#ffffff', '#fff7f0', '#f6f8fa', '#e6ebf0', '#0d1117', '#13233a', '#2a1c5c']]]) {
     for (const c of pages) {
       const v = T.blendVars(c, T.THEMES[theme]);
       assert(v['--mantle'] === c && v['--bar-tint'] === c && v['--page-tint'] === c, `${theme} on ${c}: ${v['--mantle']}`);
@@ -120,31 +143,45 @@ check('a bright page next to a dark theme: the theme’s own shade, tinted with 
   assert(T.contrast(T.blendVars('#ffffff', T.THEMES.mocha)['--text'], T.THEMES.mocha.text) < 1.12, 'mocha on white: text ' + T.blendVars('#ffffff', T.THEMES.mocha)['--text']);
 });
 
-check('a vivid color neither black nor white reads on (a full red, a mid blue), next to a dark theme: a deeper shade of itself, still vivid', () => {
-  for (const c of ['#ff1744', '#e53935', '#1877f2', '#ff00ff']) {
+check('a page in the middle (a full red, a mid blue, a steel blue, a gray), next to a dark theme: a deep shade of its color, the page apart in it', () => {
+  for (const c of ['#ff1744', '#e53935', '#1877f2', '#ff00ff', '#365d7e', '#6441a5', '#808080']) {
     const v = T.blendVars(c, T.THEMES.mocha);
     const bar = v['--mantle'];
-    assert(L(bar) < L(c) && v.dark === true, `mocha on ${c}: ${bar}`);
-    assert(C(bar) >= 0.12 && hueApart(bar, c) < 0.12, `mocha on ${c}: ${bar} isn’t a deeper shade of it (vividness ${C(bar).toFixed(3)})`);
-    assert(T.contrast(bar, '#ffffff') >= 7, `mocha on ${c}: white on ${bar} at ${T.contrast(bar, '#ffffff').toFixed(2)}:1`);
+    assert(L(bar) <= 0.315 && v.dark === true && v.apart === true, `mocha on ${c}: ${bar} (lightness ${L(bar).toFixed(3)})`);
+    // (its color still, and some of its vividness: a deep red, not a brown)
+    assert(C(c) < 0.02 || (hueApart(bar, c) < 0.15 && C(bar) >= Math.min(0.06, C(c))), `mocha on ${c}: ${bar} isn’t a deep shade of it (vividness ${C(bar).toFixed(3)})`);
+    assert(T.contrast(bar, '#ffffff') >= 10, `mocha on ${c}: white on ${bar} at ${T.contrast(bar, '#ffffff').toFixed(2)}:1`);
   }
+  // (a page just lighter than a dark bar may be, Discord's: hardly changed, and one surface with it)
+  const discord = T.blendVars('#313338', T.THEMES.mocha);
+  assert(T.contrast(discord['--mantle'], '#313338') < 1.06 && !discord.apart, 'a page just past dark: ' + discord['--mantle']);
   // (between a deeper shade and the theme's: nearer the theme's the brighter the page)
   const orange = L(T.blendVars('#ff9900', T.THEMES.mocha)['--mantle']), red = L(T.blendVars('#ff1744', T.THEMES.mocha)['--mantle']);
   assert(orange < red && orange > L(T.THEMES.mocha.mantle) - 0.02, 'orange ' + orange.toFixed(3) + ', red ' + red.toFixed(3));
 });
 
-check('next to a light theme: a vivid bright color a pastel of itself, one in the middle a lighter shade, a navy still a navy', () => {
+check('next to a light theme: a vivid bright color a pastel of itself, one in the middle a pale shade, a darker one (a navy) a deep shade', () => {
   for (const c of ['#ffeb3b', '#00e5ff', '#ff80ab', '#00ff00', '#ffd400']) {
     const bar = T.blendVars(c, T.THEMES.latte)['--mantle'];
-    assert(C(bar) <= 0.11 && C(bar) > 0.05, `${c}: bars ${bar} (vividness ${C(bar).toFixed(3)}, was ${C(c).toFixed(3)})`);
+    assert(C(bar) <= 0.09 && C(bar) > 0.05, `${c}: bars ${bar} (vividness ${C(bar).toFixed(3)}, was ${C(c).toFixed(3)})`);
     assert(hueApart(bar, c) < 0.12, `${c}: bars ${bar} changed hue`);
   }
-  for (const c of ['#ff1744', '#e53935', '#1877f2', '#808080']) {
+  for (const c of ['#ff1744', '#e53935', '#1877f2', '#808080', '#5d99ce']) {
     const l = T.blendVars(c, T.THEMES.latte);
-    assert(L(l['--mantle']) > L(c) && l.dark === false, `latte on ${c}: ${l['--mantle']}`);
+    assert(L(l['--mantle']) >= 0.895 && l.dark === false, `latte on ${c}: ${l['--mantle']}`);
   }
-  const navy = T.blendVars('#3b5998', T.THEMES.latte);
-  assert(navy.dark === true && Math.abs(L(navy['--mantle']) - L('#3b5998')) <= 0.035, 'latte on navy: ' + navy['--mantle']);
+  for (const c of ['#3b5998', '#365d7e', '#6441a5']) {
+    const d = T.blendVars(c, T.THEMES.latte);
+    assert(d.dark === true && L(d['--mantle']) <= 0.315, `latte on ${c}: ${d['--mantle']}`);
+  }
+});
+
+check('a page whose edge is of several colors (a picture, a gradient): the bars apart from it, whatever they take', () => {
+  for (const [c, theme] of [['#0f0f0f', T.THEMES.mocha], ['#ffffff', T.THEMES.latte], ['#2c4356', T.THEMES.mocha]]) {
+    assert(T.blendVars(c, theme)['--mantle'] === c || c === '#2c4356', 'as it is: ' + c);
+    assert(T.blendVars(c, theme, 'soft', null, true).apart === true, c + ', of several colors, isn’t apart');
+    assert(T.blendVars(c, theme, 'soft', null, false).apart === (c === '#2c4356'), c + ', of one color');
+  }
 });
 
 check('“Go light”: next to a dark theme a bright page gives the bars its color, with the light theme’s text and colors', () => {

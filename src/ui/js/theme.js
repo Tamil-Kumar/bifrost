@@ -67,6 +67,16 @@ export function pageTint() {
   const src = px || (!isInternal(t.url) ? t.pageColor : null);
   return src ? src[edge] || src.left || '' : '';
 }
+// …and whether that edge is of several colors (a gradient, a picture: main/guests.js pageLook), with "Match
+// the page": the page keeps its frame then.
+function pageEdgeMixed() {
+  const a = S.settings.appearance;
+  const t = activeTab();
+  if (a.blend !== 'page' || !t) return false;
+  const px = t.pixelColor && t.pixelColorUrl === t.url ? t.pixelColor : null;
+  const edge = a.tabLayout === 'horizontal' ? 'top' : a.sidebarSide === 'right' ? 'right' : 'left';
+  return !!(px && px.mixed && px.mixed[edge]);
+}
 
 // Bifrost's own pages are see-through with "Match the page" and "Blur the page" (pages/common/page.js):
 // the window shares their background instead (the new tab page's glow or picture too), so they need no
@@ -157,10 +167,11 @@ export function applyBlend() {
   const otherKey = theme.dark ? a.lightTheme || 'latte' : a.darkTheme || 'mocha';
   let other = window.WBThemes.resolve(Object.assign({}, a, { theme: otherKey }), { systemDark: S.systemDark, workspaceColor: ws && ws.color });
   if (!other || !!other.dark === !!theme.dark) other = null;
-  const key = tint + '|' + tone + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2 + '|' + (other ? other.name + other.accent : '');
+  const mixed = pageEdgeMixed();
+  const key = tint + '|' + (mixed ? 'm' : '') + tone + '|' + theme.name + '|' + theme.accent + '|' + theme.accent2 + '|' + (other ? other.name + other.accent : '');
   if (key === blendKey) { syncCaption(); return; }
   blendKey = key;
-  blendVars = tint ? window.WBThemes.blendVars(tint, theme, tone, other) : null;
+  blendVars = tint ? window.WBThemes.blendVars(tint, theme, tone, other, mixed) : null;
   let style = document.getElementById('blend-vars');
   if (!style) { style = document.createElement('style'); style.id = 'blend-vars'; document.head.appendChild(style); }
   const decl = blendVars ? Object.entries(blendVars).filter(([k]) => k.startsWith('--') && k !== '--page-tint' && k !== '--bar-tint').map(([k, v]) => `${k}: ${v};`).join(' ') : '';

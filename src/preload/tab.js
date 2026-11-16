@@ -852,10 +852,14 @@ if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
     return { r: Math.round(+m[1]), g: Math.round(+m[2]), b: Math.round(+m[3]), a };
   };
   const hex = (c) => '#' + [c.r, c.g, c.b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+  // (a background that's a picture or a gradient has no color its styles could say: none's guessed, and the
+  // window waits for its pixels)
+  const pictured = (el) => { const bg = el ? getComputedStyle(el).backgroundImage : 'none'; return !!bg && bg !== 'none'; };
   const canvas = () => {
     for (const el of [document.documentElement, document.body]) {
       const c = el && parse(getComputedStyle(el).backgroundColor);
       if (c && c.a >= 0.5) return c;
+      if (pictured(el)) return null;
     }
     const scheme = document.documentElement ? getComputedStyle(document.documentElement).colorScheme || '' : '';
     const dark = /dark/.test(scheme) && (!/light/.test(scheme) || matchMedia('(prefers-color-scheme: dark)').matches);
@@ -866,13 +870,14 @@ if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
     for (; el && el.nodeType === 1 && el !== document.documentElement && el !== document.body; el = el.parentElement) {
       const c = parse(getComputedStyle(el).backgroundColor);
       if (c && c.a >= 0.85) return c;
+      if (pictured(el)) return null;
     }
     return canvas();
   };
-  // The color most of a few points along an edge share.
+  // The color most of a few points along an edge share (none, where one of them is a picture).
   const edge = (points) => {
     const n = new Map();
-    for (const [x, y] of points) { const c = hex(at(x, y)); n.set(c, (n.get(c) || 0) + 1); }
+    for (const [x, y] of points) { const c = at(x, y); if (!c) return ''; const k = hex(c); n.set(k, (n.get(k) || 0) + 1); }
     return [...n].sort((a, b) => b[1] - a[1])[0][0];
   };
   let last = '', timer = 0;
