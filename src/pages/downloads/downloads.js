@@ -100,4 +100,6 @@ document.body.append(h('div.pg', null,
 search.addEventListener('input', debounce(render, 100));
 await load();
 wb.on('download-updated', patch);
+// (one removed from the list elsewhere, or started over in another place: the side panel's Restart)
+wb.on('download-removed', ({ id } = {}) => { if (recs.delete(id)) render(); });
 setInterval(() => { if (![...recs.values()].some((r) => r.state === 'progressing')) render(); }, 60000);

@@ -11,7 +11,7 @@ let pop = null, listEl = null, autoTimer = null, autoPoll = null;
 let autoAgain = null;   // the box opened by itself: starts its time over
 const NS = 'http://www.w3.org/2000/svg';
 
-function fileIcon(name, mime) {
+export function fileIcon(name, mime) {
   const n = (name || '').toLowerCase();
   if (/\.(zip|7z|rar|tar|gz|xz|bz2)$/.test(n)) return 'layers';
   if (/\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/.test(n) || /^image\//.test(mime || '')) return 'camera';
@@ -22,7 +22,7 @@ function fileIcon(name, mime) {
   return 'file';
 }
 
-function statusText(r) {
+export function statusText(r) {
   if (r.state === 'progressing') {
     if (r.paused) return `Paused · ${fmtBytes(r.received)}${r.total ? ' of ' + fmtBytes(r.total) : ''}`;
     const parts = [fmtBytes(r.received) + (r.total ? ' of ' + fmtBytes(r.total) : '')];
@@ -155,6 +155,11 @@ export function init() {
   }).catch(() => {});
   wb.on('download-updated', (r) => {
     recs.set(r.id, Object.assign(recs.get(r.id) || {}, r));
+    updateButton();
+    renderList();
+  });
+  wb.on('download-removed', ({ id } = {}) => {
+    if (!recs.delete(id)) return;
     updateButton();
     renderList();
   });

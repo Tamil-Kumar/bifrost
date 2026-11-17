@@ -6,7 +6,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const ctx = require('./context');
 
-const live = new Map();     // record id -> { item, rec }
+const live = new Map();     // record id -> { item, rec, ses }
 const privateRecs = new Map();
 let privSeq = 1e9;
 // 'created' (rec), 'updated' (rec), 'done' (rec), 'erased' (id): for chrome.downloads.
@@ -70,6 +70,17 @@ function broadcast(rec) {
   }
 }
 
+// A download gone from the list: every window, and the downloads pages, drop it.
+function broadcastRemoved(id, isPrivate) {
+  for (const ctl of ctx.registry.list()) {
+    if (isPrivate && !ctl.isPrivate) continue;
+    ctl.send('download-removed', { id });
+  }
+  for (const wc of require('electron').webContents.getAllWebContents()) {
+    if (wc.getType() === 'webview' && wc.getURL().startsWith('bifrost://downloads')) wc.send('download-removed', { id });
+  }
+}
+
 function attach(ses, { isPrivate }) {
   ses.on('will-download', (event, item, wc) => {
     // A file from an address on the dangerous-sites lists (most of URLhaus's are files) isn't saved.
@@ -123,7 +134,7 @@ function attach(ses, { isPrivate }) {
     }
     if (isPrivate) { rec.id = privSeq++; privateRecs.set(rec.id, rec); }
     else rec.id = ctx.db.addDownload({ url: rec.url, filename: rec.filename, path: rec.path, mime: rec.mime, total: rec.total, started: rec.started, referrer: rec.referrer });
-    live.set(rec.id, { item, rec });
+    live.set(rec.id, { item, rec, ses });
     if (exp) exp.resolve(rec.id);
     if (!isPrivate) events.emit('created', rec, item);
 
@@ -141,6 +152,8 @@ function attach(ses, { isPrivate }) {
       if (now - lastEmit > 200 || rec.state !== 'progressing') { lastEmit = now; broadcast(rec); if (!isPrivate) events.emit('updated', rec, item); }
     });
     item.once('done', (e, state) => {
+      // (one being started over: restart() takes it out of the list)
+      if (rec.restarting) { live.delete(rec.id); return; }
       rec.path = item.getSavePath() || rec.path;
       rec.filename = rec.path ? path.basename(rec.path) : rec.filename;
       rec.received = item.getReceivedBytes();
@@ -209,20 +222,59 @@ function action(id, what) {
     case 'cancel': if (l) l.item.cancel(); return true;
     case 'open': { const p = l ? '' : pathOf(id); if (!p || !fs.existsSync(p)) throw new Error('The file is missing or still downloading.'); return openFile(p); }
     case 'show': { const p = pathOf(id); if (p && fs.existsSync(p)) shell.showItemInFolder(p); else shell.openPath(folder()); return true; }
-    case 'remove': if (!l) { ctx.db.removeDownload(id); privateRecs.delete(id); events.emit('erased', id); } return true;
-    case 'delete': { const p = pathOf(id); if (!l && p && fs.existsSync(p)) fs.rmSync(p, { force: true }); ctx.db.removeDownload(id); events.emit('erased', id); return true; }
+    case 'remove': if (!l) { const priv = privateRecs.delete(id); if (!priv) ctx.db.removeDownload(id); events.emit('erased', id); broadcastRemoved(id, priv); } return true;
+    case 'delete': { const p = pathOf(id); if (!l && p && fs.existsSync(p)) fs.rmSync(p, { force: true }); ctx.db.removeDownload(id); events.emit('erased', id); broadcastRemoved(id, false); return true; }
     case 'deleteFile': { const p = pathOf(id); if (l) throw new Error('Download must be complete'); if (p && fs.existsSync(p)) fs.rmSync(p, { force: true }); return true; }
     case 'retry': {
       const r = ctx.db.downloads(1000).find((x) => x.id === id) || privateRecs.get(id);
       if (!r) return false;
       // A private download retries in a private window's session (never in the normal profile).
-      const ses = r.private ? (ctx.registry.list().find((c) => c.isPrivate && c.ses) || {}).ses : ctx.mainSession;
+      const ses = r.private ? privateSession() : ctx.mainSession;
       if (!ses) throw new Error('Open a private window to retry this download.');
       ses.downloadURL(r.url);
       return true;
     }
+    case 'restart': return restart(id);
     default: throw new Error('unknown download action');
   }
+}
+
+const privateSession = () => (ctx.registry.list().find((c) => c.isPrivate && c.ses) || {}).ses || null;
+
+// Starts a download over from the beginning, instead of the old one in the list: one still going is cancelled
+// first (Chromium deletes what it had of the file, so the new one gets its name), then its address is
+// downloaded again in the same session (a private one in a private window's), and once that's begun the old
+// one leaves the list (not before: the new one mustn't be given its number).
+async function restart(id) {
+  const l = live.get(id);
+  let rec = null, ses = null;
+  if (l) {
+    rec = l.rec;
+    ses = l.ses;
+    rec.restarting = true;
+    await new Promise((resolve) => {
+      const t = setTimeout(resolve, 3000);
+      l.item.once('done', () => { clearTimeout(t); setImmediate(resolve); });
+      try { l.item.cancel(); } catch { clearTimeout(t); resolve(); }
+    });
+  } else {
+    rec = privateRecs.get(id) || ctx.db.downloads(1000).find((x) => x.id === id);
+    if (!rec) return false;
+    ses = rec.private ? privateSession() : ctx.mainSession;
+  }
+  if (!ses) throw new Error('Open a private window to restart this download.');
+  const begun = Promise.race([expect(rec.url), new Promise((_, no) => setTimeout(() => no(new Error('The download didn’t start again.')), 15000))]);
+  ses.downloadURL(rec.url);
+  try { await begun; } catch (e) {
+    // (it stays in the list as it was: cancelled now, if it was going)
+    if (l) { rec.restarting = false; rec.state = 'cancelled'; rec.ended = Date.now(); rec.speed = 0; if (!rec.private) ctx.db.updateDownload(id, rec); broadcast(rec); }
+    throw e;
+  }
+  const isPrivate = !!rec.private || privateRecs.has(id);
+  if (isPrivate) privateRecs.delete(id);
+  else { ctx.db.removeDownload(id); events.emit('erased', id); }
+  broadcastRemoved(id, isPrivate);
+  return true;
 }
 
 function pathOf(id) {

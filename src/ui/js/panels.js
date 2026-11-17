@@ -9,6 +9,7 @@ import { dialog, toast, setPanelPrompts, refreshPrompts, forgetOwner } from './p
 import * as T from './tabs.js';
 import * as V from './views.js';
 import { howFromEvent } from './results.js';
+import { fileIcon, statusText } from './downloads.js';
 
 const wb = window.wb;
 const D = window.WBDefaults;
@@ -795,20 +796,62 @@ async function renderHistory(append = false) {
 }
 
 // ---------------------------------------------------------------- downloads
+// One still going shows how far along it is (a bar, and the percentage when its size is known), its speed
+// and time left, and Cancel; one that stopped (cancelled, failed) or is still going can be started over
+// (Restart: from the beginning, instead of the old one). They're kept up to date in place as they move.
 const warn = (e) => emit('toast', { text: e.message, iconName: 'warn' });
+const dlRows = new Map();   // id → { el, rec }
+const dlAct = (id, what) => wb.invoke('downloads:action', id, what).catch(warn);
+const dlKind = (d) => (d.state === 'progressing' ? 'active' : d.state === 'completed' ? 'done' : 'stopped');
+const dlPct = (d) => (d.total > 0 ? Math.min(100, Math.floor((d.received / d.total) * 100)) : null);
+
+function dlRow(d) {
+  const kind = dlKind(d);
+  const btn = (title, ic, what, cls = '') => h('button.icon-btn' + cls, { type: 'button', title, 'aria-label': title, onclick: (e) => { e.stopPropagation(); dlAct(d.id, what); } }, icon(ic));
+  const pct = dlPct(d);
+  const row = h('div.p-row.p-dl.' + kind + '.' + (d.state || 'interrupted') + (d.paused ? '.paused' : ''), { title: d.path || d.url, dataset: { id: String(d.id) } },
+    h('span.p-dl-ico', null, icon(fileIcon(d.filename, d.mime))),
+    h('div.p-dl-main', null,
+      // (the buttons on the name's line: the bar and what it says get the row's whole width)
+      h('div.p-dl-head', null,
+        h('span.p-title', null, d.filename || 'download'),
+        h('div.p-dl-actions', null,
+          kind === 'active' ? btn('Cancel', 'close', 'cancel', '.p-dl-cancel') : null,
+          kind !== 'done' ? btn('Restart', 'reload', 'restart', '.p-dl-restart') : null,
+          kind === 'done' ? btn('Show in folder', 'folderOpen', 'show') : null)),
+      kind === 'active' ? h('div.p-dl-progress', null,
+        h('div.dl-bar' + (pct == null ? '.indeterminate' : ''), { role: 'progressbar', 'aria-label': 'Downloaded', 'aria-valuemin': '0', 'aria-valuemax': '100', ...(pct == null ? {} : { 'aria-valuenow': String(pct) }) }, h('span', { style: { width: (pct || 0) + '%' } })),
+        h('span.p-dl-pct', null, pct == null ? '' : pct + '%')) : null,
+      h('small.p-dl-status', null, kind === 'done' ? `${fmtBytes(d.total || d.received)} · ${timeAgo(d.ended || d.started)}` : statusText(d))));
+  if (kind === 'done') row.addEventListener('click', () => dlAct(d.id, 'open'));
+  dlRows.set(d.id, { el: row, rec: d });
+  return row;
+}
+
+// A download that moved: its row, in place (only what changed while it's going; a new row once it stops).
+function dlUpdate(d) {
+  const r = dlRows.get(d.id);
+  if (!r || !r.el.isConnected) return false;
+  const rec = Object.assign(r.rec, d);
+  if (dlKind(rec) !== 'active' || !r.el.classList.contains('active')) { r.el.replaceWith(dlRow(rec)); return true; }
+  const pct = dlPct(rec);
+  const bar = r.el.querySelector('.dl-bar');
+  bar.classList.toggle('indeterminate', pct == null);
+  if (pct == null) bar.removeAttribute('aria-valuenow'); else bar.setAttribute('aria-valuenow', String(pct));
+  bar.firstChild.style.width = (pct || 0) + '%';
+  r.el.querySelector('.p-dl-pct').textContent = pct == null ? '' : pct + '%';
+  r.el.querySelector('.p-dl-status').textContent = statusText(rec);
+  r.el.classList.toggle('paused', !!rec.paused);
+  return true;
+}
+
 async function renderDownloads() {
   const text = searchEl.value.trim().toLowerCase();
   const list = (await wb.invoke('downloads:list').catch(() => [])).filter((d) => !text || (d.filename || '').toLowerCase().includes(text) || (d.url || '').toLowerCase().includes(text));
   if (view !== 'downloads') return;
-  bodyEl.replaceChildren(...(list.length ? list.slice(0, 100).map((d) => {
-    const row = h('div.p-row.p-dl', { title: d.path || d.url },
-      h('span.p-dl-ico', null, icon('file')),
-      h('div.p-dl-main', null, h('span.p-title', null, d.filename), h('small', null, d.state === 'completed' ? `${fmtBytes(d.total)} · ${timeAgo(d.ended || d.started)}` : d.state === 'progressing' ? `${fmtBytes(d.received)} of ${fmtBytes(d.total)}` : d.state)),
-      d.state === 'completed' ? h('button.icon-btn', { type: 'button', title: 'Show in folder', onclick: (e) => { e.stopPropagation(); wb.invoke('downloads:action', d.id, 'show').catch(warn); } }, icon('folderOpen')) : null);
-    if (d.state === 'completed') row.addEventListener('click', () => wb.invoke('downloads:action', d.id, 'open').catch(warn));
-    return row;
-  }) : [h('p.p-empty', null, 'No downloads')]),
-  h('button.link-btn.p-foot', { type: 'button', onclick: () => emit('command', 'openDownloads') }, icon('download'), 'All downloads'));
+  dlRows.clear();
+  bodyEl.replaceChildren(...(list.length ? list.slice(0, 100).map(dlRow) : [h('p.p-empty', null, 'No downloads')]),
+    h('button.link-btn.p-foot', { type: 'button', onclick: () => emit('command', 'openDownloads') }, icon('download'), 'All downloads'));
 }
 
 // ------------------------------------------------------------------- tests
@@ -839,7 +882,16 @@ export function init() {
     openWanted();
   });
   on('bookmarks-changed', () => { if (view === 'bookmarks') renderBookmarks(); });
-  wb.on('download-updated', debounce(() => { if (view === 'downloads') renderDownloads(); }, 400));
+  // (a download the list has: its row; one it hasn't, a new one: the list again)
+  const relist = debounce(() => { if (view === 'downloads') renderDownloads(); }, 150);
+  wb.on('download-updated', (d) => { if (view === 'downloads' && d && !dlUpdate(d)) relist(); });
+  wb.on('download-removed', ({ id } = {}) => {
+    const r = dlRows.get(id);
+    if (!r) return;
+    dlRows.delete(id);
+    r.el.remove();
+    if (view === 'downloads' && !dlRows.size) relist();
+  });
   on('panel', (which) => toggle(which));
   on('panel-add-web', ({ url, title } = {}) => addWeb(url, title));
   renderStrip();

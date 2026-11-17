@@ -18,7 +18,21 @@ fs.writeFileSync(DIR + '/scheme.html', page('Scheme', '<p id="s"></p><script>con
 fs.mkdirSync(DIR + '/files');
 fs.writeFileSync(DIR + '/files/report.bin', Buffer.alloc(300 * 1024, 7));
 
-const site = await startSite(DIR);
+// A file that comes slowly (2 MB at about 160 KB a second), so a download of it is still going while it's
+// looked at: with its size, or (?nosize) without.
+const slow = (req, res, url) => {
+  const SIZE = 2 * 1024 * 1024, CHUNK = 16 * 1024;
+  const sized = !url.search.includes('nosize');
+  res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': `attachment; filename="${sized ? 'slow.bin' : 'nosize.bin'}"`, ...(sized ? { 'content-length': SIZE } : {}) });
+  let sent = 0;
+  const timer = setInterval(() => {
+    if (sent >= SIZE) { clearInterval(timer); res.end(); return; }
+    res.write(Buffer.alloc(Math.min(CHUNK, SIZE - sent), 1));
+    sent += CHUNK;
+  }, 100);
+  req.on('close', () => clearInterval(timer));
+};
+const site = await startSite(DIR, { routes: { '/slow.bin': slow } });
 const PROFILE = '/home/claude/bf-test/profiles/daily';
 const DOWNLOADS = '/home/claude/bf-test/daily-downloads';
 fs.rmSync(DOWNLOADS, { recursive: true, force: true });
@@ -175,6 +189,61 @@ try {
     const item = await waitFor(() => t.main(() => global.__bifrost.downloads.list()).then((l) => l.find((d) => /report\.bin$/.test(d.filename || '') && d.state === 'completed') || null), 5000, 'finished in the downloads list');
     assert(item.received === 300 * 1024, 'all of it: ' + JSON.stringify(item));
     assert(/index\.html$/.test(await activeUrl()), 'the page stayed where it was');
+  });
+
+  await R.step('the side panel’s downloads: a bar and the percentage as one goes (a bar alone when its size isn’t known), Cancel, and Restart from the beginning instead of the old one', async () => {
+    await setSetting('downloads.showOnStart', false);
+    await setSetting('downloads.askWhereToSave', false);
+    await setSetting('downloads.folder', DOWNLOADS);
+    await cmd('panelDownloads');
+    await t.until(() => document.querySelector('.p-foot') && /All downloads/.test(document.body.textContent), null, 4000, 'the downloads panel');
+    const rows = () => t.ui(() => [...document.querySelectorAll('.p-dl')].filter((r) => /slow\.bin|nosize\.bin/.test(r.textContent)).map((r) => {
+      const bar = r.querySelector('.dl-bar');
+      return {
+        id: Number(r.dataset.id), name: r.querySelector('.p-title').textContent, cls: r.className,
+        width: bar ? parseFloat(bar.firstChild.style.width) : null, indeterminate: bar ? bar.classList.contains('indeterminate') : null,
+        now: bar ? bar.getAttribute('aria-valuenow') : null, pct: (r.querySelector('.p-dl-pct') || {}).textContent ?? null,
+        status: r.querySelector('.p-dl-status').textContent, buttons: [...r.querySelectorAll('.p-dl-actions button')].map((b) => b.title),
+      };
+    }));
+    const click = (id, title) => t.ui(([id, title]) => { const b = [...document.querySelectorAll(`.p-dl[data-id="${id}"] .p-dl-actions button`)].find((x) => x.title === title); if (!b) throw new Error('no ' + title); b.click(); return true; }, [id, title]);
+    const start = (q = '') => t.main((_, url) => { global.__bifrost.mainSession.downloadURL(url); }, site.url + '/slow.bin' + q);
+    const listed = () => t.main(() => global.__bifrost.downloads.list().filter((d) => /slow|nosize/.test(d.filename || '')).map((d) => ({ id: d.id, state: d.state, received: d.received })));
+    try {
+      await start();
+      // Going: a bar as far along as it is, the percentage beside it, the size, speed and time left.
+      const first = await waitFor(async () => { const r = (await rows())[0]; return r && /active/.test(r.cls) && r.width > 0 && /\bof\b/.test(r.status) ? r : null; }, 8000, 'the download going in the panel');
+      assert(first.name === 'slow.bin' && first.pct === Math.floor(first.width) + '%' && first.now === String(Math.floor(first.width)) && !first.indeterminate, 'its bar and percentage: ' + JSON.stringify(first));
+      assert(JSON.stringify(first.buttons) === '["Cancel","Restart"]', 'Cancel and Restart: ' + JSON.stringify(first.buttons));
+      const later = await waitFor(async () => { const r = (await rows()).find((x) => x.id === first.id); return r && r.width >= first.width + 5 ? r : null; }, 8000, 'the bar to move along');
+      assert(/\d+(\.\d+)? ?[KM]B\/s/.test(later.status) && /left/.test(later.status), 'speed and time left: ' + later.status);
+      await t.shot('daily-downloads-panel');
+      // Restart: from the beginning, instead of the old one (no cancelled copy left in the list).
+      await click(first.id, 'Restart');
+      let seen = null;
+      const again = await waitFor(async () => { const r = seen = await rows(); return r.length === 1 && r[0].id !== first.id && /active/.test(r[0].cls) && r[0].width < later.width ? r[0] : null; }, 8000, 'it started over').catch(async (e) => { throw new Error(e.message + ' rows ' + JSON.stringify(seen) + ' list ' + JSON.stringify(await listed()) + ' files ' + fs.readdirSync(DOWNLOADS).join(',')); });
+      const l1 = await listed();
+      assert(l1.length === 1 && l1[0].id === again.id, 'one download of it in the list: ' + JSON.stringify(l1));
+      assert(again.name === 'slow.bin', 'the same name (what it had of the file went with it): ' + again.name);
+      // Cancel: it stops, says so, can be restarted (not cancelled again), and nothing of it is left in the folder.
+      await click(again.id, 'Cancel');
+      const stopped = await waitFor(async () => { const r = (await rows())[0]; return r && /stopped/.test(r.cls) ? r : null; }, 8000, 'it cancelled');
+      assert(stopped.status === 'Cancelled' && stopped.width === null && JSON.stringify(stopped.buttons) === '["Restart"]', 'cancelled: ' + JSON.stringify(stopped));
+      assert(!fs.readdirSync(DOWNLOADS).some((f) => /^slow/.test(f)), 'nothing of it left: ' + fs.readdirSync(DOWNLOADS).join(', '));
+      await click(stopped.id, 'Restart');
+      const third = await waitFor(async () => { const r = await rows(); return r.length === 1 && r[0].id !== stopped.id && /active/.test(r[0].cls) ? r[0] : null; }, 8000, 'the cancelled one to start over');
+      await click(third.id, 'Cancel');
+      await waitFor(async () => { const r = (await rows())[0]; return r && /stopped/.test(r.cls); }, 8000, 'cancelled again');
+      // Its size unknown: a bar going back and forth, no percentage.
+      await start('?nosize');
+      const unsized = await waitFor(async () => (await rows()).find((r) => r.name === 'nosize.bin' && /active/.test(r.cls) && /\d/.test(r.status)) || null, 8000, 'the download without a size');
+      assert(unsized.indeterminate === true && unsized.pct === '' && unsized.now === null && !/\bof\b/.test(unsized.status), 'a bar alone: ' + JSON.stringify(unsized));
+      await click(unsized.id, 'Cancel');
+      await waitFor(async () => (await rows()).find((r) => r.name === 'nosize.bin' && /stopped/.test(r.cls)), 8000, 'it cancelled');
+    } finally {
+      await t.main(() => { for (const d of global.__bifrost.downloads.list()) if (d.state === 'progressing') global.__bifrost.downloads.action(d.id, 'cancel'); });
+      await setSetting('downloads.showOnStart', true);
+    }
   });
 
   await R.step('prompt(), confirm() and alert() from a page get answers', async () => {

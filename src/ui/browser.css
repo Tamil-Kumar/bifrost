@@ -490,9 +490,23 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 .p-row:hover .p-del { opacity: 1; }
 .p-empty { color: var(--overlay); text-align: center; padding: 30px 12px; }
 .p-more, .p-foot { margin: 8px auto 0; display: flex; }
-.p-dl-ico { color: var(--accent); }
-.p-dl-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.p-dl-main small { color: var(--overlay); }
+.p-dl { align-items: flex-start; padding-top: 5px; padding-bottom: 7px; }
+.p-dl-ico { color: var(--accent); flex: none; margin-top: 5px; }
+.p-dl.stopped .p-dl-ico { color: var(--overlay); }
+.p-dl-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.p-dl-head { display: flex; align-items: center; gap: 4px; min-height: 26px; }
+.p-dl-main small { color: var(--overlay); font-size: .8rem; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-dl.interrupted .p-dl-status { color: var(--red); }
+/* How far along it is: the bar, and the percentage beside it. */
+.p-dl-progress { display: flex; align-items: center; gap: 8px; margin: 1px 0 2px; }
+.p-dl-progress .dl-bar { flex: 1; margin: 0; height: 5px; }
+.p-dl-pct { flex: none; min-width: 4ch; text-align: right; font-size: .78rem; font-weight: 700; color: var(--subtext); font-variant-numeric: tabular-nums; }
+.p-dl.paused .dl-bar span { background: var(--overlay); }
+.p-dl.paused .p-dl-pct { color: var(--overlay); }
+.p-dl-actions { flex: none; display: flex; gap: 2px; margin-right: -4px; }
+.p-dl-actions .icon-btn { width: 26px; height: 26px; }
+.p-dl-actions .icon-btn svg.i { width: 15px; height: 15px; }
+.p-dl-cancel:hover { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
 
 /* ============================================================ horizontal bar */
 #hbar {
