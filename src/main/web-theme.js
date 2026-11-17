@@ -19,6 +19,9 @@
 // other. Its site is remembered (web-dark-learned.json in the profile, for 30 days: it may get a dark theme; a
 // private window's, until Bifrost closes), so its pages are dark from the start next time. You can choose
 // Bifrost's dark mode for a site yourself too (darkSites: 'bifrost').
+//
+// A page Bifrost gives Catppuccin's colors (Catppuccin for every site: main/web-styles.js recolorFor) is told
+// dark or light by them, and Chromium's dark mode stays off on it: it's in those colors already.
 const fs = require('node:fs');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
@@ -158,6 +161,10 @@ async function check(wc, gen, tries = 0) {
 // light, and darkened by Chromium.
 function perTab(url, wc) {
   if (isOwnPage(url)) return { scheme: null, dark: false };
+  // A page in Catppuccin's colors (Catppuccin for every site, preload/recolor.js): told dark or light as they
+  // are, so a site with a dark theme of its own starts from that; Chromium's dark mode stays off (they're its).
+  const turned = ctx.webStyles ? ctx.webStyles.recolorFor(url) : null;
+  if (turned) return { scheme: turned.dark ? 'dark' : 'light', dark: false };
   const how = ctx.webStyles ? ctx.webStyles.darkHow(url) : null;
   const dark = !!how;
   if (how === 'bifrost' || (dark && isLearned(hostOf(url), wc))) return { scheme: 'light', dark: true };

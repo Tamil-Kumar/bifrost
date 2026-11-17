@@ -90,6 +90,18 @@ async function toggleWebDarkSite(t, on) {
   toast({ text: now ? `Dark mode on for ${host}` : `Dark mode off for ${host}`, iconName: now ? 'moon' : 'sun', timeout: 1800 });
 }
 
+// Catppuccin for every site, on the site you're on (its info popover has the same switch; Settings → Website
+// styles lists them).
+async function toggleRecolorSite(t, on) {
+  if (!t || !/^(https?|file):/i.test(t.url)) { toast({ text: 'Catppuccin’s colors work on web pages', iconName: 'palette', timeout: 1800 }); return; }
+  const host = hostOf(t.url);
+  const info = await wb.invoke('site:info', t.url).catch(() => null);
+  const want = on == null ? !(info && info.recolor && info.recolor.on) : !!on;
+  const now = await wb.invoke('web:recolor-site', host, want, t.url).catch(() => null);
+  if (!now) return;
+  toast({ text: now.styled ? `One of your styles is for ${host}` : now.on ? `Catppuccin’s colors on ${host}` : `${host} in its own colors`, iconName: 'palette', timeout: 1800 });
+}
+
 function toggleVimSite(host, on) {
   if (!host) return;
   const list = (setting('keyboard.vim.excludedSites') || []).slice();
@@ -265,6 +277,13 @@ export function run(id, args = {}) {
     }
     case 'toggleVimSite': toggleVimSite(args.host || (t && hostOf(t.url)), args.on); return;
     case 'toggleWebDarkSite': toggleWebDarkSite(t, args.on); return;
+    case 'toggleRecolorSite': toggleRecolorSite(t, args.on); return;
+    case 'toggleRecolor': {
+      const on = !setting('webStyles.recolor');
+      set('webStyles.recolor', on);
+      toast({ text: on ? 'Catppuccin’s colors on every site' : 'Catppuccin for every site off', iconName: 'palette', timeout: 1800 });
+      return;
+    }
     case 'toggleWebDark': {
       const on = !setting('webStyles.dark');
       set('webStyles.dark', on);

@@ -27,7 +27,15 @@ function pageStart() {
   return data;
 }
 const start = isTop && isWeb ? pageStart() : null;
-const frameStart = !isTop && isWeb ? ipcRenderer.invoke('tab:start-frame', location.href).catch(() => null) : null;
+// (one question for the frame, shared with recolor.js the same way)
+function frameStartOnce() {
+  const have = globalThis.__bifrostFrameStart;
+  if (have && have.href === location.href) return have.p;
+  const p = ipcRenderer.invoke('tab:start-frame', location.href).catch(() => null);
+  try { globalThis.__bifrostFrameStart = { href: location.href, p }; } catch { /* asked again */ }
+  return p;
+}
+const frameStart = !isTop && isWeb ? frameStartOnce() : null;
 
 if (isInternal && isTop) {
   contextBridge.exposeInMainWorld('wb', {
@@ -291,21 +299,25 @@ if (isWeb) setupSiteCss();
 
 function setupSiteCss() {
   let sheet = null;
+  // (Catppuccin for every site, recolor.js, puts its own stylesheets before this one: yours win)
+  const arrange = () => { try { if (typeof globalThis.__bifrostArrange === 'function') globalThis.__bifrostArrange(); } catch { /* fine */ } };
   const adopt = () => {
     if (!sheet) return;
     try {
       const list = document.adoptedStyleSheets;
       if (!list.includes(sheet)) document.adoptedStyleSheets = [...list, sheet];
     } catch { /* no document yet */ }
+    arrange();
   };
   const apply = (css) => {
     css = typeof css === 'string' ? css : '';
     if (!css.trim()) {
       if (sheet) { try { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet); } catch { /* gone */ } }
       sheet = null;
+      globalThis.__bifrostSiteSheet = null;
       return;
     }
-    if (!sheet) sheet = new CSSStyleSheet();
+    if (!sheet) { sheet = new CSSStyleSheet(); globalThis.__bifrostSiteSheet = sheet; }
     try { sheet.replaceSync(css); } catch { /* (an @import line can't be in a constructed sheet; the rest still applies) */ }
     adopt();
   };

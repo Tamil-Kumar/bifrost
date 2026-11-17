@@ -1338,6 +1338,35 @@ function darkSitesWidget() {
   return { el: box, update: () => { if (!typingIn(box)) draw(); } };
 }
 
+// Catppuccin for every site's own sites (webStyles.recolorSites: { site: true | false }).
+function recolorSitesWidget() {
+  const box = h('div.elist.recolor-sites');
+  const draw = () => {
+    const map = get('webStyles.recolorSites') || {};
+    const change = (next) => save('webStyles.recolorSites', next);
+    const choices = (label) => h('select.field', { 'aria-label': label }, [['on', 'Catppuccin'], ['off', 'Its own colors']].map(([v, t]) => h('option', { value: v }, t)));
+    const rows = Object.keys(map).sort().map((site) => {
+      const sel = choices('Catppuccin on ' + site);
+      sel.value = map[site] ? 'on' : 'off';
+      sel.addEventListener('change', () => change({ ...map, [site]: sel.value === 'on' }));
+      return h('div.erow', { dataset: { site } }, h('span.grow.mono', null, site), sel,
+        h('button.icon-btn', { type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: () => { const next = { ...map }; delete next[site]; change(next); } }, icon('close')));
+    });
+    const input = h('input.field.w-md', { type: 'text', placeholder: 'example.com', spellcheck: 'false', 'aria-label': 'Site' });
+    const sel = choices('Catppuccin there');
+    sel.value = get('webStyles.recolor') ? 'off' : 'on';
+    const add = () => {
+      const site = String(input.value || '').trim().toLowerCase().replace(/^[a-z]+:\/\//, '').replace(/[/?#].*$/, '').replace(/^www\./, '');
+      if (!site) return;
+      change({ ...map, [site]: sel.value === 'on' });
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+    box.replaceChildren(...rows, h('div.erow', null, input, sel, h('button.btn.small', { type: 'button', dataset: { act: 'add-recolor-site' }, onclick: add }, icon('plus'), 'Add')));
+  };
+  draw();
+  return { el: box, update: () => { if (!typingIn(box)) draw(); } };
+}
+
 // The editor for a style: its code, and its variables when it has any. Resolves when it's saved or closed.
 function editStyle({ id = null, code = '', title = 'New style', vars = [], values = {} } = {}) {
   const ta = h('textarea.field.mono.style-code', { spellcheck: 'false', rows: 18 });
@@ -1951,6 +1980,8 @@ function sections() {
       { title: 'Your theme on websites', id: 'web-theme', items: [
         I.toggle('webStyles.matchTheme', 'Match websites to your theme', 'Catppuccin’s styles for websites take Bifrost’s theme: its flavor when it’s one of Catppuccin’s, or its colors and accent (Frost, Nord, Dracula…). Get their styles by importing their import.json in Your styles below.', { keywords: 'catppuccin theme match browser colors flavor mocha latte frost nord dracula websites sites' }),
         I.custom('', '', themeMatchStatus, { stack: true, when: (st) => st.webStyles.matchTheme }),
+        I.toggle('webStyles.recolor', 'Catppuccin for every site', 'Sites that none of your styles is for get Catppuccin’s colors too: as a page loads, each color in it is swapped for the nearest of Catppuccin’s (backgrounds, text, lines, a link’s blue, an error’s red), in Mocha, or Latte where websites are light; in your theme’s colors while websites match it. Pictures stay as they are. A site’s info popover turns it off there.', { keywords: 'catppuccin every all sites websites dynamic theme recolor colors palette dark reader mocha latte automatic' }),
+        I.custom('Sites of your own', 'Sites where it’s on or off whatever the switch above says. A site covers its subdomains.', recolorSitesWidget, { stack: true, when: (st) => st.webStyles.recolor || Object.keys(st.webStyles.recolorSites || {}).length > 0, keywords: 'catppuccin every site exceptions exclude list' }),
       ] },
       { title: 'Your styles', id: 'user-styles', items: [
         I.custom('Styles', 'Userstyles change how sites look, as Stylus does: each is for the pages it names, and goes over the site’s own styles from the moment the page draws.', userStylesWidget, { stack: true, keywords: 'stylus userstyles usercss css theme custom style install import' }),

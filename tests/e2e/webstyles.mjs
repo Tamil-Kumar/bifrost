@@ -14,12 +14,69 @@
 //    saying how far along it is and which couldn't be built; a LESS style's options changed, and it's rebuilt;
 //  · your theme on websites, turned on in Settings: Catppuccin's styles built in Bifrost's theme (Frost: its
 //    colors and filters; Catppuccin Macchiato: that flavor), at once in open tabs; kept for the next start
-//    (styles-themed.json: nothing built again); off, their own options again.
+//    (styles-themed.json: nothing built again); off, their own options again;
+//  · Catppuccin for every site (src/preload/recolor.js), turned on in Settings: a light page that none of your
+//    styles is for in Catppuccin's colors, at once and from its first paint (its backgrounds, text, links, lines;
+//    its variables, as Bootstrap, shadcn and Tailwind write them; style="", bgcolor, SVG fill; another site's
+//    stylesheet; styles its scripts add; a web component's shadow root; a frame, and one it writes itself, as a
+//    rich text editor does), each color what Bifrost's color
+//    work makes it (tested on its own: tests/unit/recolor.test.mjs); your style for the site over it; a page a
+//    style of yours is for left to that style; off for a site in its info popover; in your theme's colors while
+//    websites match it (Frost, Latte), Latte for websites told they're light; off, the site's own colors again.
 import http from 'node:http';
+import { createRequire } from 'node:module';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test'];
+const CORE = createRequire(import.meta.url)('../../src/preload/recolor.js');
+const CAT = createRequire(import.meta.url)('../../src/shared/catppuccin.js');
+const THEMES = createRequire(import.meta.url)('../../src/shared/themes.js');
+// A light page as sites write them now (for Catppuccin for every site): variables, Bootstrap's numbers in one,
+// shadcn's, Tailwind's, style="", bgcolor, an SVG's fill, another site's stylesheet (through a redirect), a rule its
+// script adds, a web component, a frame, and a frame it writes itself; letters with a gradient on them, and a
+// select whose arrow is an SVG written into the stylesheet (as Bootstrap's is). Its first script writes down its background before anything of its own was drawn.
+const PAINT = `<!doctype html><html><head><meta charset=utf-8><title>Paint</title>
+<script>window.__first = getComputedStyle(document.documentElement).backgroundColor;</script>
+<link rel=stylesheet href="http://cdn.test/r.css">
+<style>
+:root { --canvas: #ffffff; --fg: #1f2328; --accent: #0969da; --border: #d1d9e0; --bs-body-bg-rgb: 255, 255, 255; --background: 0 0% 100%; }
+body { margin: 0; font: 16px/1.5 sans-serif; background: var(--canvas); color: var(--fg); }
+header { background: #f6f8fa; border-bottom: 1px solid var(--border); padding: 12px 20px; }
+a { color: var(--accent); }
+.err { color: #d1242f; }
+.btn { background: #1f883d; color: #fff; border: 0; padding: 6px 14px; }
+.alert { background: #ddf4ff; color: #0550ae; padding: 10px; }
+.bs { background: rgba(var(--bs-body-bg-rgb), 1); border: 1px solid #dee2e6; }
+.shad { background: hsl(var(--background)); }
+.tw { --tw-bg-opacity: 1; background-color: rgb(243 244 246 / var(--tw-bg-opacity)); }
+.gt { background: linear-gradient(90deg, #ff0080, #7928ca); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.form-select { appearance: none; background: #fff url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") no-repeat right 8px center / 16px 12px; border: 1px solid #dee2e6; padding: 4px 32px 4px 8px; }
+</style></head><body>
+<header id=hd>Header</header>
+<main style="padding:20px">
+<p id=tx>Text <a id=ln href="#">a link</a> <span class=err id=er>error</span></p>
+<button class=btn id=bt>Button</button>
+<div class=alert id=al>Alert</div>
+<div class=bs id=bs>Bootstrap</div><div class=shad id=sh>shadcn</div><div class=tw id=tw>Tailwind</div>
+<h2 class=gt id=gt>Gradient letters</h2>
+<select id=se class=form-select><option>A select, its arrow drawn in SVG</option></select>
+<div class=xo id=xo>Another site's stylesheet</div>
+<div id=in style="background:#ffeeee;color:#990000">style=""</div>
+<table><tr><td bgcolor="#ff6600" id=td>bgcolor</td></tr></table>
+<svg width=20 height=20><path id=sv fill="#000" d="M0 0h20v20H0z"/></svg>
+<div id=js>CSS-in-JS</div>
+<x-card id=wc></x-card>
+<iframe id=fr src="http://paint.test/frame" style="width:300px;height:60px"></iframe>
+<iframe id=ed style="width:300px;height:60px"></iframe>
+</main>
+<script>
+const ed = document.getElementById('ed').contentDocument;
+ed.open(); ed.write('<!doctype html><style>body{background:#ffffff;color:#000000}</style><body contenteditable>A rich text editor</body>'); ed.close();
+const st = document.createElement('style'); document.head.append(st);
+st.sheet.insertRule('#js { background: #fdecea; color: #611a15; }');
+customElements.define('x-card', class extends HTMLElement { constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<style>p { background: #e7f5ff; color: #1864ab; margin: 0 }</style><p>In a shadow root</p>'; } });
+</script></body></html>`;
 // A Catppuccin style as Catppuccin writes them (its library @imported from userstyles.catppuccin.com, which these
 // tests send nowhere: Bifrost's copy has to do), with CSS of another site's @imported too.
 const CTP = `/* ==UserStyle==
@@ -82,6 +139,10 @@ const server = http.createServer((req, res) => {
   if (req.url.startsWith('/frames-styled')) return send('text/html', page('With a styled frame', '', '<iframe id=f src="http://styled.test/?framed=1" style="width:300px;height:150px;border:0"></iframe>'));
   if (req.url.startsWith('/framed')) return send('text/html', page('With a frame', '', '<iframe id=f src="http://other.test/" style="width:300px;height:150px;border:0"></iframe>'));
   if (host === 'ctp.test' && req.url.startsWith('/extra.css')) return send('text/css', 'p { color: rgb(1, 2, 3) !important; }');
+  if (host === 'cdn.test' && req.url.startsWith('/r.css')) { res.writeHead(302, { location: '/x.css' }); res.end(); return; }
+  if (host === 'cdn.test' && req.url.startsWith('/x.css')) return send('text/css', '.xo { background: #fff3cd; color: #664d03; }');
+  if (host === 'paint.test' && req.url.startsWith('/frame')) return send('text/html', '<!doctype html><style>body{background:#fff;color:#333}</style><body>frame</body>');
+  if (host === 'paint.test') return send('text/html', PAINT);
   send('text/html', page(host));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -476,6 +537,146 @@ try {
     await set('webStyles.matchTheme', false);
     await until(async () => (await looks()) === 'rgb(239, 241, 245) | #d20f39', 8000, 'its own colors again');
     await set('appearance.theme', 'mocha');
+  });
+
+  // ---- Catppuccin for every site
+  // What a color becomes (Bifrost's own color work, the same as the page's), as getComputedStyle writes it.
+  const rgb = (hex) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+  const turned = (P, c, role) => rgb(CORE.format(CORE.mapColor(P, CORE.parse(c), role)));
+  const LOOK = `(() => {
+    const g = (sel, p, root = document) => { const e = root.querySelector(sel); return e ? getComputedStyle(e)[p] : 'none'; };
+    const sh = document.querySelector('x-card').shadowRoot;
+    return {
+      first: window.__first, body: g('body', 'backgroundColor'), text: g('#tx', 'color'), link: g('#ln', 'color'), error: g('#er', 'color'),
+      header: g('#hd', 'backgroundColor'), headerLine: g('#hd', 'borderBottomColor'), button: g('#bt', 'backgroundColor') + ' / ' + g('#bt', 'color'),
+      alert: g('#al', 'backgroundColor') + ' / ' + g('#al', 'color'), bootstrap: g('#bs', 'backgroundColor') + ' / ' + g('#bs', 'borderTopColor'),
+      shadcn: g('#sh', 'backgroundColor'), tailwind: g('#tw', 'backgroundColor'), otherSite: g('#xo', 'backgroundColor') + ' / ' + g('#xo', 'color'),
+      styleAttr: g('#in', 'backgroundColor') + ' / ' + g('#in', 'color'), bgcolor: g('#td', 'backgroundColor'), svg: g('#sv', 'fill'),
+      script: g('#js', 'backgroundColor') + ' / ' + g('#js', 'color'), component: g('p', 'backgroundColor', sh) + ' / ' + g('p', 'color', sh),
+      editor: (() => { const d = document.getElementById('ed').contentDocument; return getComputedStyle(d.body).backgroundColor + ' / ' + getComputedStyle(d.body).color; })(),
+      letters: g('#gt', 'backgroundImage'), arrow: (g('#se', 'backgroundImage').match(/stroke='%23([0-9a-f]{6})'/) || [])[1],
+    };
+  })()`;
+  const want = (P) => ({
+    first: turned(P, '#ffffff', 'b'), body: turned(P, '#ffffff', 'b'), text: turned(P, '#1f2328', 't'), link: turned(P, '#0969da', 't'), error: turned(P, '#d1242f', 't'),
+    header: turned(P, '#f6f8fa', 'b'), headerLine: turned(P, '#d1d9e0', 'd'), button: turned(P, '#1f883d', 'b') + ' / ' + turned(P, '#ffffff', 't'),
+    alert: turned(P, '#ddf4ff', 'b') + ' / ' + turned(P, '#0550ae', 't'), bootstrap: turned(P, '#ffffff', 'b') + ' / ' + turned(P, '#dee2e6', 'd'),
+    shadcn: turned(P, '#ffffff', 'b'), tailwind: turned(P, '#f3f4f6', 'b'), otherSite: turned(P, '#fff3cd', 'b') + ' / ' + turned(P, '#664d03', 't'),
+    styleAttr: turned(P, '#ffeeee', 'b') + ' / ' + turned(P, '#990000', 't'), bgcolor: turned(P, '#ff6600', 'b'), svg: turned(P, '#000000', 't'),
+    script: turned(P, '#fdecea', 'b') + ' / ' + turned(P, '#611a15', 't'), component: turned(P, '#e7f5ff', 'b') + ' / ' + turned(P, '#1864ab', 't'),
+    editor: turned(P, '#ffffff', 'b') + ' / ' + turned(P, '#000000', 't'),
+    letters: 'linear-gradient(90deg, ' + turned(P, '#ff0080', 't') + ', ' + turned(P, '#7928ca', 't') + ')', arrow: CORE.format(CORE.mapColor(P, CORE.parse('#343a40'), 't')).slice(1),
+  });
+  const MOCHA = CORE.prepare(CAT.PALETTES.mocha);
+  const differ = (got, exp) => Object.keys(exp).filter((k) => got[k] !== exp[k]).map((k) => `${k}: ${got[k]} (want ${exp[k]})`);
+  let paint;
+
+  await R.step('Catppuccin for every site, turned on in Settings: a light page in Catppuccin’s colors at once, and from its first paint: backgrounds, text, links, lines, variables (Bootstrap’s, shadcn’s, Tailwind’s), style="", bgcolor, an SVG’s fill, another site’s stylesheet, a rule its script adds, a web component, a frame, a frame the page writes itself (a rich text editor), a gradient on letters, an SVG arrow written into the stylesheet', async () => {
+    await set('webStyles.dark', false);
+    await set('webStyles.darkSites', {});
+    paint = await open('http://paint.test/');
+    assert((await inTab(paint, 'getComputedStyle(document.body).backgroundColor')) === 'rgb(255, 255, 255)', 'before: its own white');
+    // (Settings: not open since Bifrost started again, or when this step runs on its own)
+    const hasSettings = await t.main(({ webContents }) => webContents.getAllWebContents().some((w) => w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings')));
+    if (!hasSettings) {
+      await t.main((_, url) => global.__bifrost.registry.list().find((c) => !c.isPrivate).send('open-url', { url }), 'bifrost://settings/#web-theme');
+      settingsId = await until(() => t.main(({ webContents }) => { const w = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL().startsWith('bifrost://settings')); return w && !w.isLoading() ? w.id : null; }), 8000, 'Settings');
+      await until(() => settingsPage("!!document.querySelector('[data-path=\"webStyles.recolor\"] input')"), 8000, 'the switch');
+    }
+    await toSettings();
+    await settingsPage("document.getElementById('web-theme').scrollIntoView({ block: 'start', behavior: 'instant' })");
+    await sleep(300);
+    await clickIn(settingsId, '[data-path="webStyles.recolor"] .switch');
+    await until(async () => (await get('webStyles.recolor')) === true, 3000, 'on');
+    // The open page, at once (its first paint was before: that one's its own white).
+    const exp = want(MOCHA);
+    await until(async () => { const got = await inTab(paint, LOOK); return differ(got, { ...exp, first: got.first }).length === 0; }, 8000, 'the open page in Mocha');
+    // A page opened now: from its first paint.
+    const again = await open('http://paint.test/?again');
+    const got = await until(async () => { const g = await inTab(again, LOOK); return differ(g, exp).length ? null : g; }, 8000, 'a new page in Mocha').catch(async (e) => { throw new Error(e.message + '\n' + differ(await inTab(again, LOOK), exp).join('\n')); });
+    assert(got.first === rgb(CAT.PALETTES.mocha.base), 'its first paint: ' + got.first);
+    const frame = await t.main(({ webContents }, id) => webContents.fromId(id).mainFrame.frames[0].executeJavaScript('getComputedStyle(document.body).backgroundColor + " / " + getComputedStyle(document.body).color'), again);
+    assert(frame === turned(MOCHA, '#ffffff', 'b') + ' / ' + turned(MOCHA, '#333333', 't'), 'the frame: ' + frame);
+    // (the page's own colors aren't changed: Bifrost's stylesheets go after them; style="" keeps its own too)
+    const own = await inTab(again, "(() => { const s = document.getElementById('in').style; return [getComputedStyle(document.documentElement).getPropertyValue('--canvas').trim(), s.backgroundColor, s.color]; })()");
+    assert(JSON.stringify(own) === '["#ffffff","rgb(255, 238, 238)","rgb(153, 0, 0)"]', 'its own: ' + JSON.stringify(own));
+    await front(again);
+    await sleep(300);
+    await t.shot('webstyles-recolor');
+    await t.main(({ webContents }, id) => webContents.fromId(id).close(), again);
+  });
+
+  await R.step('…Catppuccin for every site and your style for the site: yours over it; a page one of your styles is for left to that style; off for a site in its info popover (and by the launcher’s command), and on again; in your theme’s colors while websites match it (Frost, Latte); Latte for websites told they’re light; no other site’s stylesheet read from your own network; off in Settings: the site’s own colors', async () => {
+    const look = () => inTab(paint, LOOK);
+    // Your style for the site (its info popover's): after Bifrost's, so it wins.
+    await t.main((_, css) => { global.__bifrost.db.setSiteSetting('paint.test', 'css', css); global.__bifrost.webStyles.pushAll(); }, 'header { background: rgb(1, 2, 3) }');
+    await until(async () => (await look()).header === 'rgb(1, 2, 3)', 3000, 'your style over it');
+    await t.main(() => { global.__bifrost.db.setSiteSetting('paint.test', 'css', ''); global.__bifrost.webStyles.pushAll(); });
+    await until(async () => (await look()).header === turned(MOCHA, '#f6f8fa', 'b'), 3000, 'without it');
+    // ctp.test has a style of yours (Catppuccin's, from the steps before; and one more here): Bifrost leaves it to that.
+    const ownId = await t.main(async (_, code) => (await global.__bifrost.webStyles.put(code)).id, '/* ==UserStyle==\n@name Recolor test\n@namespace bifrost.test/recolor\n@version 1.0.0\n==/UserStyle== */\n@-moz-document domain("ctp.test") { html { outline: 0 } }');
+    const ctp = await open('http://ctp.test/?recolor');
+    const sheets = await inTab(ctp, 'document.adoptedStyleSheets.length');
+    assert(sheets === 1, 'ctp.test: only its style (' + sheets + ' stylesheets)');
+    await front(ctp);
+    await sleep(300);
+    await t.ui(() => document.getElementById('site-btn').click());
+    const said = await until(() => t.ui(() => { const r = document.querySelector('.si-pop [data-row=recolor]'); return r ? r.textContent : null; }), 3000, 'the row on ctp.test');
+    assert(/One of your styles is for this page/.test(said), 'ctp.test’s row: ' + said);
+    await t.ui(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await t.main((_, id) => global.__bifrost.webStyles.remove(id), ownId);
+    // Off for paint.test in its info popover: its own colors at once; on again.
+    await front(paint);
+    await sleep(300);
+    await t.ui(() => document.getElementById('site-btn').click());
+    const row = await until(() => t.ui(() => { const r = document.querySelector('.si-pop [data-row=recolor]'); return r ? r.textContent : null; }), 3000, 'the row');
+    assert(/Catppuccin colors/.test(row) && /In Catppuccin’s colors/.test(row), 'the row: ' + row);
+    await t.ui(() => document.querySelector('.si-pop [data-row=recolor] input').click());
+    await until(async () => JSON.stringify(await get('webStyles.recolorSites')) === '{"paint.test":false}', 3000, 'off for paint.test');
+    await until(async () => { const l = await look(); return l.body === 'rgb(255, 255, 255)' && l.link === 'rgb(9, 105, 218)' && l.styleAttr === 'rgb(255, 238, 238) / rgb(153, 0, 0)'; }, 5000, 'its own colors');
+    const left = await inTab(paint, "[document.querySelectorAll('[data-bifrost-c]').length, document.adoptedStyleSheets.length, document.getElementById('in').style.cssText]");
+    assert(JSON.stringify(left) === '[0,0,"background: rgb(255, 238, 238); color: rgb(153, 0, 0);"]', 'nothing of Bifrost’s left: ' + JSON.stringify(left));
+    await t.ui(() => document.querySelector('.si-pop [data-row=recolor] input').click());
+    await until(async () => JSON.stringify(await get('webStyles.recolorSites')) === '{}', 3000, 'on again (as every site)');
+    await until(async () => differ(await look(), { ...want(MOCHA), first: (await look()).first }).length === 0, 5000, 'Mocha again').catch(async (e) => { throw new Error(e.message + '\n' + differ(await look(), want(MOCHA)).join('\n')); });
+    await t.ui(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    // The same from the launcher's command, "Catppuccin colors on this site".
+    await t.ui(() => window.__wbTest.command('toggleRecolorSite'));
+    await until(async () => JSON.stringify(await get('webStyles.recolorSites')) === '{"paint.test":false}' && (await look()).body === 'rgb(255, 255, 255)', 5000, 'off by the command');
+    await t.ui(() => window.__wbTest.command('toggleRecolorSite'));
+    await until(async () => JSON.stringify(await get('webStyles.recolorSites')) === '{}' && (await look()).body === rgb(CAT.PALETTES.mocha.base), 5000, 'on by the command');
+    // Your theme's colors, while websites match it.
+    await set('appearance.theme', 'frost');
+    await set('webStyles.matchTheme', true);
+    const frost = CAT.fullPalette(CAT.themeBuild(THEMES.resolve({ theme: 'frost' }, {})));
+    await until(async () => (await look()).body === rgb(frost.base) && (await look()).link === turned(CORE.prepare(frost), '#0969da', 't'), 8000, 'Frost');
+    await set('appearance.theme', 'latte');
+    const LATTE = CORE.prepare(CAT.PALETTES.latte);
+    await until(async () => differ(await look(), { ...want(LATTE), first: (await look()).first }).length === 0, 8000, 'Latte').catch(async (e) => { throw new Error(e.message + '\n' + differ(await look(), want(LATTE)).join('\n')); });
+    await t.shot('webstyles-recolor-latte');
+    // Not matching it: Latte for websites told they're light, Mocha for dark.
+    await set('webStyles.matchTheme', false);
+    await set('appearance.theme', 'mocha');
+    await set('appearance.webTheme', 'light');
+    await until(async () => (await look()).body === rgb(CAT.PALETTES.latte.base), 8000, 'Latte for light websites');
+    await set('appearance.webTheme', 'browser');
+    await until(async () => (await look()).body === rgb(CAT.PALETTES.mocha.base), 8000, 'Mocha again');
+    // Other sites' stylesheets Bifrost reads for a page: none from your own network for a page from the web
+    // (a router's, a printer's), though a page on your own network may have them.
+    const reach = await t.main(async ({ session }) => {
+      const ws = global.__bifrost.webStyles, ses = session.defaultSession;
+      return [await ws.cssReachable(ses, 'http://192.168.1.10/a.css', 'https://site.invalid/'), await ws.cssReachable(ses, 'http://[::1]/a.css', 'https://site.invalid/'),
+        await ws.cssReachable(ses, 'http://printer/a.css', 'https://site.invalid/'), await ws.cssReachable(ses, 'http://10.0.0.5/a.css', 'http://intranet.corp/'),
+        await ws.cssReachable(ses, 'https://cdn.invalid/a.css', 'https://site.invalid/')];
+    });
+    assert(JSON.stringify(reach) === '[false,false,false,true,true]', 'what’s read: ' + JSON.stringify(reach));
+    // Off in Settings.
+    await toSettings();
+    await settingsPage("document.getElementById('web-theme').scrollIntoView({ block: 'start', behavior: 'instant' })");
+    await sleep(300);
+    await clickIn(settingsId, '[data-path="webStyles.recolor"] .switch');
+    await until(async () => (await get('webStyles.recolor')) === false, 3000, 'off');
+    await until(async () => { const l = await look(); return l.body === 'rgb(255, 255, 255)' && l.component === 'rgb(231, 245, 255) / rgb(24, 100, 171)' && l.editor === 'rgb(255, 255, 255) / rgb(0, 0, 0)' && l.arrow === '343a40'; }, 5000, 'its own colors again');
   });
 
   await R.step('nothing on the pages broke', async () => {

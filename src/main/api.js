@@ -28,6 +28,13 @@ function broadcastToPages(channel, payload, hostFilter) {
   }
 }
 
+// Catppuccin for every site on a page (the site info popover): { on (for its site), styled (one of your styles is
+// for it, so it's that style's), any (on anywhere at all) }.
+function recolorInfo(url, host) {
+  const ws = ctx.webStyles;
+  return { on: ws.recolorOn(host), styled: ws.styledFor(url), any: ws.recolorAny() };
+}
+
 function broadcastAll(channel, payload) {
   for (const ctl of ctx.registry.list()) ctl.send(channel, payload);
   broadcastToPages(channel, payload);
@@ -280,9 +287,10 @@ function register() {
       youtube: require('./adblock').isYouTube(host),
       vimOff: (ctx.settings.get('keyboard.vim.excludedSites') || []).some((h) => host === h || host.endsWith('.' + h)),
       httpAllowed: !!s.httpAllowed, siteCss: s.css || '', popups: !!s.popups,
-      // dark mode here, and the styles that are for this page (main/web-styles.js)
+      // dark mode here, the styles that are for this page, and Catppuccin for every site here (main/web-styles.js)
       dark: ctx.webStyles ? ctx.webStyles.darkFor(url) : false,
       styles: ctx.webStyles ? ctx.webStyles.forPage(url) : [],
+      recolor: ctx.webStyles ? recolorInfo(url, host) : null,
     };
   });
   ipc.handle('site:set', 'internal', (event, host, key, value) => {
@@ -543,6 +551,11 @@ function register() {
   // the site info popover).
   const WS = () => { if (!ctx.webStyles) throw new Error('Bifrost isn’t ready'); return ctx.webStyles; };
   ipc.handle('web:dark-site', ['settings'], (event, host, on) => { WS().setSiteDark(String(host || ''), !!on); return WS().darkFor('https://' + String(host || '') + '/'); });
+  // Catppuccin for every site, on or off for a site (its info popover): what it is there now.
+  ipc.handle('web:recolor-site', ['settings'], (event, host, on, url) => {
+    WS().setSiteRecolor(String(host || ''), !!on);
+    return recolorInfo(String(url || 'https://' + String(host || '') + '/'), String(host || ''));
+  });
   ipc.handle('styles:list', ['settings'], () => WS().list());
   ipc.handle('styles:get', ['settings'], (event, id) => WS().get(String(id || '')));
   ipc.handle('styles:save', ['settings'], (event, o) => WS().put(String((o && o.code) || ''), { id: (o && o.id) || null, values: (o && o.values) || null }));

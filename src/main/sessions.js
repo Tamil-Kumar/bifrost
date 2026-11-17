@@ -40,6 +40,8 @@ function setup(ses, { isPrivate = false } = {}) {
   });
 
   if (ctx.adblock) ctx.adblock.attach(ses, hub);
+  // (Catppuccin for every site: its page script, and other sites' stylesheets read for it)
+  if (ctx.webStyles) ctx.webStyles.attach(ses, hub);
   // (Ahead of everything else: a dangerous page is stopped before anything learns of it.)
   if (ctx.safety) ctx.safety.attach(ses, hub);
   // After the ad blocker, so blocked requests are never learned; private windows learn nothing.

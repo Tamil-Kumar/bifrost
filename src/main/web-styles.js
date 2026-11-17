@@ -20,6 +20,14 @@
 // when it's one of Catppuccin's, else its colors in Catppuccin's library: src/shared/catppuccin.js), kept as each
 // style's themed: { key, of, sections } (in styles-themed.json: built again if it goes), and given to pages
 // instead while it's on; built again when the theme changes (a theme that follows the system's, when that does).
+//
+// Catppuccin for every site (webStyles.recolor, and recolorSites: { 'example.com': true | false }): a page that
+// none of your styles is for gets Catppuccin's colors anyway, turned in the page (preload/recolor.js, a preload
+// of every frame of the browsing sessions: sessions.js). What a frame is given (recolorFor): Catppuccin's 26
+// colors, in your theme's while websites match it, else Mocha where pages are told they're dark and Latte where
+// they're light; or null. Pages it turns are told dark or light by those colors, and Chromium's own dark mode
+// stays off on them (main/web-theme.js). Stylesheets from other sites, which a page can't read, are read here for
+// it (cssFetch): only CSS, without your cookies, and none from your own network for a page on the web.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -34,6 +42,22 @@ const { LessBuilder } = require('./less-builder');
 const isWeb = (url) => /^(https?|file):/i.test(String(url || ''));
 const hostOf = (url) => { try { return new URL(url).hostname.toLowerCase(); } catch { return ''; } };
 const siteKey = (host) => String(host || '').toLowerCase().replace(/^www\./, '');
+const RECOLOR_PRELOAD = path.join(__dirname, '..', 'preload', 'recolor.js');
+const CSS_KEEP = 30 * 60e3;         // another site's stylesheet, read for a page: kept this long
+const CSS_RETRY = 60e3;             // one that couldn't be read: not asked for again for this long
+const CSS_MAX = 5 * 1024 * 1024;    // the biggest one read
+const CSS_ALL = 40 * 1024 * 1024;   // all of them together, at most
+
+// An address on your own network (or this computer).
+function privateAddress(ip) {
+  const a = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '');
+  const v4 = /^(?:::ffff:)?(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a);
+  if (v4) {
+    const [x, y] = [Number(v4[1]), Number(v4[2])];
+    return x === 10 || x === 127 || x === 0 || (x === 172 && y >= 16 && y <= 31) || (x === 192 && y === 168) || (x === 169 && y === 254) || (x === 100 && y >= 64 && y <= 127);
+  }
+  return a === '::1' || a === '::' || /^f[cd]/.test(a) || /^fe[89ab]/.test(a);
+}
 
 class WebStyles extends EventEmitter {
   constructor() {
@@ -46,6 +70,19 @@ class WebStyles extends EventEmitter {
     this.themeTimer = null;
     this.theming = null;           // the theme being built for
     this.themeProgress = null;
+    this.css = new Map();          // another site's stylesheet's address -> { text, at, wait }
+    this.cssBytes = 0;
+    this.palettes = new Map();     // what a page gets for Catppuccin for every site, by what it's made from
+  }
+
+  // A browsing session (sessions.js): Catppuccin for every site's page script in each of its frames, and other
+  // sites' stylesheets read ahead as a page with it asks for them (so they're ready when it gets to them).
+  attach(ses, hub) {
+    try { ses.registerPreloadScript({ type: 'frame', id: 'bifrost-recolor', filePath: RECOLOR_PRELOAD }); } catch (e) { console.warn('[styles] recolor', e.message); }
+    hub.before.push((d) => {
+      if (d.resourceType !== 'stylesheet' || !d.webContentsId || !this.recolorAny()) return;
+      try { this.readAhead(ses, d); } catch { /* the frame went */ }
+    });
   }
 
   init() {
@@ -63,13 +100,17 @@ class WebStyles extends EventEmitter {
       } catch { /* not built yet */ }
     }
     ctx.settings.on('changed', ({ path: p }) => {
-      if (p && (p === 'appearance' || p.startsWith('appearance.'))) { this.themeSoon(); return; }
+      // (the theme: Catppuccin's styles built in it again; pages with Catppuccin for every site, in its colors)
+      if (p && (p === 'appearance' || p.startsWith('appearance.'))) { this.themeSoon(); if (this.recolorAny()) this.pushSoon(); return; }
       if (p && !p.startsWith('webStyles')) return;
       try { require('./web-theme').apply(); } catch { /* not ready */ }
       if (!p || p === 'webStyles' || p === 'webStyles.matchTheme') this.themeSoon();
       this.pushSoon();
     });
-    nativeTheme.on('updated', () => { if ((ctx.settings.get('appearance') || {}).theme === 'auto') this.themeSoon(); });
+    nativeTheme.on('updated', () => {
+      if ((ctx.settings.get('appearance') || {}).theme === 'auto') this.themeSoon();
+      if (this.recolorAny()) this.pushSoon();
+    });
     if (this.config().matchTheme) {
       this.themeKey = this.themeNow().key;
       setTimeout(() => this.retheme(), 3000);
@@ -191,14 +232,222 @@ class WebStyles extends EventEmitter {
 
   pushAll() {
     clearTimeout(this.pushTimer);
+    // (whether a tab's page is turned decides what it's told: dark or light, Chromium's dark mode or not)
+    try { require('./web-theme').apply(); } catch { /* not ready */ }
     for (const wc of webContents.getAllWebContents()) {
       if (wc.isDestroyed() || wc.getType() !== 'webview') continue;
       let frames = [];
       try { frames = wc.mainFrame.framesInSubtree; } catch { continue; }
+      const top = wc.mainFrame.url;
       for (const f of frames) {
-        try { if (isWeb(f.url)) f.send('tab-site-css', this.cssFor(f.url, f === wc.mainFrame || !f.parent)); } catch { /* frame gone */ }
+        try {
+          if (isWeb(f.url)) f.send('tab-site-css', this.cssFor(f.url, f === wc.mainFrame || !f.parent));
+          const page = this.framePage(f);
+          if (isWeb(page)) f.send('tab-recolor', this.recolorFor(page, top));
+        } catch { /* frame gone */ }
       }
     }
+  }
+
+  // ---------------------------------------------------------------- Catppuccin for every site
+  recolorAny() { const c = this.config(); return !!c.recolor || Object.values(c.recolorSites || {}).some(Boolean); }
+
+  // On for a site: its own entry (the most specific), else everywhere's.
+  recolorOn(host) {
+    const v = this.siteEntry(host, this.config().recolorSites || {});
+    return v === undefined ? !!this.config().recolor : !!v;
+  }
+
+  // On or off for a site (its info popover): kept only where it differs from everywhere's.
+  setSiteRecolor(host, on) {
+    const key = siteKey(host);
+    if (!key) return;
+    const c = this.config();
+    const sites = { ...(c.recolorSites || {}) };
+    delete sites[key];
+    const parent = this.siteEntry(key, sites);
+    const inherited = parent !== undefined ? !!parent : !!c.recolor;
+    if (!!on !== inherited) sites[key] = !!on;
+    ctx.settings.set('webStyles.recolorSites', sites);
+  }
+
+  // Whether one of your styles (on) is for a page: then it's that style's, and Bifrost doesn't turn it.
+  styledFor(url) {
+    return this.styles.some((s) => s.enabled && !U.excluded(s.exclusions, url) && s.sections.some((x) => !U.isGlobal(x) && U.sectionMatches(x, url)));
+  }
+
+  // What a frame's page is given: { key, dark, palette } (Catppuccin's 26 colors), or null. topUrl: its tab's page
+  // (a site you turned it off for keeps its frames as they are too).
+  recolorFor(url, topUrl = url) {
+    if (!isWeb(url)) return null;
+    if (!this.recolorOn(hostOf(topUrl || url))) return null;
+    if (this.styledFor(url)) return null;
+    return this.recolorPalette(topUrl || url);
+  }
+
+  // In your theme while websites match it; else Catppuccin's Mocha where pages are told they're dark (dark mode
+  // for websites, or a dark preference), Latte where they're light.
+  recolorPalette(url) {
+    let build;
+    if (this.config().matchTheme) { const t = this.themeNow(); build = { flavor: t.flavor, palette: t.palette }; } else {
+      const wt = require('./web-theme');
+      const w = wt.wanted();
+      const dark = this.darkFor(url) || (w ? w === 'dark' : nativeTheme.shouldUseDarkColors);
+      build = { flavor: dark ? 'mocha' : 'latte', palette: null };
+    }
+    const id = JSON.stringify(build);
+    let out = this.palettes.get(id);
+    if (!out) {
+      const palette = C.fullPalette(build);
+      out = { key: crypto.createHash('sha1').update(JSON.stringify(palette)).digest('hex').slice(0, 12), dark: Themes.luminance(palette.base) < Themes.luminance(palette.text), palette };
+      if (this.palettes.size > 20) this.palettes.clear();
+      this.palettes.set(id, out);
+    }
+    return out;
+  }
+
+  // The page a frame is part of: its own, or for one its page writes into itself (about:blank, about:srcdoc: a
+  // rich text editor's), its page's.
+  framePage(f, url = '') {
+    let u = '';
+    try { u = (f && f.url) || url; } catch { u = url; }
+    for (let k = 0; k < 5 && /^about:(blank|srcdoc)/i.test(u) && f && f.parent; k++) {
+      f = f.parent;
+      try { u = f.url; } catch { break; }
+    }
+    return u;
+  }
+
+  // ---- other sites' stylesheets, read for a page that's turned (preload/recolor.js asks)
+  // The frame asking has to be one that's turned.
+  cssAsker(event) {
+    if (!event || !event.sender || event.sender.getType() !== 'webview') return null;
+    const page = this.framePage(event.senderFrame, event.sender.getURL());
+    return this.recolorFor(page, event.sender.getURL()) ? page : null;
+  }
+
+  // What's been read already (at once: the page waits for it), or null.
+  cssNow(event, url) {
+    if (!this.cssAsker(event)) return null;
+    const e = this.css.get(url);
+    return e && typeof e.text === 'string' && Date.now() - e.at < CSS_KEEP ? e.text : null;
+  }
+
+  async cssFetch(event, url) {
+    const page = this.cssAsker(event);
+    if (!page) return null;
+    return this.cssGet(event.sender.session, url, page);
+  }
+
+  // A stylesheet a turned page has asked for from another site: read now too, alongside the page's own
+  // request, so it's here by the time the page has it.
+  readAhead(ses, d) {
+    const page = (d.frame && d.frame.url) || d.referrer || '';
+    if (!/^https?:/i.test(page) || !/^https?:/i.test(d.url) || this.css.has(d.url)) return;
+    let same = false;
+    try { same = new URL(d.url).origin === new URL(page).origin; } catch { return; }
+    if (same) return;   // (the page reads its own site's itself)
+    const wc = webContents.fromId(d.webContentsId);
+    if (!wc || wc.getType() !== 'webview' || !this.recolorFor(page, wc.getURL())) return;
+    this.cssGet(ses, d.url, page).catch(() => {});
+  }
+
+  cssGet(ses, url, page) {
+    const e = this.css.get(url);
+    const now = Date.now();
+    if (e) {
+      if (e.wait) return e.wait;
+      if (typeof e.text === 'string' && now - e.at < CSS_KEEP) return Promise.resolve(e.text);
+      if (e.text === null && now - e.at < CSS_RETRY) return Promise.resolve(null);
+      this.forgetCss(url);
+    }
+    const wait = this.cssDownload(ses, url, page).then((text) => {
+      this.forgetCss(url);
+      this.css.set(url, { text, at: Date.now() });
+      this.cssBytes += text.length;
+      // (the oldest go first)
+      for (const [k, v] of this.css) { if (this.cssBytes <= CSS_ALL) break; if (!v.wait) this.forgetCss(k); }
+      return text;
+    }, () => { this.forgetCss(url); this.css.set(url, { text: null, at: Date.now() }); return null; });
+    this.css.set(url, { wait, at: now });
+    return wait;
+  }
+
+  forgetCss(url) {
+    const e = this.css.get(url);
+    if (e && typeof e.text === 'string') this.cssBytes -= e.text.length;
+    this.css.delete(url);
+  }
+
+  // (six at a time: a page with a thousand of them waits its turn, as a browser's own requests would)
+  async cssDownload(ses, url, page) {
+    while ((this.cssActive || 0) >= 6) await new Promise((r) => (this.cssQueue || (this.cssQueue = [])).push(r));
+    this.cssActive = (this.cssActive || 0) + 1;
+    try { return await this.cssDownloadNow(ses, url, page); } finally {
+      this.cssActive--;
+      const next = this.cssQueue && this.cssQueue.shift();
+      if (next) next();
+    }
+  }
+
+  async cssDownloadNow(ses, url, page) {
+    let u = url;
+    for (let hop = 0; hop < 4; hop++) {
+      if (!/^https?:\/\//i.test(u)) throw new Error('not a web address');
+      if (!(await this.cssReachable(ses, u, page))) throw new Error('on your own network');
+      const r = await this.cssOnce(ses, u);
+      if (r.redirect) { u = new URL(r.redirect, u).href; continue; }
+      return r.text;
+    }
+    throw new Error('too many redirects');
+  }
+
+  // One request, without your cookies: { text } for CSS, { redirect } for a redirect (followed by cssDownloadNow,
+  // which looks at where it goes first; Chromium's own following wouldn't wait for that).
+  cssOnce(ses, url) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const end = (fn, v) => { if (done) return; done = true; clearTimeout(timer); fn(v); };
+      const req = net.request({ url, session: ses, redirect: 'manual', useSessionCookies: false, credentials: 'omit' });
+      const timer = setTimeout(() => { try { req.abort(); } catch { /* gone */ } end(reject, new Error('too slow')); }, 15000);
+      req.on('redirect', (status, method, to) => { try { req.abort(); } catch { /* gone */ } end(resolve, { redirect: to }); });
+      req.on('response', (res) => {
+        const head = (k) => { const v = res.headers[k]; return Array.isArray(v) ? v[0] : v || ''; };
+        if (res.statusCode < 200 || res.statusCode >= 300) { try { req.abort(); } catch { /* gone */ } return end(reject, new Error('answered ' + res.statusCode)); }
+        // (only CSS: a page couldn't use anything else as a stylesheet either)
+        const type = head('content-type');
+        if (!/^text\/css\b/i.test(type)) { try { req.abort(); } catch { /* gone */ } return end(reject, new Error('not CSS')); }
+        const chunks = [];
+        let size = 0;
+        res.on('data', (c) => {
+          size += c.length;
+          if (size > CSS_MAX) { try { req.abort(); } catch { /* gone */ } end(reject, new Error('too big')); } else chunks.push(c);
+        });
+        res.on('end', () => {
+          const cs = /charset=["']?([\w-]+)/i.exec(type);
+          let text;
+          try { text = new TextDecoder(cs ? cs[1] : 'utf-8').decode(Buffer.concat(chunks)); } catch { text = Buffer.concat(chunks).toString('utf8'); }
+          end(resolve, { text: text.replace(/^\uFEFF/, '') });
+        });
+        res.on('error', (e) => end(reject, e));
+      });
+      req.on('error', (e) => end(reject, e));
+      req.end();
+    });
+  }
+
+  // Not one from your own network (your router, a printer, a work site) for a page from the web: a page could
+  // otherwise have Bifrost read those for it. (A page on your own network may.)
+  async cssReachable(ses, url, page) {
+    const local = async (u) => {
+      let host;
+      try { host = new URL(u).hostname.replace(/^\[|\]$/g, '').toLowerCase(); } catch { return true; }
+      if (/^[\d.]+$/.test(host) || host.includes(':')) return privateAddress(host);
+      if (!host.includes('.') || /(^|\.)(localhost|local|internal|lan|home\.arpa|intranet|corp)$/.test(host)) return true;
+      try { const r = await ses.resolveHost(host); return (r.endpoints || []).some((e) => privateAddress(e.address)); } catch { return false; }
+    };
+    if (!(await local(url))) return true;
+    return local(page);
   }
 
   // ---------------------------------------------------------------- your theme on websites

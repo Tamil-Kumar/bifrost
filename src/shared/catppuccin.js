@@ -15,6 +15,17 @@
   const COLORS = ['rosewater', 'flamingo', 'pink', 'mauve', 'red', 'maroon', 'peach', 'yellow', 'green', 'teal', 'sky', 'sapphire', 'blue', 'lavender',
     'text', 'subtext1', 'subtext0', 'overlay2', 'overlay1', 'overlay0', 'surface2', 'surface1', 'surface0', 'base', 'mantle', 'crust'];
   const FLAVORS = ['latte', 'frappe', 'macchiato', 'mocha'];
+  // Catppuccin's own palette (https://github.com/catppuccin/palette), the 26 colors of each flavor, in COLORS' order.
+  const PALETTES = {};
+  for (const [f, list] of Object.entries({
+    latte: 'dc8a78 dd7878 ea76cb 8839ef d20f39 e64553 fe640b df8e1d 40a02b 179299 04a5e5 209fb5 1e66f5 7287fd 4c4f69 5c5f77 6c6f85 7c7f93 8c8fa1 9ca0b0 acb0be bcc0cc ccd0da eff1f5 e6e9ef dce0e8',
+    frappe: 'f2d5cf eebebe f4b8e4 ca9ee6 e78284 ea999c ef9f76 e5c890 a6d189 81c8be 99d1db 85c1dc 8caaee babbf1 c6d0f5 b5bfe2 a5adce 949cbb 838ba7 737994 626880 51576d 414559 303446 292c3c 232634',
+    macchiato: 'f4dbd6 f0c6c6 f5bde6 c6a0f6 ed8796 ee99a0 f5a97f eed49f a6da95 8bd5ca 91d7e3 7dc4e4 8aadf4 b7bdf8 cad3f5 b8c0e0 a5adcb 939ab7 8087a2 6e738d 5b6078 494d64 363a4f 24273a 1e2030 181926',
+    mocha: 'f5e0dc f2cdcd f5c2e7 cba6f7 f38ba8 eba0ac fab387 f9e2af a6e3a1 94e2d5 89dceb 74c7ec 89b4fa b4befe cdd6f4 bac2de a6adc8 9399b2 7f849c 6c7086 585b70 45475a 313244 1e1e2e 181825 11111b',
+  })) {
+    const hex = list.split(' ');
+    PALETTES[f] = Object.fromEntries(COLORS.map((k, i) => [k, '#' + hex[i]]));
+  }
 
   const rgbOf = (hex) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return null; const n = parseInt(m[1], 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
   const hexOf = (c) => '#' + c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
@@ -32,6 +43,11 @@
       overlay2: mix(t.overlay, t.subtext, 0.66), overlay1: mix(t.overlay, t.subtext, 0.33), overlay0: t.overlay,
       surface2: t.s2, surface1: t.s1, surface0: t.s0, base: t.base, mantle: t.mantle, crust: t.crust,
     };
+  }
+
+  // A build's 26 colors in full: its flavor's, with the theme's in place of them where it has its own.
+  function fullPalette(build) {
+    return { ...(PALETTES[build && build.flavor] || PALETTES.mocha), ...((build && build.palette) || {}) };
   }
 
   // What a style is built with in a theme: { flavor, palette } — palette null when Catppuccin's own flavor is it.
@@ -194,5 +210,5 @@
     return /userstyles\.catppuccin\.com\/lib\//.test(String(code || '')) && (vars || []).some((v) => v.name === 'darkFlavor' || v.name === 'lightFlavor');
   }
 
-  return { COLORS, FLAVORS, paletteFromTheme, themeBuild, filterFor, applyFilters, patchLibrary, isCatppuccin };
+  return { COLORS, FLAVORS, PALETTES, paletteFromTheme, themeBuild, fullPalette, filterFor, applyFilters, patchLibrary, isCatppuccin };
 });

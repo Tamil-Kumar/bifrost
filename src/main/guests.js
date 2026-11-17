@@ -124,23 +124,34 @@ function init() {
   // styles for it, whether it may show notifications, the ad blocker's rules for it.
   ipcMain.on('tab:start', (event, url) => {
     const href = String(url || '');
-    const out = { ua: null, shown: true, css: '', perm: null, adblock: null };
+    const out = { ua: null, shown: true, css: '', perm: null, adblock: null, recolor: null };
     try { out.ua = uaFor(event.sender, href); } catch { out.ua = null; }
     try { out.perm = require('./permissions').notifyState(event); } catch { out.perm = null; }
     try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
     try { out.css = cssFor(event, href); } catch { out.css = ''; }
+    try { out.recolor = recolorFor(event, href); } catch { out.recolor = null; }
     try { if (ctx.adblock && /^https?:/i.test(href)) out.adblock = ctx.adblock.startFor(event, href); } catch (e) { console.warn('[adblock] cosmetics', e.message); }
     if (process.env.BIFROST_TEST === '1') global.__tabStarts = (global.__tabStarts || 0) + 1;
     event.returnValue = out;
   });
   // …and a frame inside a page, which doesn't wait (its ad blocker rules it asks for itself).
   ipcMain.handle('tab:start-frame', (event, url) => {
-    const out = { shown: true, css: '', perm: null };
+    const out = { shown: true, css: '', perm: null, recolor: null };
     try { out.perm = require('./permissions').notifyState(event); } catch { out.perm = null; }
     try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
     try { out.css = cssFor(event, String(url || '')); } catch { out.css = ''; }
+    try { out.recolor = recolorFor(event, String(url || '')); } catch { out.recolor = null; }
     return out;
   });
+  // Catppuccin for every site (preload/recolor.js): another site's stylesheet, which the page can't read itself,
+  // read here for it (main/web-styles.js: only CSS, without cookies). What's been read already comes back at once
+  // (the page waits for it); the rest when it's read.
+  ipcMain.on('recolor:css-now', (event, url) => {
+    let text = null;
+    try { text = ctx.webStyles ? ctx.webStyles.cssNow(event, String(url || '')) : null; } catch { text = null; }
+    event.returnValue = text;
+  });
+  ipcMain.handle('recolor:css', (event, url) => (ctx.webStyles ? ctx.webStyles.cssFetch(event, String(url || '')) : null));
 
   ctx.settings.on('changed', ({ path }) => {
     if (!path || path.startsWith('keyboard')) {
@@ -256,6 +267,15 @@ function cssFor(event, url) {
   if (event.sender.getType() !== 'webview' || !ctx.webStyles) return '';
   const f = event.senderFrame;
   return ctx.webStyles.cssFor((f && f.url) || url, !f || !f.parent) || '';
+}
+
+// …and whether it's in Catppuccin's colors, and which (Catppuccin for every site: main/web-styles.js).
+function recolorFor(event, url) {
+  if (event.sender.getType() !== 'webview' || !ctx.webStyles) return null;
+  const f = event.senderFrame;
+  let top = '';
+  try { top = (f && f.top && f.top.url) || event.sender.getURL(); } catch { top = event.sender.getURL(); }
+  return ctx.webStyles.recolorFor(ctx.webStyles.framePage(f, url), top || url);
 }
 
 // A site's style changed: every frame gets what's for it now (no reload).

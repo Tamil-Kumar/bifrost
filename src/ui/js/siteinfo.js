@@ -81,6 +81,16 @@ async function siteInfo(anchor) {
   darkRow.querySelector('.si-label').append(darkSub);
   darkRow.dataset.row = 'dark';
   tools.append(darkRow);
+  // Catppuccin for every site, here (while it's on anywhere).
+  if (info.recolor && info.recolor.any) {
+    const sub = h('small');
+    const show = (r) => { sub.textContent = r.styled ? 'One of your styles is for this page' : r.on ? 'In Catppuccin’s colors' : 'In the site’s own colors'; };
+    show(info.recolor);
+    const r = row('palette', 'Catppuccin colors', toggle(!!info.recolor.on, async (on) => { const now = await wb.invoke('web:recolor-site', host, on, url).catch(() => null); if (now) show(now); }));
+    r.querySelector('.si-label').append(sub);
+    r.dataset.row = 'recolor';
+    tools.append(r);
+  }
   body.append(tools);
 
   // Your styles that are for this page, on or off (Settings → Website styles has them all).

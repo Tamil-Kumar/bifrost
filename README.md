@@ -4,7 +4,8 @@ A keyboard-first browser built on Electron: vertical or horizontal tabs, spaces,
 for bookmarks, history, websites and extensions (with a side bar, as in Firefox), a launcher
 that searches bookmarks, tabs, history and the web, a built-in ad blocker (EasyList, EasyPrivacy, uBlock
 Origin's lists and HaGeZi's DNS blocklists), dark mode for websites and userstyles (as Dark Reader and Stylus
-do, styles written in LESS too; Catppuccin's styles in Bifrost's theme), warnings for dangerous sites, your choice of which Google account Google's sites open with, page translation, Chrome extensions (Manifest V2 and V3), sync between
+do, styles written in LESS too; Catppuccin's styles in Bifrost's theme, and Catppuccin's colors on every site
+that has no style of its own), warnings for dangerous sites, your choice of which Google account Google's sites open with, page translation, Chrome extensions (Manifest V2 and V3), sync between
 your computers through a cloud folder, and a lot of settings — every animation can be turned off.
 
 ## Layout
@@ -19,13 +20,15 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
                 the fingers on the touchpad (touchpad.js: when they lift, for swipes), which Google account
                 Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
-                websites, your userstyles, Catppuccin's in your theme; less-builder.js: userstyles written in
+                websites, your userstyles, Catppuccin's in your theme, which pages get Catppuccin's colors and
+                the other sites' stylesheets read for them; less-builder.js: userstyles written in
                 LESS, built in a worker, less-worker.js, and the files they import; web-theme.js: their color
                 scheme, and Chromium's dark mode, per tab, and the sites whose own dark theme is partly white),
                 timing.js (when each part of starting up happened, for tests/bench)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
-                adblock.js (cosmetic filtering, scriptlets, YouTube's ads)
+                adblock.js (cosmetic filtering, scriptlets, YouTube's ads), recolor.js (Catppuccin for every
+                site: a page's colors turned into Catppuccin's as it loads; see "Catppuccin for every site")
 src/ui          the browser window (bifrost://ui): browser.html, browser.css, js/
 src/pages       internal pages (bifrost://settings, history, downloads, bookmarks, extensions, tasks,
                 newtab, reader, about, welcome) and their shared files (common/)
@@ -114,7 +117,12 @@ Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, ho
 built; Stylus 2's backup, its usercss styles saved without the CSS Stylus built (built here with the options
 chosen in Stylus), one in Stylus's own language said plainly, one brought in empty by an older Bifrost built at
 the start; a LESS style's options changed and it rebuilt; your theme on websites, Catppuccin's styles in Frost's
-colors and in Catppuccin Macchiato, in open tabs at once, kept for the next start, off again),
+colors and in Catppuccin Macchiato, in open tabs at once, kept for the next start, off again; Catppuccin for every
+site on a light page written as sites are now, at once and from its first paint, each color as recolor.js's color
+work makes it (variables, Bootstrap's, shadcn's and Tailwind's numbers in them, style="", bgcolor, an SVG's fill,
+another site's stylesheet through a redirect, a rule a script adds, a web component, a frame and a frame the page
+writes itself), your style for the site over it, a page one of your styles is for left alone, off for a site in
+its info popover, your theme's colors, Latte for light websites, nothing read from your own network, off again),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
 and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
@@ -131,7 +139,10 @@ Stylus, `less` the LESS compiler against what less.js makes of the same LESS (an
 `youtube-edit` YouTube's answers without their ads (its player data, a watch page's, Shorts' reels, the
 player's check), which answers those are, and which rules for it are taken (newer ones that follow what
 YouTube changed) and which refused, `catppuccin` a theme as Catppuccin's colors, the filters for them (as close as Catppuccin's own) and
-Catppuccin's library with them in it, `domain-list` the ad
+Catppuccin's library with them in it, `recolor` Catppuccin for every site's colors (every way CSS writes a color
+read; what a background, text, a line and a shadow become in Mocha, in Latte and in Bifrost's themes, by lightness
+and hue; text readable on them; values rewritten: gradients, shadows, variables pointed at their twins, the numbers
+Bootstrap, shadcn and Tailwind keep in variables, url()s), `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
 what local pages may load, `blend` the colors of "Match the page" (on every page color with every theme: text
@@ -173,6 +184,25 @@ when the window was shown, when its UI had loaded and when the first page was in
 keeps itself (src/main/timing.js; `BIFROST_TIMING=1` prints them on any start). `pageload` loads a local page
 of about 200 requests over five origins in a tab, as Bifrost comes, with the ad blocker off, and with nothing
 of Bifrost's on the requests (the floor). `--root` measures another checkout (an older version) the same way.
+
+### Catppuccin for every site
+
+Settings → Website styles → Catppuccin for every site. Catppuccin's own styles (their import.json) cover the sites
+they were written for; every other site gets Catppuccin's colors from `src/preload/recolor.js`, which turns the
+colors a page's stylesheets say into Catppuccin's as the page loads (as Dark Reader's dynamic mode does, with
+Catppuccin's palette): each of the page's stylesheets gets one of Bifrost's after it, adopted (so CSP can't stop
+it), with the same selectors in the same @-rules saying its colors again. A color goes by what it colors (a
+background to base and the surfaces, text to text and the subtexts, a line to the surfaces, a shadow to crust;
+Latte the other way around), how light it is (a light page's white to base, a dark sidebar darker than that) and
+its hue (to the Catppuccin color of the nearest hue: blue, red, peach, yellow, green, teal, sky, sapphire,
+lavender, mauve, pink); text is held to 4.5:1 on base. CSS variables used for colors get twins
+(`--bfb-name` for a background, `--bft-name` for text, `--bfbr-name` for a background's rgb numbers…) set beside
+them, and the colors that use them use the twins. Also turned: `style=""`, `bgcolor` and `<font color>`, SVG
+fill and stroke, stylesheets from other sites (read by the main process: CSS only, no cookies, nothing from your
+own network for a page on the web), rules scripts add (their insertRule is watched from the page's world), open
+shadow roots, frames and the frames a page writes into itself. The palette is Mocha (Latte where websites are
+light), or your theme's while websites match it; a page one of your styles is for is left to that style, and
+sites can be turned off in their info popover.
 
 ## Releases
 
