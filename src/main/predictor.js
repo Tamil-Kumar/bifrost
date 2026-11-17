@@ -37,6 +37,15 @@ function saveSoon() {
 
 const originOf = (url) => { try { const u = new URL(url); return /^https?:$/.test(u.protocol) ? u.origin : ''; } catch { return ''; } };
 const hostOf = (url) => { try { return new URL(url).hostname; } catch { return ''; } };
+// (every request of a page as it loads: its origin and host from the address as it comes, which Chromium
+// has made canonical already, without parsing it again; anything unusual is parsed)
+const SIMPLE = /^(https?:\/\/)([a-z0-9.-]+)(:\d+)?(?=[/?#]|$)/;
+function originAndHost(url) {
+  const m = SIMPLE.exec(url);
+  if (m) return [m[1] + m[2] + (m[3] && m[3] !== (m[1] === 'https://' ? ':443' : ':80') ? m[3] : ''), m[2]];
+  const o = originOf(url);
+  return [o, o ? hostOf(o) : ''];
+}
 
 function preconnect(ses, url, sockets = 1) {
   const o = originOf(url);
@@ -67,8 +76,8 @@ function onRequest(d) {
   if (d.webContentsId == null || d.resourceType === 'mainFrame') return;
   const p = pageOf.get(d.webContentsId);
   if (!p || Date.now() - p.at > 15000) return;
-  const o = originOf(d.url);
-  if (!o || hostOf(o) === p.host || p.origins.has(o) || p.origins.size >= 40) return;
+  const [o, host] = originAndHost(d.url);
+  if (!o || host === p.host || p.origins.has(o) || p.origins.size >= 40) return;
   p.origins.add(o);
   learn(p.host, o);
 }
@@ -106,4 +115,4 @@ function attach(ses, hub) {
 
 function forget() { learned.clear(); pageOf.clear(); try { ctx.db.kvSet('predictor', {}); } catch { /* ignore */ } }
 
-module.exports = { attach, preconnect, finish, forget, _learned: learned };
+module.exports = { attach, preconnect, finish, forget, _learned: learned, _originAndHost: originAndHost };

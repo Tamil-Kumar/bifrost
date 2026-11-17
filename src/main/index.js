@@ -16,6 +16,10 @@ const ctx = require('./context');
 app.enableSandbox();
 const profile = paths.setup();
 ctx.profile = profile;
+// This process's code (Bifrost's main process, a few megabytes of it with the ad blocker's engine and the
+// extensions' support) compiled once and kept in the profile: later starts read it back instead of compiling it
+// again. Node keeps it current (a file that changed is compiled again) and writes it as Bifrost quits.
+try { require('node:module').enableCompileCache(path.join(profile.dir, 'Code Cache', 'main')); } catch { /* not this Node */ }
 protocol.registerSchemes();
 
 // Settings that must be applied before ready.
@@ -157,7 +161,9 @@ function start() {
     await breathe();
 
     sessions.setup(ctx.mainSession, { isPrivate: false });
+    await breathe();
     const extReady = ctx.extensions.init(ctx.mainSession);
+    await breathe();
     ctx.updater.init();
     timing.mark('session');
     ready();
@@ -167,7 +173,8 @@ function start() {
     timing.mark('lists');
     // Widevine (protected content): there already unless this is the first start, or it's being updated.
     // (Automated tests run offline: they don't wait, unless they ask to.)
-    await drm.waitBriefly(process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_DRM_WAIT_MS || 0) : 4000);
+    const drmIn = await drm.waitBriefly(process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_DRM_WAIT_MS || 0) : 4000);
+    timing.mark(drmIn === 'installed' ? 'drm-installed' : 'drm');
     // (automated tests: a start that takes this much longer, to look at the window meanwhile)
     if (process.env.BIFROST_TEST === '1' && process.env.BIFROST_START_HOLD_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.BIFROST_START_HOLD_MS) || 0));
     timing.mark('started');
@@ -175,6 +182,9 @@ function start() {
     started();
     await extReady;
     timing.mark('extensions-ready');
+    // (what's been compiled so far kept now, not only when Bifrost quits: a start that ends otherwise, an update's
+    // restart, still finds it)
+    setTimeout(() => { try { require('node:module').flushCompileCache(); } catch { /* not this Node */ } }, 10000).unref();
 
     app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) ctx.windows.create(); });
   }).catch((e) => {

@@ -36,12 +36,16 @@ class WebRequestHub {
       this.notify('beforeRequest', d, res);
     });
 
-    wr.onBeforeSendHeaders(filter, (d, cb) => {
+    // Request headers: only while something changes them (wantHeaders(): privacy headers, a site's own user
+    // agent…) or an extension watches them, since it's a second round trip here for every request.
+    this.wantHeaders = () => true;
+    this.headersOn = false;
+    this.onSend = (d, cb) => {
       const headers = Object.assign({}, d.requestHeaders);
       for (const fn of this.sendHeaders) { try { fn(d, headers); } catch (e) { console.error('[webrequest] headers', e); } }
       cb({ requestHeaders: headers });
       if (this.observers.sendHeaders.length) this.notify('sendHeaders', Object.assign({}, d, { requestHeaders: headers }));
-    });
+    };
 
     // Answers. What's changed in them is a page's or a frame's Content-Security-Policy (the ad blocker's, and
     // a local file's), so only theirs come here, not every picture's and script's: until an extension watches
@@ -65,9 +69,20 @@ class WebRequestHub {
     // The events only extensions watch (chrome.webRequest) are attached when one starts watching.
   }
 
+  // Attaches or lets go of the request headers' event, as it's needed now.
+  syncHeaders() {
+    let want = this.observers.sendHeaders.length > 0;
+    if (!want && this.sendHeaders.length) { try { want = !!this.wantHeaders(); } catch { want = true; } }
+    if (want === this.headersOn) return;
+    this.headersOn = want;
+    if (want) this.wr.onBeforeSendHeaders(this.filter, this.onSend);
+    else this.wr.onBeforeSendHeaders(null);
+  }
+
   // Adds a watcher; the matching webRequest event is attached the first time it's needed.
   observe(kind, fn) {
     this.observers[kind].push(fn);
+    if (kind === 'sendHeaders') this.syncHeaders();
     if (kind === 'headersReceived' && !this.receivedAll) { this.receivedAll = true; this.attachReceived(); }
     const ev = { responseStarted: 'onResponseStarted', beforeRedirect: 'onBeforeRedirect', completed: 'onCompleted', errorOccurred: 'onErrorOccurred' }[kind];
     if (ev && !this.attachedObservers.has(kind)) {

@@ -1,7 +1,7 @@
 'use strict';
 // Built-in ad and tracker blocking (Ghostery's engine with EasyList, EasyPrivacy and uBlock Origin lists, and
-// HaGeZi's DNS blocklists as a domain list in an engine of its own: domain-list.js says how it's kept from
-// breaking sites). Network blocking runs in the main process; element hiding and scriptlets are injected by a
+// HaGeZi's DNS blocklists as a domain list, a table of its own: domain-set.js; domain-list.js says how it's kept
+// from breaking sites). Network blocking runs in the main process; element hiding and scriptlets are injected by a
 // preload.
 const { app, ipcMain, net, webContents: WC } = require('electron');
 const { Worker } = require('node:worker_threads');
@@ -13,6 +13,7 @@ const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const ctx = require('./context');
 const DomainList = require('./domain-list');
+const DomainSet = require('./domain-set');
 
 // YouTube. Nothing it asks for is blocked on YouTube (its own requests, and those to Google's ad servers its ads
 // use): a request of its that fails tells it you block its ads. Its ads are taken out of what it sends instead,
@@ -48,7 +49,7 @@ const REMOTE = (TEST && process.env.BIFROST_LISTS_REMOTE) || 'https://raw.github
 const DOMAINS_REMOTE = TEST ? process.env.BIFROST_DOMAINS_REMOTE || '' : '';
 const DOMAINS_LIST = TEST ? process.env.BIFROST_DOMAINS_LIST || '' : '';
 const FILTER_REV = 2;
-const DOMAINS_REV = 1;  // bump when what the domain list's engine is built from changes
+const DOMAINS_REV = 2;  // bump when what the domain list's table is built from (or how) changes
 const CATEGORIES = { ads: 'Ads', tracking: 'Trackers', annoyances: 'Annoyances', cookieNotices: 'Cookie notices', domains: 'Ad and tracker domains (HaGeZi)' };
 const LIST_CATS = ['ads', 'tracking', 'annoyances', 'cookieNotices'];   // the lists' engine (domains: its own)
 const firstLine = (e) => String((e && e.message) || e).split('\n')[0].replace(/^Error: /, '');
@@ -64,7 +65,7 @@ class AdBlock extends EventEmitter {
     super();
     this.engine = null;
     this.engineKey = '';
-    this.domains = null;       // the domain list's engine (when it's on)
+    this.domains = null;       // the domain list's table (when it's on): domain-set.js
     this.domainsKey = '';
     this.loading = null;
     this.building = false;     // an engine is being built from its lists (not just read back)
@@ -78,7 +79,12 @@ class AdBlock extends EventEmitter {
     this.compiles = new Map();  // scriptlet text -> whether it parses
   }
 
-  get settings() { return ctx.settings.get('privacy.adblock'); }
+  // (asked for every request: looked up again only when the settings have changed, which makes them anew)
+  get settings() {
+    const all = ctx.settings.get();
+    if (all !== this._all) { this._all = all; this._settings = ctx.settings.get('privacy.adblock'); }
+    return this._settings;
+  }
   get dir() { return path.join(app.getPath('userData'), 'adblock'); }
 
   init() {
@@ -125,12 +131,12 @@ class AdBlock extends EventEmitter {
     return `${cats.join('+')}|c${s.cosmetic ? 1 : 0}|${custom}|${stamp}|${blockerModule().ENGINE_VERSION || 0}|r${FILTER_REV}`;
   }
 
-  // The domain list's engine ('' with the list off).
+  // The domain list's table ('' with the list off).
   wantedDomainsKey() {
     if (!this.settings.lists.domains) return '';
     const keep = crypto.createHash('sha1').update(this.keepText()).digest('hex').slice(0, 10);
     const stamp = ctx.db.kvGet('adblock.domainsUpdated', 0);
-    return `domains|${stamp}|${keep}|${DOMAINS_LIST}|${blockerModule().ENGINE_VERSION || 0}|d${DOMAINS_REV}`;
+    return `domains|${stamp}|${keep}|${DOMAINS_LIST}|s${DomainSet.VERSION}|d${DOMAINS_REV}`;
   }
 
   // Bifrost's exceptions to the domain list (assets/adblock/domains-keep.txt).
@@ -154,14 +160,14 @@ class AdBlock extends EventEmitter {
     return zlib.gunzipSync(fs.readFileSync(path.join(BUNDLED, 'resources.json.gz'))).toString('utf8');
   }
 
-  // The lists' engine and the domain list's, each from its cache or built afresh (in a worker).
+  // The lists' engine and the domain list's table, each from its cache or built afresh (in a worker).
   load() {
     if (this.loading) return this.loading;
     this.loading = (async () => {
       const s = this.settings;
       const key = this.wantedKey();
       const dkey = this.wantedDomainsKey();
-      const { ElectronBlocker, FiltersEngine } = blockerModule();
+      const { ElectronBlocker } = blockerModule();
       const [engine, domains] = await Promise.all([
         this.engine && key === this.engineKey ? this.engine : this.cachedEngine('engine', key, () => ({
           job: 'lists',
@@ -172,7 +178,7 @@ class AdBlock extends EventEmitter {
         !dkey ? null : this.domains && dkey === this.domainsKey ? this.domains : this.cachedEngine('domains', dkey, () => ({
           job: 'domains',
           text: this.listText('domains') + '\n' + this.keepText(),
-        }), (buf) => FiltersEngine.deserialize(buf)),
+        }), (buf) => DomainSet.load(buf)),
       ]);
       this.engine = engine;
       this.engineKey = key;
@@ -346,8 +352,10 @@ class AdBlock extends EventEmitter {
     if (!/^(https?|wss?):/i.test(d.url)) return;
     const pageUrl = (d.webContentsId != null && this.pages.get(d.webContentsId)) || d.referrer || '';
     if (pageUrl.startsWith('bifrost:') || pageUrl.startsWith('chrome-extension:')) return;
+    // (the page's host: the same for most of its requests, so kept from the last one)
     let host = '';
-    try { host = new URL(pageUrl).hostname; } catch { /* no page */ }
+    if (pageUrl === this._lastPage) host = this._lastHost;
+    else { try { host = new URL(pageUrl).hostname; } catch { /* no page */ } this._lastPage = pageUrl; this._lastHost = host; }
     if (this.allowlisted(host)) return;
     // YouTube's own requests, on YouTube or from a YouTube player embedded in another page, and on YouTube its
     // ads' to Google: left alone (see the top).
@@ -377,9 +385,8 @@ class AdBlock extends EventEmitter {
   // frame that made it). See domain-list.js for what it leaves alone.
   domainBlocked(req, pageHost, frameHost) {
     if (!this.domains || !this.settings.lists.domains || !pageHost) return false;
-    const r = this.domains.match(req);
-    if (!r.match) return false;
-    const rule = r.filter && typeof r.filter.getHostname === 'function' ? r.filter.getHostname() : '';
+    const rule = this.domains.match(req.hostname, req.url);
+    if (!rule) return false;
     const frame = typeof frameHost === 'function' ? frameHost() : frameHost || '';
     // The site you're on (or the frame's own).
     if (DomainList.covers(rule, pageHost) || DomainList.covers(rule, frame)) return false;

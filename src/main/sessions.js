@@ -11,6 +11,14 @@ const downloads = require('./downloads');
 const configured = new WeakSet();
 const LOCAL = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[^.]+)$/i;
 
+// (the privacy settings, for every request: looked up again only after the settings have changed)
+let all = null, priv = null;
+function privacy() {
+  const now = ctx.settings.get();
+  if (now !== all) { all = now; priv = ctx.settings.get('privacy'); }
+  return priv;
+}
+
 function setup(ses, { isPrivate = false } = {}) {
   if (configured.has(ses)) return ses;
   configured.add(ses);
@@ -30,14 +38,20 @@ function setup(ses, { isPrivate = false } = {}) {
     return { redirectURL: u.toString() };
   });
 
-  // Privacy headers and per-site user agents.
+  // Privacy headers and per-site user agents: only with one of them on (a tab's own user agent, set as it
+  // navigates, and the session's, which is the default one, cover the rest).
   hub.sendHeaders.push((d, headers) => {
-    const p = ctx.settings.get('privacy');
+    const p = privacy();
     if (p.doNotTrack) headers['DNT'] = '1';
     if (p.globalPrivacyControl) headers['Sec-GPC'] = '1';
     if (!p.sendReferrer) delete headers['Referer'];
     ua.headerHook(d, headers);
   });
+  hub.wantHeaders = () => {
+    const p = privacy();
+    return !!(p.doNotTrack || p.globalPrivacyControl || !p.sendReferrer || ua.needsHeaderHook());
+  };
+  hub.syncHeaders();
 
   if (ctx.adblock) ctx.adblock.attach(ses, hub);
   // (Catppuccin for every site: its page script, and other sites' stylesheets read for it)
@@ -90,6 +104,7 @@ function refreshAll(changedPath) {
       applySpellcheck(ses);
       applyProxy(ses);
     }
+    if (!changedPath || changedPath.startsWith('advanced') || changedPath.startsWith('privacy')) hubFor(ses).syncHeaders();
   }
 }
 

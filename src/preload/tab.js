@@ -855,8 +855,10 @@ function setupKeys() {
 // page's default (white, or dark for a page that asks for dark). Measured as the page loads and whenever
 // it might change (its theme switching, resizing, scrolling to something else); the window hears of the
 // colors when they change ("wb-page-color", a quick first guess) and of every such moment
-// ("wb-page-moved": it then looks at the page's real pixels, ui/js/ambient.js). Bifrost's own pages too.
-if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
+// ("wb-page-moved": it then looks at the page's real pixels, ui/js/ambient.js). Only while the window wants
+// them (start.look, 'tab-look'): otherwise nothing of this runs, in any page.
+if (isTop && /^(https?|file):$/.test(location.protocol)) {
+  let looking = !start || start.look !== false;
   const parse = (c) => {
     const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+)(%?))?\s*\)/i.exec(c || '');
     if (!m) return null;
@@ -895,7 +897,7 @@ if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
   let last = '', timer = 0;
   const measure = () => {
     timer = 0;
-    if (!document.documentElement) return;
+    if (!looking || !document.documentElement) return;
     const w = window.innerWidth, h = window.innerHeight;
     if (!w || !h) return;
     const sb = Math.max(0, w - document.documentElement.clientWidth);   // the page's scrollbar, on the right
@@ -910,7 +912,8 @@ if (isTop && /^(https?|file|bifrost):$/.test(location.protocol)) {
     last = key;
     try { ipcRenderer.sendToHost('wb-page-color', colors); } catch { /* host gone */ }
   };
-  const soon = (ms = 150) => { clearTimeout(timer); timer = setTimeout(measure, ms); };
+  const soon = (ms = 150) => { if (!looking) return; clearTimeout(timer); timer = setTimeout(measure, ms); };
+  ipcRenderer.on('tab-look', (_e, on) => { looking = !!on; if (looking) { last = ''; soon(0); } });
   document.addEventListener('DOMContentLoaded', () => {
     soon(0);
     // A theme switch (a class or attribute on <html> or <body>) changes it at once.

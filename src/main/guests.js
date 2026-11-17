@@ -124,7 +124,7 @@ function init() {
   // styles for it, whether it may show notifications, the ad blocker's rules for it.
   ipcMain.on('tab:start', (event, url) => {
     const href = String(url || '');
-    const out = { ua: null, shown: true, css: '', perm: null, adblock: null, recolor: null };
+    const out = { ua: null, shown: true, css: '', perm: null, adblock: null, recolor: null, look: pageLookWanted() };
     try { out.ua = uaFor(event.sender, href); } catch { out.ua = null; }
     try { out.perm = require('./permissions').notifyState(event); } catch { out.perm = null; }
     try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
@@ -153,11 +153,18 @@ function init() {
   });
   ipcMain.handle('recolor:css', (event, url) => (ctx.webStyles ? ctx.webStyles.cssFetch(event, String(url || '')) : null));
 
+  let looking = pageLookWanted();
   ctx.settings.on('changed', ({ path }) => {
     if (!path || path.startsWith('keyboard')) {
       compile();
       for (const wc of webContents.getAllWebContents()) {
         if (wc.getType() === 'webview' && !wc.isDestroyed()) wc.send('tab-config', tabConfig(wc.getURL()));
+      }
+    }
+    if ((!path || path.startsWith('appearance')) && pageLookWanted() !== looking) {
+      looking = pageLookWanted();
+      for (const wc of webContents.getAllWebContents()) {
+        if (wc.getType() === 'webview' && !wc.isDestroyed()) wc.send('tab-look', looking);
       }
     }
   });
@@ -284,6 +291,13 @@ function pushSiteCss() {
 }
 
 function hostOf(url) { try { return new URL(url).hostname; } catch { return ''; } }
+
+// Whether the window takes its colors from the page in front ("Match the page", "Blur the page"): only then do
+// pages measure their colors for it (preload/tab.js).
+function pageLookWanted() {
+  const b = ctx.settings.get('appearance.blend');
+  return b === 'page' || b === 'blur';
+}
 
 function tabConfig(url) {
   const vim = ctx.settings.get('keyboard.vim');
@@ -807,57 +821,85 @@ async function fullPageCapture(guest) {
 // bars meet the page (the top of a side, the left of the top), and says it's `mixed`: the page keeps its
 // frame (ui/js/theme.js).
 async function pageLook(guest, { thumb = false } = {}) {
+  // "Match the page" needs only the page's edges: three thin strips of it are read back, not the whole page
+  // (made small here, that was a moment of this process's time, longer the bigger the screen, every time the
+  // page was scrolled). "Blur the page" needs all of it.
+  if (!thumb) return pageEdges(guest);
   const img = await guest.capturePage();
   if (!img || img.isEmpty()) return null;
   const small = img.resize({ width: 120, quality: 'good' });
   const { width: w, height: h } = small.getSize();
   if (w < 8 || h < 8) return null;
-  const px = small.toBitmap();   // BGRA
-  const rgb = (x, y) => { const i = (y * w + x) * 4; return [px[i + 2], px[i + 1], px[i]]; };
-  const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
-  // The color most of these pixels share (to within a little), averaged over those pixels.
-  const dominant = (pts) => {
-    const groups = new Map();
-    for (const c of pts) {
-      const k = (c[0] >> 4) * 256 + (c[1] >> 4) * 16 + (c[2] >> 4);
-      const g = groups.get(k) || { n: 0, s: [0, 0, 0] };
-      g.n++; g.s[0] += c[0]; g.s[1] += c[1]; g.s[2] += c[2];
-      groups.set(k, g);
-    }
-    const best = [...groups.values()].sort((a, b) => b.n - a.n)[0];
-    return best.s.map((v) => v / best.n);
-  };
-  // An edge's color: the one most of it shares, when most of it does (within a little: antialiasing, a
-  // texture); otherwise the one most of its first part shares (its end where the bars meet the page).
-  const near = (a, b) => Math.abs(a[0] - b[0]) <= 22 && Math.abs(a[1] - b[1]) <= 22 && Math.abs(a[2] - b[2]) <= 22;
-  const edge = (pts, firstPart) => {
-    const d = dominant(pts);
-    if (pts.filter((c) => near(c, d)).length >= pts.length * 0.6) return { color: hex(d), mixed: false };
-    return { color: hex(dominant(firstPart)), mixed: true };
-  };
-  const column = (x, part = 1) => Array.from({ length: Math.max(1, Math.round((h - 2) * part)) }, (_, i) => rgb(x, i + 1));
-  const row = (y, part = 1) => Array.from({ length: Math.max(1, Math.round((w - 2) * part)) }, (_, i) => rgb(i + 1, y));
+  const rgb = pixels(small);
   const mean = (x0, x1, y0 = 0, y1 = h) => {
     const s = [0, 0, 0];
     let n = 0;
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const c = rgb(x, y); s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; n++; }
-    return hex(s.map((v) => v / n));
+    return hexOf(s.map((v) => v / n));
   };
-  const FIRST = 0.2;
-  const left = edge(column(0).concat(column(1)), column(0, FIRST).concat(column(1, FIRST)));
   // (in from the right: the page's scrollbar is there)
-  const right = edge(column(w - 4).concat(column(w - 3)), column(w - 4, FIRST).concat(column(w - 3, FIRST)));
-  const top = edge(row(0).concat(row(1)), row(0, FIRST).concat(row(1, FIRST)));
-  const out = {
-    left: left.color, right: right.color, top: top.color,
-    mixed: { left: left.mixed, right: right.mixed, top: top.mixed },
-    ambient: { left: mean(0, Math.ceil(w * 0.3)), right: mean(Math.floor(w * 0.7), w), top: mean(0, w, 0, Math.ceil(h * 0.3)) },
-  };
+  const out = edgesOf({ left: [rgb, 0], right: [rgb, w - 4], top: [rgb, 0] }, w, h);
+  out.ambient = { left: mean(0, Math.ceil(w * 0.3)), right: mean(Math.floor(w * 0.7), w), top: mean(0, w, 0, Math.ceil(h * 0.3)) };
   // The picture behind the bars ("Blur the page"): small enough (a pixel per 30-70 px of page) that rows
   // of text and icons along the page's edge average out to their colors. At the 120 px above, they showed
   // through the blur as grey smudges.
-  const pic = thumb ? 'data:image/jpeg;base64,' + img.resize({ width: 32, quality: 'best' }).toJPEG(88).toString('base64') : null;
+  const pic = 'data:image/jpeg;base64,' + img.resize({ width: 32, quality: 'best' }).toJPEG(88).toString('base64');
   return { edges: out, thumb: pic };
+}
+
+// The same edges from strips of the page as wide as two pixels of it made 120 pixels wide (its left edge, its
+// right one in from the scrollbar, its top), each read back on its own.
+async function pageEdges(guest) {
+  let W = 0, H = 0;
+  try { [W, H] = await guest.executeJavaScriptInIsolatedWorld(1014, [{ code: '[innerWidth, innerHeight]' }]); } catch { return null; }
+  if (!(W >= 8 && H >= 8)) return null;
+  const w = 120, h = Math.max(8, Math.round(H * w / W));
+  const cell = W / w;   // (a pixel of the small page, in the page's own)
+  const strip = async (x, y, width, height, sw, sh) => {
+    const img = await guest.capturePage({ x: Math.round(x), y: Math.round(y), width: Math.max(1, Math.round(width)), height: Math.max(1, Math.round(height)) });
+    return img && !img.isEmpty() ? pixels(img.resize({ width: sw, height: sh, quality: 'good' })) : null;
+  };
+  const [L, R, T] = await Promise.all([strip(0, 0, cell * 2, H, 2, h), strip(cell * (w - 4), 0, cell * 2, H, 2, h), strip(0, 0, W, cell * 2, w, 2)]);
+  if (!L || !R || !T) return null;
+  return { edges: edgesOf({ left: [L, 0], right: [R, 0], top: [T, 0] }, w, h), thumb: null };
+}
+
+// A small image's pixels: (x, y) → [r, g, b] (at its edge for a point past it).
+function pixels(img) {
+  const { width: w, height: h } = img.getSize();
+  const px = img.toBitmap();   // BGRA
+  return (x, y) => { const i = (Math.min(h - 1, y) * w + Math.min(w - 1, x)) * 4; return [px[i + 2], px[i + 1], px[i]]; };
+}
+const hexOf = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+// The color most of these pixels share (to within a little), averaged over those pixels.
+function dominant(pts) {
+  const groups = new Map();
+  for (const c of pts) {
+    const k = (c[0] >> 4) * 256 + (c[1] >> 4) * 16 + (c[2] >> 4);
+    const g = groups.get(k) || { n: 0, s: [0, 0, 0] };
+    g.n++; g.s[0] += c[0]; g.s[1] += c[1]; g.s[2] += c[2];
+    groups.set(k, g);
+  }
+  const best = [...groups.values()].sort((a, b) => b.n - a.n)[0];
+  return best.s.map((v) => v / best.n);
+}
+// An edge's color: the one most of it shares, when most of it does (within a little: antialiasing, a texture);
+// otherwise the one most of its first part shares (its end where the bars meet the page).
+const near = (a, b) => Math.abs(a[0] - b[0]) <= 22 && Math.abs(a[1] - b[1]) <= 22 && Math.abs(a[2] - b[2]) <= 22;
+function edgeOf(pts, firstPart) {
+  const d = dominant(pts);
+  if (pts.filter((c) => near(c, d)).length >= pts.length * 0.6) return { color: hexOf(d), mixed: false };
+  return { color: hexOf(dominant(firstPart)), mixed: true };
+}
+// The three edges of a page made w×h pixels: each [pixels, the first of its two columns (rows, for the top)].
+function edgesOf({ left, right, top }, w, h) {
+  const FIRST = 0.2;
+  const column = ([get, x], part = 1) => Array.from({ length: Math.max(1, Math.round((h - 2) * part)) }, (_, i) => get(x, i + 1)).concat(Array.from({ length: Math.max(1, Math.round((h - 2) * part)) }, (_, i) => get(x + 1, i + 1)));
+  const row = ([get, y], part = 1) => Array.from({ length: Math.max(1, Math.round((w - 2) * part)) }, (_, i) => get(i + 1, y)).concat(Array.from({ length: Math.max(1, Math.round((w - 2) * part)) }, (_, i) => get(i + 1, y + 1)));
+  const l = edgeOf(column(left), column(left, FIRST));
+  const r = edgeOf(column(right), column(right, FIRST));
+  const t = edgeOf(row(top), row(top, FIRST));
+  return { left: l.color, right: r.color, top: t.color, mixed: { left: l.mixed, right: r.mixed, top: t.mixed } };
 }
 
 async function screenshot(guest, { full = false } = {}) {

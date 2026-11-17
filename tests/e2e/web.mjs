@@ -21,6 +21,9 @@ const site = await startSite(undefined, { routes: logged({
   // What a page reports as its browser, what its own request said, and what a request it makes says.
   '/ua.html': (req, res) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>User agent</title><script>window.__ua = { nav: navigator.userAgent, doc: ${JSON.stringify(req.headers['user-agent'] || '')} }; fetch('/ua-echo').then((r) => r.text()).then((t) => { window.__ua.sub = t; });</script><p>User agent</p>`); },
   '/ua-echo': (req, res) => { res.writeHead(200, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(req.headers['user-agent'] || ''); },
+  // The privacy headers and user agent a page's own request carried, and a request it makes.
+  '/hdr.html': (req, res) => { const h = (r) => ({ gpc: r.headers['sec-gpc'] || '', dnt: r.headers.dnt || '', ua: r.headers['user-agent'] || '' }); res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); res.end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>Headers</title><script>window.__h = { doc: ${JSON.stringify(h(req))} }; fetch('/hdr-echo').then((r) => r.json()).then((j) => { window.__h.sub = j; });</script><p>Headers</p>`); },
+  '/hdr-echo': (req, res) => { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify({ gpc: req.headers['sec-gpc'] || '', dnt: req.headers.dnt || '', ua: req.headers['user-agent'] || '' })); },
   '/payload.exe': (req, res) => { res.writeHead(200, { 'content-type': 'application/octet-stream', 'content-disposition': 'attachment; filename=payload.exe' }); res.end('MZ not really'); },
   match: (req) => { seen.push(String(req.headers.host || '').replace(/:\d+$/, '') + req.url); return false; },
 }) });
@@ -112,6 +115,32 @@ try {
     }
   });
 
+  await R.step('privacy headers: Global Privacy Control on every request (as it comes); with nothing to change in requests\' headers, Bifrost stops looking at them (a round trip less for each), and the user agent is still its own; Do Not Track brings it back', async () => {
+    const was = await t.main(() => ({ privacy: global.__bifrost.settings.get('privacy'), uas: global.__bifrost.settings.get('advanced.siteUserAgents') }));
+    const headersOn = () => t.main(() => global.__require('./webrequest').hubFor(global.__bifrost.mainSession).headersOn);
+    const load = async (n) => {
+      await open('http://en.example.com/hdr.html?' + n);
+      return until(() => t.guest('en.example.com/hdr.html?' + n, 'window.__h && window.__h.sub && window.__h'), 6000, 'the page ' + n);
+    };
+    try {
+      let r = await load(1);
+      assert(was.privacy.globalPrivacyControl === true && (await headersOn()) === true, 'GPC as it comes, headers watched: ' + JSON.stringify([was.privacy.globalPrivacyControl, await headersOn()]));
+      assert(r.doc.gpc === '1' && r.sub.gpc === '1' && !r.doc.dnt, 'GPC on the page and what it asks for: ' + JSON.stringify(r));
+      await t.main(() => { global.__bifrost.settings.set('privacy.globalPrivacyControl', false); global.__bifrost.settings.set('advanced.siteUserAgents', []); });
+      await until(async () => (await headersOn()) === false, 3000, 'headers left alone');
+      r = await load(2);
+      assert(!r.doc.gpc && !r.sub.gpc && !r.doc.dnt, 'no privacy headers: ' + JSON.stringify(r));
+      assert(/Chrome\/\d+\.0\.0\.0 Safari/.test(r.doc.ua) && !/Electron/.test(r.doc.ua) && r.sub.ua === r.doc.ua, 'Bifrost\'s user agent, as before: ' + JSON.stringify(r));
+      await t.main(() => global.__bifrost.settings.set('privacy.doNotTrack', true));
+      await until(headersOn, 3000, 'headers watched again');
+      r = await load(3);
+      assert(r.doc.dnt === '1' && r.sub.dnt === '1' && !r.doc.gpc, 'Do Not Track: ' + JSON.stringify(r));
+    } finally {
+      await t.main((_, w) => { global.__bifrost.settings.set('privacy.doNotTrack', w.privacy.doNotTrack); global.__bifrost.settings.set('privacy.globalPrivacyControl', w.privacy.globalPrivacyControl); global.__bifrost.settings.set('advanced.siteUserAgents', w.uas); }, was);
+    }
+    assert((await headersOn()) === true, 'as it comes again');
+  });
+
   await R.step('a phishing page never loads: the tab warns instead, and Back to safety goes back', async () => {
     await go(site.url + '/a.html');
     await until(async () => (await active()).url.endsWith('/a.html'), 5000, 'the first page');
@@ -200,6 +229,24 @@ try {
     assert(!dls.some((u) => /payload\.exe/.test(u)), 'it was downloaded: ' + dls.join(', '));
     const folder = await t.main(() => global.__bifrost.downloads.folder());
     assert(!fs.existsSync(path.join(folder, 'payload.exe')), 'the file was saved');
+  });
+
+  await R.step('the lists’ engines are kept between starts (read back, not built again), and made again when a list changes', async () => {
+    const dir = await t.main(() => global.__bifrost.safety.dir);
+    const kept = () => fs.readdirSync(dir).filter((f) => f.endsWith('.bin')).sort();
+    const before = kept();
+    assert(before.length === 3 && ['badware-', 'malware-', 'phishing-'].every((p, i) => before[i].startsWith(p)), 'kept: ' + before.join(', '));
+    const mtimes = () => before.map((f) => { try { return fs.statSync(path.join(dir, f)).mtimeMs; } catch { return 0; } });
+    const was = mtimes();
+    await t.main(() => global.__bifrost.safety.load());
+    assert(JSON.stringify(kept()) === JSON.stringify(before) && JSON.stringify(mtimes()) === JSON.stringify(was), 'read back, as they were: ' + kept().join(', '));
+    const blocked = (url) => t.main((_, url) => !!global.__bifrost.safety.check(url), url);
+    assert(!(await blocked('http://scam2.example.com/')), 'not listed yet');
+    fs.appendFileSync(path.join(lists, 'badware.txt'), '||scam2.example.com^$all\n');
+    await t.main(() => global.__bifrost.safety.load());
+    const after = kept();
+    assert(after.length === 3 && after.find((f) => f.startsWith('badware-')) !== before.find((f) => f.startsWith('badware-')) && after.find((f) => f.startsWith('phishing-')) === before.find((f) => f.startsWith('phishing-')), 'the changed list\'s made again, only it: ' + after.join(', '));
+    assert(await blocked('http://scam2.example.com/'), 'what it has now');
   });
 
   await R.step('with the warnings turned off, nothing is stopped', async () => {

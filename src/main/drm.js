@@ -45,10 +45,23 @@ function init() {
     });
 }
 
+// Whether Widevine is installed already (every start but the first, and those after it's been removed):
+// Chromium makes what's installed available as it starts, and goes on checking for a newer one behind the
+// scenes, which whenReady() also waits for.
+function installed() {
+  if (!components) return false;
+  try {
+    const s = (components.status() || {})[components.WIDEVINE_CDM_ID];
+    return !!(s && s.version && !/^0(\.0)*$/.test(String(s.version)));
+  } catch { return false; }
+}
+
 // Waits for Widevine at most `ms` (tabs started before it's there can't play protected content until they
-// reload; but the window shouldn't wait long for a download on the first start, or offline).
+// reload; but the window shouldn't wait long for a download on the first start, or offline), and not at all
+// when it's installed already ('installed').
 function waitBriefly(ms) {
   if (!ready) return Promise.resolve(false);
+  if (installed()) return Promise.resolve('installed');
   return Promise.race([ready, new Promise((r) => setTimeout(() => r(false), ms))]);
 }
 

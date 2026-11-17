@@ -99,15 +99,23 @@ function headerHook(details, headers) {
   }
   if (want) headers['User-Agent'] = want;
   const sent = headers['User-Agent'] || '';
-  if (noHints(sent)) { for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k]; return; }
-  for (const k in headers) {
-    if ((k === 'sec-ch-ua' || /^sec-ch-ua$/i.test(k)) && /Electron/i.test(headers[k]) && !/Electron\//.test(sent)) {
-      const v = chromeMajor();
-      headers[k] = `"Chromium";v="${v}", "Not_A Brand";v="24"`;
-    }
-  }
+  if (sent !== lastSent) { lastSent = sent; lastNoHints = noHints(sent); }
+  if (lastNoHints) { for (const k of Object.keys(headers)) if (/^sec-ch-ua/i.test(k)) delete headers[k]; return; }
+  // (Chromium's own brands; an Electron of its own name among them never goes out)
+  const k = headers['sec-ch-ua'] !== undefined ? 'sec-ch-ua' : headers['Sec-CH-UA'] !== undefined ? 'Sec-CH-UA' : '';
+  if (k && /Electron/i.test(headers[k]) && !/Electron\//.test(sent)) headers[k] = `"Chromium";v="${chromeMajor()}", "Not_A Brand";v="24"`;
 }
+let lastSent = null, lastNoHints = false;
+// Whether requests need headerHook: with a site's own user agent (its page's requests follow the page), or a
+// user agent that sends no client hints (Firefox's, Safari's). Without either, each tab's own user agent (set as
+// it navigates: applyForUrl) and the session's are what headerHook would have put there.
+function needsHeaderHook() {
+  const rules = ctx.settings.get('advanced.siteUserAgents') || [];
+  if (rules.some((r) => r && String(r.host || '').trim())) return true;
+  return noHints(defaultUA());
+}
+
 // Settings changed (a site's user agent, the default one): asked afresh.
 function forgetTabs() { tabWants.clear(); }
 
-module.exports = { chrome, firefox, safari, embedded, defaultUA, applyForUrl, headerHook, forgetTabs, forHost, forUrl, noHints };
+module.exports = { chrome, firefox, safari, embedded, defaultUA, applyForUrl, headerHook, forgetTabs, forHost, forUrl, noHints, needsHeaderHook };

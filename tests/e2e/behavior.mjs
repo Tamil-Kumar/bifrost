@@ -436,7 +436,7 @@ try {
     await set('keyboard.vim.enabled', false);
   });
 
-  await R.step('“Match the page”: the sidebar and toolbar take a dark page’s color; next to a bright one they stay dark (or go light, or take it exactly), with text that reads on them; Bifrost’s own pages turn see-through to the window', async () => {
+  await R.step('“Match the page”: the sidebar and toolbar take a dark page’s color (which pages measure only once it’s on); next to a bright one they stay dark (or go light, or take it exactly), with text that reads on them; Bifrost’s own pages turn see-through to the window', async () => {
     const rgb = (c) => (String(c).match(/\d+(\.\d+)?/g) || []).slice(0, 3).map(Number);
     const light = (c) => { const [r, g, b] = rgb(c); return (r + g + b) / 3; };
     const look = () => t.ui(() => {
@@ -449,7 +449,11 @@ try {
     await sleep(900);
     let l = await look();
     assert(!l.blend, 'it’s off by default');
+    // (pages measure their colors only for a window that uses them: preload/tab.js, 'tab-look')
+    const measured = () => t.ui(() => window.__wbTest.state.tabs.filter((x) => x.pageColor).length);
+    assert((await measured()) === 0, 'pages measured their colors for a window that doesn’t use them');
     await set('appearance.blend', 'page');
+    await until(measured, 4000, 'the open page measuring its colors');
     l = await until(async () => { const v = await look(); return v.blend && v.body === 'rgb(19, 35, 58)' ? v : null; }, 4000, 'the dark page’s color');
     assert(light(l.tab) > 170 && (!l.ws || light(l.ws) > 150) && light(l.addr) > 150, 'light text on the dark page: ' + JSON.stringify(l));
     assert(l.shadow === 'none', 'no shadow between the page and the window: ' + l.shadow);

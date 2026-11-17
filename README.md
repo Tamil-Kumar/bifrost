@@ -11,20 +11,21 @@ your computers through a cloud folder, and a lot of settings — every animation
 ## Layout
 
 ```
-src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads,
-                ad blocker (adblock.js; domain-list.js: HaGeZi's lists and what keeps them from breaking
-                sites; youtube-ads.js: YouTube's ads taken out of what it sends, a YouTube tab's answers held
-                through its DevTools protocol session, tab-debugger.js; youtube-edit.js: what becomes of
-                them, by rules that are data; youtube-rules.js: those rules kept up to date from this
-                repository), dangerous-site warnings (safety.js), extensions (extensions/), imports from
-                other browsers (import/), sessions, sync (sync/: the folder engine, merging, position keys),
-                the fingers on the touchpad (touchpad.js: when they lift, for swipes), which Google account
-                Google's sites open with (google-accounts.js), how websites look (web-styles.js: dark mode for
-                websites, your userstyles, Catppuccin's in your theme, which pages get Catppuccin's colors and
-                the other sites' stylesheets read for them; less-builder.js: userstyles written in
-                LESS, built in a worker, less-worker.js, and the files they import; web-theme.js: their color
-                scheme, and Chromium's dark mode, per tab, and the sites whose own dark theme is partly white),
-                timing.js (when each part of starting up happened, for tests/bench)
+src/main        main process: windows, tabs (guests.js), settings, history/bookmarks (db.js), downloads, ad blocker
+                (adblock.js; domain-list.js: HaGeZi's lists and what keeps them from breaking sites; domain-set.js:
+                that list as Bifrost keeps it, a table of hashes read back in place; youtube-ads.js: YouTube's ads
+                taken out of what it sends, a YouTube tab's answers held through its DevTools protocol session,
+                tab-debugger.js; youtube-edit.js: what becomes of them, by rules that are data; youtube-rules.js:
+                those rules kept up to date from this repository), dangerous-site warnings (safety.js; its lists'
+                engines kept between starts), extensions (extensions/), imports from other browsers (import/),
+                sessions, sync (sync/: the folder engine, merging, position keys), the fingers on the touchpad
+                (touchpad.js: when they lift, for swipes), which Google account Google's sites open with
+                (google-accounts.js), how websites look (web-styles.js: dark mode for websites, your userstyles,
+                Catppuccin's in your theme, which pages get Catppuccin's colors and the other sites' stylesheets
+                read for them; less-builder.js: userstyles written in LESS, built in a worker, less-worker.js, and
+                the files they import; web-theme.js: their color scheme, and Chromium's dark mode, per tab, and the
+                sites whose own dark theme is partly white), timing.js (when each part of starting up happened, for
+                tests/bench)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
                 adblock.js (cosmetic filtering, scriptlets, YouTube's ads), recolor.js (Catppuccin for every
@@ -144,7 +145,9 @@ read; what a background, text, a line and a shadow become in Mocha, in Latte and
 and hue; text readable on them; values rewritten: gradients, shadows, variables pointed at their twins, the numbers
 Bootstrap, shadcn and Tailwind keep in variables, url()s), `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
-Bifrost's exceptions (what it blocks and what it leaves alone), `file-guard`
+Bifrost's exceptions (what it blocks and what it leaves alone), `domain-set` that list's table (whole domains,
+exceptions, rules with a *; its file; for the bundled list, blocked or not as the filter engine it replaced has
+it, for some 34,000 addresses), `file-guard`
 what local pages may load, `blend` the colors of "Match the page" (on every page color with every theme: text
 that reads on the bars, never a mid-tone the sites' icons can't be seen on, a dark page's color as it is, a deep
 shade of one in the middle, the theme's own shade next
@@ -210,7 +213,8 @@ A new version in package.json reaching main (or a version tag, `v1.2.3`, matchin
 `.github/workflows/release.yml` on a Windows runner: `tools/release.mjs` builds both installers, the
 portable zip and the update files on castlabs' Electron (with Widevine), signs them for Widevine with the
 castlabs EVS account in the repository's secrets (`EVS_ACCOUNT_NAME`, `EVS_PASSWD`), `tools/drm-check.mjs`
-checks that protected video plays, `tools/notify-check.mjs` that the portable build's notifications reach
+checks that protected video plays (on the first start, which installs Widevine, and on the next, which doesn't
+wait for it: it prints how long that start took), `tools/notify-check.mjs` that the portable build's notifications reach
 Windows (it says what it found in the log; it doesn't hold up a release), and the release is published with
 RELEASE_NOTES.md. Bifrost's updater
 (src/main/updater.js) reads the newest release's latest.json: when only Bifrost's own files changed it

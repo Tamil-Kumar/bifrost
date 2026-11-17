@@ -1,8 +1,7 @@
 'use strict';
-// Off the main thread: builds a filter engine (the lists, or the domain list) and returns it serialized, or
-// puts the domain list together from HaGeZi's files (domain-list.js).
+// Off the main thread: builds the lists' filter engine and returns it serialized, the domain list's table
+// (domain-set.js), or puts the domain list together from HaGeZi's files (domain-list.js).
 const { parentPort, workerData } = require('node:worker_threads');
-const { FiltersEngine, Config } = require('../vendor/adblocker/engine-core.js');
 const { compose } = require('./domain-list');
 
 // Page scripts that break some sites when run by this engine. uBlock Origin's "trusted" scriptlets and
@@ -21,23 +20,27 @@ function siteSafe(text) {
 try {
   if (workerData.job === 'compose') {
     parentPort.postMessage({ ok: true, ...compose(workerData) });
+  } else if (workerData.job === 'domains') {
+    // The domain list: whole domains and its exceptions, as a table of hashes.
+    const t0 = Date.now();
+    const buf = require('./domain-set').build(workerData.text);
+    parentPort.postMessage({ ok: true, buffer: buf, ms: Date.now() - t0 }, [buf]);
   } else {
-    // The domain list is network rules alone (whole domains, and its exceptions).
-    const domains = workerData.job === 'domains';
+    const { FiltersEngine, Config } = require('../vendor/adblocker/engine-core.js');
     const config = new Config({
       loadNetworkFilters: true,
-      loadCosmeticFilters: !domains && workerData.cosmetic,
-      loadGenericCosmeticsFilters: !domains && workerData.cosmetic,
+      loadCosmeticFilters: workerData.cosmetic,
+      loadGenericCosmeticsFilters: workerData.cosmetic,
       loadExtendedSelectors: false,
       enableHtmlFiltering: false,
       enableMutationObserver: true,
       enableOptimizations: true,
       enableCompression: false,
-      loadCSPFilters: !domains,
+      loadCSPFilters: true,
       guessRequestTypeFromUrl: false,
     });
     const t0 = Date.now();
-    const engine = FiltersEngine.parse(domains ? workerData.text : siteSafe(workerData.text), config);
+    const engine = FiltersEngine.parse(siteSafe(workerData.text), config);
     if (workerData.resources) engine.updateResources(workerData.resources, 'r' + workerData.resources.length);
     const buf = engine.serialize();
     parentPort.postMessage({ ok: true, buffer: buf, ms: Date.now() - t0 }, [buf.buffer]);

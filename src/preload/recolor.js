@@ -31,12 +31,11 @@
 // Self-contained (a sandboxed preload can't require local files); the color work at the top is exported for the
 // tests when this file is loaded outside a page.
 (function () {
-  const core = makeCore();
   if (typeof window === 'undefined' || typeof document === 'undefined') {
-    if (typeof module === 'object' && module) module.exports = core;
+    if (typeof module === 'object' && module) module.exports = makeCore();
     return;
   }
-  try { startEngine(core); } catch (e) { try { console.warn('[bifrost recolor]', e && e.message); } catch { /* no console */ } }
+  try { startEngine(); } catch (e) { try { console.warn('[bifrost recolor]', e && e.message); } catch { /* no console */ } }
 })();
 
 // ===========================================================================================================
@@ -778,7 +777,7 @@ function makeCore() {
 // rules' selectors, the @-rules they're in, their color declarations and variables): enough to write Bifrost's
 // stylesheet for it again without reading the page's (when a variable turns out to be used for a color, from a
 // stylesheet read later, or the palette changes).
-function startEngine(core) {
+function startEngine() {
   const { ipcRenderer, contextBridge } = require('electron');
   const isTop = window.top === window;
   // (a frame of the page's own written by address, about:srcdoc, is part of its page: in its colors too)
@@ -804,22 +803,26 @@ function startEngine(core) {
     return p;
   }
 
-  const engine = makeEngine(core, window, {
+  // (made the first time this page is to be in Catppuccin's colors: most pages never are, and then nothing of
+  // this is done in them, in every frame of every page)
+  let engine = null;
+  const get = () => engine || (engine = makeEngine(makeCore(), window, {
     main: true,
     // another site's stylesheet: what the main process has read already (at once), or read now
     cssNow: (url) => { try { return ipcRenderer.sendSync('recolor:css-now', url); } catch { return null; } },
     css: (url) => ipcRenderer.invoke('recolor:css', url).catch(() => null),
     pageWorld: (func) => contextBridge.executeInMainWorld({ func }),
-  });
-  globalThis.__bifrostRecolor = engine.stats;
+  }));
+  const set = (cfg) => { if (engine || (cfg && cfg.palette)) get().setConfig(cfg); };
+  try { Object.defineProperty(globalThis, '__bifrostRecolor', { get: () => (engine ? engine.stats : null), configurable: true }); } catch { /* there */ }
   // (tab.js calls this after it puts your styles for the site in: they go last)
-  globalThis.__bifrostArrange = engine.arrange;
-  ipcRenderer.on('tab-recolor', (_e, cfg) => engine.setConfig(cfg));
+  globalThis.__bifrostArrange = () => { if (engine) engine.arrange(); };
+  ipcRenderer.on('tab-recolor', (_e, cfg) => set(cfg));
   if (isTop) {
     const st = topStart();
-    if (st && st.recolor) engine.setConfig(st.recolor);
+    if (st && st.recolor) set(st.recolor);
   } else {
-    frameStart().then((r) => { if (r && r.recolor && !engine.on()) engine.setConfig(r.recolor); });
+    frameStart().then((r) => { if (r && r.recolor && !(engine && engine.on())) set(r.recolor); });
   }
 }
 

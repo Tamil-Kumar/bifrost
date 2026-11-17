@@ -1,6 +1,9 @@
 // Checks that protected (Widevine) video plays in a Bifrost build: starts it with a fresh profile on
 // tests/site/drm.html (served here, on 127.0.0.1, which counts as a secure site), which plays Google's
-// Widevine test stream and posts back what happened. The release workflow runs it on the portable build.
+// Widevine test stream and posts back what happened. Then starts it again with that profile, Widevine in it
+// now, as every start after the first is: the page has to play at once there too (Bifrost doesn't wait for
+// Widevine's update check then: main/drm.js), and how long Bifrost took to start is printed. The release
+// workflow runs it on the portable build.
 //
 //   node tools/drm-check.mjs <BifrostPortable-<v>.zip | a folder with Bifrost.exe> [--timeout=180]
 import fs from 'node:fs';
@@ -57,17 +60,26 @@ const url = `http://127.0.0.1:${server.address().port}/drm.html`;
 // A fresh profile that has been through the welcome page already.
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'bifrost-drm-profile-'));
 fs.writeFileSync(path.join(profile, 'settings.json'), JSON.stringify({ onboarding: { done: true }, tabs: { restoreOnStartup: 'newtab' } }));
-log(`starting ${exe} on ${url}`);
-const child = spawn(exe, [`--profile=${profile}`, '--no-update', url], { stdio: 'inherit' });
-child.on('exit', (code) => log('Bifrost exited (' + code + ')'));
 
-const end = Date.now() + timeout;
-while (!result && Date.now() < end) await new Promise((r) => setTimeout(r, 500));
-try { child.kill(); } catch { /* gone */ }
-if (process.platform === 'win32') { try { execFileSync('taskkill', ['/F', '/T', '/IM', 'Bifrost.exe'], { stdio: 'ignore' }); } catch { /* none left */ } }
+async function play(what, env = {}) {
+  result = null;
+  log(`starting ${exe} on ${url} (${what})`);
+  const began = Date.now();
+  const child = spawn(exe, [`--profile=${profile}`, '--no-update', url], { stdio: 'inherit', env: { ...process.env, ...env } });
+  child.on('exit', (code) => log('Bifrost exited (' + code + ')'));
+  const end = Date.now() + timeout;
+  while (!result && Date.now() < end) await new Promise((r) => setTimeout(r, 250));
+  const took = Date.now() - began;
+  try { child.kill(); } catch { /* gone */ }
+  if (process.platform === 'win32') { try { execFileSync('taskkill', ['/F', '/T', '/IM', 'Bifrost.exe'], { stdio: 'ignore' }); } catch { /* none left */ } }
+  await new Promise((r) => setTimeout(r, 1500));
+  if (!result) { console.error(`[drm-check] no answer from the page in ${timeout / 1000} s (${what})`); process.exit(1); }
+  log(JSON.stringify(result));
+  if (!result.ok) { console.error(`[drm-check] protected video didn’t play (${what}): ` + (result.step || '') + ' ' + (result.error || '')); process.exit(1); }
+  log(`✓ Widevine video played (${what}: ${result.width}x${result.height}, ${Number(result.played).toFixed(1)} s; ${(took / 1000).toFixed(1)} s from the start)`);
+}
+
+await play('the first start, which installs Widevine');
+await play('a start with Widevine installed', { BIFROST_TIMING: '1' });
 server.close();
-if (!result) { console.error('[drm-check] no answer from the page in ' + timeout / 1000 + ' s'); process.exit(1); }
-log(JSON.stringify(result));
-if (!result.ok) { console.error('[drm-check] protected video didn’t play: ' + (result.step || '') + ' ' + (result.error || '')); process.exit(1); }
-log(`✓ Widevine video played (${result.width}x${result.height}, ${Number(result.played).toFixed(1)} s)`);
 process.exit(0);

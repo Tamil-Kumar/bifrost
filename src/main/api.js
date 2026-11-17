@@ -539,7 +539,7 @@ function register() {
     if (!p || p.startsWith('appearance')) windows.updateTitleBars();
     // Windows: the auto-hiding top bar needs windows that draw their own caption buttons; remake them.
     if (p === 'appearance.topbarAutoHide' || p === 'appearance' || !p) setTimeout(() => windows.rebuildMismatched(), 150);
-    if (!p || p.startsWith('advanced')) require('./sessions').refreshAll(p);
+    if (!p || p.startsWith('advanced') || p.startsWith('privacy')) require('./sessions').refreshAll(p);
     if (!p || p.startsWith('performance')) require('./perf').applyToTabs();
     // (how much history the launcher searches instantly: its own setting, or the performance profile's)
     if (!p || p.startsWith('performance') || p === 'launcher' || p === 'launcher.historyIndex') { if (ctx.search && ctx.search.loadHistory) { try { ctx.search.loadHistory(); } catch { /* not ready */ } } }

@@ -10,6 +10,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const zlib = require('node:zlib');
 const { Worker } = require('node:worker_threads');
+const crypto = require('node:crypto');
 const ctx = require('./context');
 
 const TEST = process.env.BIFROST_TEST === '1';
@@ -23,6 +24,8 @@ const LISTS = {
   badware: { kind: 'scam', name: 'uBlock filters – Badware risks', urls: [GHOSTERY + 'ublock-origin/badware.txt', 'https://ublockorigin.github.io/uAssets/filters/badware.txt', 'https://ublockorigin.pages.dev/filters/badware.min.txt'] },
 };
 const UPDATE_HOURS = 12;
+// (the ad blocker's copy of the engine, which the main process has loaded already: not a second one)
+const engineLib = () => require('../vendor/adblocker/index.js');
 
 class Safety {
   constructor() {
@@ -44,22 +47,52 @@ class Safety {
   }
 
   // ------------------------------------------------------------------- lists
-  listText(name) {
-    if (this.testDir) { try { return fs.readFileSync(path.join(this.testDir, name + '.txt'), 'utf8'); } catch { return ''; } }
+  // Where a list is read from: the tests' folder, the copy kept up to date, or the one that comes with Bifrost.
+  listFile(name) {
+    if (this.testDir) return path.join(this.testDir, name + '.txt');
     const updated = path.join(this.dir, name + '.txt');
-    if (fs.existsSync(updated)) return fs.readFileSync(updated, 'utf8');
+    if (fs.existsSync(updated)) return updated;
     const bundled = path.join(BUNDLED, name + '.txt.gz');
-    return fs.existsSync(bundled) ? zlib.gunzipSync(fs.readFileSync(bundled)).toString('utf8') : '';
+    return fs.existsSync(bundled) ? bundled : '';
   }
 
+  listText(name) {
+    const file = this.listFile(name);
+    if (!file) return '';
+    try { return file.endsWith('.gz') ? zlib.gunzipSync(fs.readFileSync(file)).toString('utf8') : fs.readFileSync(file, 'utf8'); } catch { return ''; }
+  }
+
+  // Each list's engine, read back from the one built from that very file before (kept beside the lists), or
+  // built from it (in a worker) and kept: a start no longer builds all three again.
   load() {
     if (this.loading) return this.loading;
     this.loading = (async () => {
-      const { FiltersEngine } = require('../vendor/adblocker/engine-core.js');
+      const { FiltersEngine, ENGINE_VERSION } = engineLib();
       for (const name of Object.keys(LISTS)) {
-        const text = this.listText(name);
-        if (!text.trim()) { this.engines.delete(name); continue; }
-        try { this.engines.set(name, FiltersEngine.deserialize(new Uint8Array(await build(text)))); } catch (e) { console.warn('[safety]', name, e.message); }
+        const file = this.listFile(name);
+        let st = null;
+        try { st = file ? fs.statSync(file) : null; } catch { st = null; }
+        if (!st || !st.size) { this.engines.delete(name); continue; }
+        const key = crypto.createHash('sha1').update([file, st.size, st.mtimeMs, ENGINE_VERSION || 0].join('|')).digest('hex').slice(0, 16);
+        const cache = path.join(this.dir, `${name}-${key}.bin`);
+        try {
+          let buf = null;
+          try { buf = await fs.promises.readFile(cache); } catch { buf = null; }
+          let engine = null;
+          if (buf) { try { engine = FiltersEngine.deserialize(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)); } catch { engine = null; } }
+          if (!engine) {
+            const text = this.listText(name);
+            if (!text.trim()) { this.engines.delete(name); continue; }
+            const built = new Uint8Array(await build(text));
+            engine = FiltersEngine.deserialize(built);
+            try {
+              fs.mkdirSync(this.dir, { recursive: true });
+              for (const f of fs.readdirSync(this.dir)) if (f.startsWith(name + '-') && f.endsWith('.bin')) fs.rmSync(path.join(this.dir, f), { force: true });
+              fs.writeFileSync(cache, built);
+            } catch { /* built again next time */ }
+          }
+          this.engines.set(name, engine);
+        } catch (e) { console.warn('[safety]', name, e.message); }
       }
     })().finally(() => { this.loading = null; });
     return this.loading;
@@ -104,7 +137,7 @@ class Safety {
     let host = '';
     try { host = new URL(url).hostname.toLowerCase(); } catch { return null; }
     if (this.isAllowed(host)) return null;
-    const { Request } = require('../vendor/adblocker/engine-core.js');
+    const { Request } = engineLib();
     const req = Request.fromRawDetails({ url, type, sourceUrl });
     for (const name of ['phishing', 'malware', 'badware']) {
       const engine = this.engines.get(name);

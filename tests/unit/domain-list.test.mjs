@@ -1,5 +1,6 @@
 // The ad blocker's domain list (src/main/domain-list.js): HaGeZi's files made into one list, which sites are
-// the same company's, and the list that comes with Bifrost in the engine with Bifrost's exceptions.
+// the same company's, and the list that comes with Bifrost, with Bifrost's exceptions, as Bifrost reads it
+// (domain-set.js, which domain-set.test.mjs holds to what the filter engine made of it).
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const L = require(ROOT + '/src/main/domain-list.js');
-const { FiltersEngine, Config, Request } = require(ROOT + '/src/vendor/adblocker/engine-core.js');
+const DS = require(ROOT + '/src/main/domain-set.js');
 
 let pass = 0, fail = 0;
 function check(name, got, want) {
@@ -55,8 +56,8 @@ check('somebody\'s site on a company\'s hosting isn\'t the company\'s', [L.owner
 const bundled = zlib.gunzipSync(fs.readFileSync(path.join(ROOT, 'assets', 'adblock', 'domains.txt.gz'))).toString('utf8');
 const keep = fs.readFileSync(path.join(ROOT, 'assets', 'adblock', 'domains-keep.txt'), 'utf8');
 check('the bundled list is HaGeZi\'s, whole', [/HaGeZi/.test(bundled.slice(0, 300)), L.ruleCount(bundled) > 250000], [true, true]);
-const engine = FiltersEngine.parse(bundled + '\n' + keep, new Config({ loadCosmeticFilters: false, loadGenericCosmeticsFilters: false, loadCSPFilters: false }));
-const blocked = (url) => engine.match(Request.fromRawDetails({ url, type: 'script', sourceUrl: 'https://news.example/' })).match;
+const table = DS.load(DS.build(bundled + '\n' + keep));
+const blocked = (url) => !!table.match(new URL(url).hostname, url);
 check('it blocks ad and tracker domains', [blocked('https://pagead2.googlesyndication.com/a.js'), blocked('https://static.hotjar.com/c.js'), blocked('https://ads.yahoo.com/x.js')], [true, true, true]);
 check('…not what sites are made of', ['https://fonts.googleapis.com/css', 'https://www.gstatic.com/x.js', 'https://cdnjs.cloudflare.com/x.js', 'https://cdn.jsdelivr.net/x.js', 'https://i.ytimg.com/vi/x/hq.jpg', 'https://js.stripe.com/v3/', 'https://www.paypalobjects.com/x.js', 'https://challenges.cloudflare.com/turnstile/v0/api.js', 'https://js.hcaptcha.com/1/api.js', 'https://www.recaptcha.net/recaptcha/api.js', 'https://upload.wikimedia.org/x.png', 'https://abs.twimg.com/x.js', 'https://static.xx.fbcdn.net/x.js', 'https://login.microsoftonline.com/x', 'https://accounts.google.com/gsi/client'].filter(blocked), []);
 check('Bifrost\'s exceptions: bot checks, IP lookups, embedded posts, players\' licences', ['https://client.px-cloud.net/x.js', 'https://captcha.px-cdn.net/x.js', 'https://ipinfo.io/json', 'https://api.ipify.org/', 'https://syndication.twitter.com/srv/x', 'https://platform.linkedin.com/in.js', 'https://entitlements.jwplayer.com/x.json'].filter(blocked), []);
