@@ -1,7 +1,7 @@
 'use strict';
 // Preload for the browser UI (bifrost://ui). The UI is our own code; the main process still checks
 // every call's sender.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 // Errors from the main process arrive as "Error invoking remote method 'x': Error: message"; keep the message.
 const rethrow = (e) => { throw new Error(String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')); };
 // The extension system's own channels (crx-*) are only for extension pages.
@@ -17,5 +17,8 @@ contextBridge.exposeInMainWorld('wb', {
   },
   // Extension toolbar buttons (electron-chrome-extensions' browserAction API).
   crx: (name, ...args) => ipcRenderer.invoke('crx-msg-remote', 'persist:main', name, ...args),
+  // Where a file dragged in from another app is on this computer ('' for one that isn't a file there: an
+  // image dragged from a page).
+  filePath: (file) => { try { return webUtils.getPathForFile(file) || ''; } catch { return ''; } },
   platform: process.platform,
 });

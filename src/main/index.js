@@ -36,12 +36,18 @@ require('./perf').applyStartupSwitches(settings);
 // Keep background tabs' timers alive enough for media/notifications; sleeping tabs handle memory.
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 
-// One instance per profile: later launches (e.g. links from other apps) open in the running browser.
-if (!app.requestSingleInstanceLock({ profile: profile.dir })) {
+// One instance per profile: later launches (links from other apps, files opened with Bifrost) open in the
+// running browser. A later start sends what it was asked to open, as it read it (main/open-args.js).
+const openArgs = require('./open-args');
+const launchUrls = openArgs.fromArgv(process.argv);
+openArgs.note({ start: true, argv: process.argv.slice(1), opening: launchUrls });
+if (!app.requestSingleInstanceLock({ profile: profile.dir, open: launchUrls })) {
   app.quit();
 } else {
-  app.on('second-instance', (e, argv) => {
-    const urls = urlsFromArgv(argv);
+  app.on('second-instance', (e, argv, workingDirectory, data) => {
+    const urls = openArgs.merge(openArgs.fromArgv(argv, { cwd: workingDirectory }), openArgs.fromData(data));
+    openArgs.note({ laterStart: true, argv: argv.slice(1), cwd: workingDirectory, sent: data && data.open, opening: urls });
+    if (!urls.length && !process.defaultApp && argv.slice(1).some((a) => !String(a).startsWith('-'))) console.warn('[open] nothing to open in ' + JSON.stringify(argv.slice(1)) + ' (sent: ' + JSON.stringify(data && data.open) + ')');
     const windows = require('./windows');
     if (argv.includes('--new-window') || !ctx.registry.lastFocused({ private: false })) windows.create({ urls });
     else if (argv.includes('--private')) windows.create({ urls, isPrivate: true });
@@ -50,18 +56,6 @@ if (!app.requestSingleInstanceLock({ profile: profile.dir })) {
     if (last) { if (last.win.isMinimized()) last.win.restore(); last.win.focus(); }
   });
   start();
-}
-
-function urlsFromArgv(argv) {
-  const out = [];
-  for (const a of argv.slice(1)) {
-    if (a.startsWith('-')) continue;
-    if (/^(https?|file|ftp|bifrost):/i.test(a)) out.push(a);
-    else if (/\.(html?|pdf|xhtml|svg|txt|png|jpe?g|webp)$/i.test(a)) {
-      try { const p = path.resolve(a); if (require('node:fs').existsSync(p)) out.push(require('node:url').pathToFileURL(p).toString()); } catch { /* ignore */ }
-    }
-  }
-  return out;
 }
 
 function start() {
@@ -134,8 +128,7 @@ function start() {
     let ready, started;
     ctx.ready = new Promise((resolve) => { ready = resolve; });
     ctx.started = new Promise((resolve) => { started = resolve; });
-    const urls = urlsFromArgv(process.argv);
-    restoreOrOpen(urls);
+    restoreOrOpen(launchUrls);
     timing.mark('window');
     const breathe = () => new Promise((resolve) => setImmediate(resolve));
     await breathe();

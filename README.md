@@ -79,7 +79,7 @@ the sidebar's bottom row evenly spaced, collapsed and open), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily` (the address bar, unsaved changes, downloads and
-the side panel's (a bar and the percentage as one goes, Cancel, Restart, Remove), pages' dialogs, tabs back after a restart, and the window working while Bifrost is still starting: its own
+the side panel's (a bar and the percentage as one goes, Cancel, Restart, Remove), files opened with Bifrost (a later start handing over a PDF in a folder with spaces, as Windows does) and files dropped on a tab, the tab list, a page or the address bar, pages' dialogs, tabs back after a restart, and the window working while Bifrost is still starting: its own
 pages at once, web pages once it has started), `gestures` (two-finger swipes: the arrow, on
 either side, and turning back taking it out at once; going only once the fingers lift, said by the touchpad watcher, played here by
 tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; coasting; the swipes that
@@ -215,7 +215,9 @@ portable zip and the update files on castlabs' Electron (with Widevine), signs t
 castlabs EVS account in the repository's secrets (`EVS_ACCOUNT_NAME`, `EVS_PASSWD`), `tools/drm-check.mjs`
 checks that protected video plays (on the first start, which installs Widevine, and on the next, which doesn't
 wait for it: it prints how long that start took), `tools/notify-check.mjs` that the portable build's notifications reach
-Windows (it says what it found in the log; it doesn't hold up a release), and the release is published with
+Windows (it says what it found in the log; it doesn't hold up a release), `tools/open-check.mjs` that a PDF, a
+page and a link opened with Bifrost open in it, running or not (Windows asked as Explorer asks it, for a path
+with spaces), and the release is published with
 RELEASE_NOTES.md. Bifrost's updater
 (src/main/updater.js) reads the newest release's latest.json: when only Bifrost's own files changed it
 downloads just those, otherwise the installer or the portable builds, and the helpers in tools/win swap

@@ -136,6 +136,8 @@ function register() {
     windows.create({ urls, isPrivate: !!(opts && opts.isPrivate) });
   });
   // Screenshots are saved by guestAction('screenshot'); the toast's buttons open them.
+  // Files dropped on the window: their addresses, for the ones that are files (main/open-args.js).
+  ipc.handle('files:urls', 'ui', (event, paths) => require('./open-args').fromPaths(paths));
   ipc.handle('screenshot:open', 'ui', (event, file, reveal) => {
     const dir = guests.screenshotDir();
     const p = path.resolve(String(file || ''));

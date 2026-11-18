@@ -1,7 +1,7 @@
 # Builds Bifrost for Windows (x64 and ARM64) on castlabs' Electron, which has Widevine; signs it for Widevine
 # with the castlabs EVS account in this repository's secrets (EVS_ACCOUNT_NAME, EVS_PASSWD), so streaming
-# services like Netflix play; checks that protected video plays; and publishes the release, whose
-# latest.json is what Bifrost's updater reads.
+# services like Netflix play; checks that protected video plays and that files opened with Bifrost open in it;
+# and publishes the release, whose latest.json is what Bifrost's updater reads.
 # Runs when main gets a version (package.json) that has no release yet, when a version tag (v1.2.3, matching
 # package.json) is pushed, or by hand (Actions → Release → Run workflow) for the version in package.json.
 name: Release
@@ -96,6 +96,11 @@ jobs:
       - name: Notifications reach Windows
         continue-on-error: true
         run: node tools/notify-check.mjs dist/release --timeout=120
+
+      # A file opened with Bifrost (a PDF from Explorer, say) and a link from another app open in it, whether
+      # it's running or not: Windows' own way in (ShellExecuteEx, Bifrost's command), a path with spaces.
+      - name: Files open in Bifrost
+        run: node tools/open-check.mjs dist/release --timeout=90
 
       - name: Publish
         shell: bash

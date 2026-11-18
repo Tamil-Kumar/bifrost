@@ -1,7 +1,10 @@
 // Everyday browsing: what you type in the address bar, pages with unsaved changes ("Leave site?"),
 // downloads, dialogs pages open, websites in dark mode, and getting your tabs back after a restart.
 import fs from 'node:fs';
-import { launch, startSite, reporter, assert, sleep } from './lib.mjs';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+import { launch, startSite, reporter, assert, sleep, ELECTRON, ROOT } from './lib.mjs';
 
 // A small site of our own for this suite.
 const DIR = '/home/claude/bf-test/daily-site';
@@ -17,6 +20,17 @@ fs.writeFileSync(DIR + '/dialogs.html', page('Dialogs', '<p>dialogs</p>'));
 fs.writeFileSync(DIR + '/scheme.html', page('Scheme', '<p id="s"></p><script>const m = matchMedia("(prefers-color-scheme: dark)"); const show = () => { document.getElementById("s").textContent = m.matches ? "dark" : "light"; }; show(); m.addEventListener("change", show);</script>'));
 fs.mkdirSync(DIR + '/files');
 fs.writeFileSync(DIR + '/files/report.bin', Buffer.alloc(300 * 1024, 7));
+fs.writeFileSync(DIR + '/zone.html', page('Drop zone', `<div id="z" style="position:fixed;inset:0">Drop files here</div><script>
+const z = document.getElementById('z'); z.addEventListener('dragover', (e) => e.preventDefault());
+z.addEventListener('drop', (e) => { e.preventDefault(); document.title = 'Got ' + [...e.dataTransfer.files].map((f) => f.name).join(', '); });</script>`));
+// Files on this computer to open with Bifrost, in a folder with spaces in its name (as in C:\Users\Sam Lee\…).
+const FILES = DIR + '/My files';
+const PDF = FILES + '/Lecture notes #1.pdf';
+const PAGE = FILES + '/a page.html';
+fs.mkdirSync(FILES);
+fs.copyFileSync(path.join(ROOT, 'tests', 'site', 'notes.pdf'), PDF);
+fs.writeFileSync(PAGE, page('A page from a file', '<p>from a file</p>'));
+const fileUrl = (p) => pathToFileURL(p).href;
 
 // A file that comes slowly (2 MB at about 160 KB a second), so a download of it is still going while it's
 // looked at: with its size, or (?nosize) without.
@@ -299,6 +313,98 @@ try {
     await setSetting('appearance.theme', 'latte');
     await waitFor(async () => (await shown()) === 'light', 4000, 'like the light theme');
     await setSetting('appearance.webTheme', 'system');
+  });
+
+  // Bifrost started again with something to open (by Windows for a file opened with it, by a file manager, by
+  // another app's link): it hands it to the running Bifrost and quits.
+  const laterStart = (args) => new Promise((resolve) => {
+    const p = spawn(ELECTRON, [ROOT, `--profile=${PROFILE}`, ...args], { env: { ...process.env, BIFROST_TEST: '1' }, stdio: 'ignore' });
+    const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* gone */ } resolve(null); }, 20000);
+    p.on('exit', (code) => { clearTimeout(timer); resolve(code); });
+  });
+  const tabUrls = () => t.ui(() => window.__wbTest.state.tabs.map((x) => x.url));
+  const activeTitle = () => t.ui(() => { const S = window.__wbTest.state; const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); const a = w && S.tabs.find((x) => x.id === w.activeTabId); return a ? a.title || '' : ''; });
+
+  await R.step('files opened with Bifrost (Explorer, a file manager) open in it: a PDF in a folder with spaces, handed over as Windows does (--single-argument, and cut at each space as process.argv has it) shows in a tab; a page; one that isn’t there opens nothing', async () => {
+    const before = (await tabUrls()).length;
+    assert(await laterStart(['--single-argument', ...PDF.split(' ')]) === 0, 'the later start quit');
+    await waitFor(async () => (await activeUrl()) === fileUrl(PDF), 10000, 'the PDF in front');
+    // (Chromium's PDF viewer has it: its title is the file's name, and the viewer is in the page)
+    await waitFor(async () => (await activeTitle()) === 'Lecture notes #1.pdf', 8000, 'the PDF\'s title');
+    const viewer = await t.main(({ webContents }, url) => {
+      const wc = webContents.getAllWebContents().find((w) => w.getType() === 'webview' && w.getURL() === url);
+      return wc ? wc.mainFrame.framesInSubtree.map((f) => f.url) : null;
+    }, fileUrl(PDF));
+    assert(viewer && viewer.some((u) => /^chrome-extension:\/\/[a-z]+\/index\.html/.test(u)), 'the PDF viewer: ' + JSON.stringify(viewer));
+    await t.shot('daily-pdf-opened');
+    // A Linux file manager hands over the path as it is (or a file:// address).
+    await laterStart([PAGE]);
+    await waitFor(async () => (await activeUrl()) === fileUrl(PAGE), 10000, 'the page in front');
+    await laterStart(['--single-argument', FILES + '/not there.pdf']);
+    await sleep(1500);
+    const after = await tabUrls();
+    assert(after.length === before + 2, 'two tabs opened, no more: ' + JSON.stringify(after));
+  });
+
+  // Files dragged in from another app (Explorer, a file manager) onto the window, at x, y of the window's page
+  // (target 'ui') or of a tab's page (target: a part of its address).
+  const dragFiles = (target, x, y, files) => t.main(async ({ webContents }, [target, x, y, files]) => {
+    const all = webContents.getAllWebContents().filter((w) => !w.isDestroyed());
+    const wc = target === 'ui' ? all.find((w) => w.getURL().startsWith('bifrost://ui/browser')) : all.find((w) => w.getType() === 'webview' && w.getURL().includes(target));
+    if (!wc) throw new Error('nothing to drop on: ' + target);
+    const mine = !wc.debugger.isAttached();
+    if (mine) wc.debugger.attach('1.3');
+    try {
+      // (Explorer lets a file be copied, linked or moved: Bifrost copies)
+      const data = { items: [], files, dragOperationsMask: 1 | 2 | 16 };
+      for (const type of ['dragEnter', 'dragOver', 'drop']) await wc.debugger.sendCommand('Input.dispatchDragEvent', { type, x, y, data, modifiers: 0 });
+    } finally { if (mine) wc.debugger.detach(); }
+    return true;
+  }, [target, x, y, files]);
+  const centerOf = (sel) => t.ui((sel) => { const el = typeof sel === 'string' ? document.querySelector(sel) : null; const b = el.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; }, sel);
+
+  await R.step('files dropped on the window open: on a tab in it, on the tab list in new tabs at the end, on a page in a new tab next to it (one that takes files gets them instead), on the address bar in the tab in front; a folder opens nothing', async () => {
+    // On a tab: that tab opens the first, the rest next to it.
+    await openTab(site.url + '/next.html');
+    await waitFor(async () => /next\.html$/.test(await activeUrl()), 8000, 'next');
+    const tabAt = await t.ui(() => { const S = window.__wbTest.state; const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); const el = document.querySelector(`.tab[data-id="${w.activeTabId}"]`); const b = el.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; });
+    let n = (await tabUrls()).length;
+    await dragFiles('ui', tabAt.x, tabAt.y, [PDF]);
+    await waitFor(async () => (await activeUrl()) === fileUrl(PDF), 8000, 'the PDF in the tab it was dropped on');
+    assert((await tabUrls()).length === n, 'no new tab: ' + JSON.stringify(await tabUrls()));
+    // On the tab list, below the tabs: new tabs at the end, the first in front.
+    const listAt = await t.ui(() => { const b = document.getElementById('tablist-wrap').getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.bottom - 12) }; });
+    await dragFiles('ui', listAt.x, listAt.y, [PAGE, PDF]);
+    await waitFor(async () => (await tabUrls()).length === n + 2, 8000, 'two new tabs');
+    let urls = await tabUrls();
+    assert(JSON.stringify(urls.slice(-2)) === JSON.stringify([fileUrl(PAGE), fileUrl(PDF)]) && (await activeUrl()) === fileUrl(PAGE), 'at the end, the first in front: ' + JSON.stringify([urls, await activeUrl()]));
+    // A folder: nothing.
+    n = urls.length;
+    await dragFiles('ui', listAt.x, listAt.y, [FILES]);
+    await sleep(1000);
+    assert((await tabUrls()).length === n, 'a folder opened: ' + JSON.stringify(await tabUrls()));
+    // On a page that doesn't take files: a new tab next to it, in front (as Chrome does now).
+    await openTab(site.url + '/next.html?drop');
+    await waitFor(async () => /next\.html\?drop$/.test(await activeUrl()), 8000, 'a page');
+    await sleep(500);
+    await dragFiles('next.html?drop', 300, 200, [PDF]);
+    await waitFor(async () => (await activeUrl()) === fileUrl(PDF), 8000, 'the PDF dropped on the page, in front');
+    urls = await tabUrls();
+    const at = urls.findIndex((u) => /next\.html\?drop$/.test(u));
+    assert(at >= 0 && urls[at + 1] === fileUrl(PDF), 'next to the page, which stays: ' + JSON.stringify(urls));
+    // On a page that takes files: it gets them; nothing opens.
+    await openTab(site.url + '/zone.html');
+    await waitFor(async () => /zone\.html$/.test(await activeUrl()), 8000, 'the drop zone');
+    await sleep(500);
+    n = (await tabUrls()).length;
+    await dragFiles('zone.html', 300, 200, [PDF, PAGE]);
+    await waitFor(async () => (await activeTitle()) === 'Got Lecture notes #1.pdf, a page.html', 8000, 'the page got the files');
+    assert((await tabUrls()).length === n && /zone\.html$/.test(await activeUrl()), 'nothing opened: ' + JSON.stringify(await tabUrls()));
+    // On the address bar: the tab in front opens it.
+    const addr = await centerOf('#address-input');
+    await dragFiles('ui', addr.x, addr.y, [PAGE]);
+    await waitFor(async () => (await activeUrl()) === fileUrl(PAGE), 8000, 'the page, in the tab in front');
+    assert((await tabUrls()).length === n, 'no new tab: ' + JSON.stringify(await tabUrls()));
   });
 
   await R.step('after a restart, the tabs come back where they were', async () => {

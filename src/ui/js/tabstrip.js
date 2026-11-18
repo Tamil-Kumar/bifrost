@@ -46,10 +46,24 @@ function tabEl(t) {
   audio.addEventListener('click', (e) => { e.stopPropagation(); T.toggleMute(t); });
   el.addEventListener('pointerenter', () => previewSoon(t, el));
   el.addEventListener('pointerleave', () => previewLeave());
-  // Links and text dropped from pages or other apps.
-  el.addEventListener('dragover', (e) => { if (droppableUrl(e)) { e.preventDefault(); el.classList.add('drop-target'); } });
+  // Links, text and files dropped from pages or other apps: the tab opens it (and the files after the first
+  // open in tabs next to it).
+  el.addEventListener('dragover', (e) => { if (droppable(e)) { e.preventDefault(); copyFiles(e); el.classList.add('drop-target'); } });
   el.addEventListener('dragleave', () => el.classList.remove('drop-target'));
-  el.addEventListener('drop', (e) => { el.classList.remove('drop-target'); const url = droppedUrl(e); if (url) { e.preventDefault(); e.stopPropagation(); V.loadUrl(t, url); T.selectTab(t); } });
+  el.addEventListener('drop', (e) => {
+    el.classList.remove('drop-target');
+    const d = dropped(e);
+    if (!d) return;
+    e.preventDefault();
+    e.stopPropagation();
+    droppedUrls(d).then((urls) => {
+      if (!urls.length || !S.tabs.includes(t)) return;
+      V.loadUrl(t, urls[0]);
+      T.selectTab(t);
+      let after = t;
+      for (const url of urls.slice(1)) after = T.openTab({ url, after, active: false });
+    });
+  });
   tabEls.set(t.id, el);
   if (S.ready && anim('tabOpenClose')) {
     el.classList.add('entering');
@@ -147,8 +161,14 @@ function ensureHbar() {
   const ws = document.getElementById('hws-button');
   if (ws) ws.after(hscrollEl, h('div.hbar-drag')); else hbarEl.prepend(hscrollEl, h('div.hbar-drag'));
   for (const el of [hscrollEl, tablistWrap]) {
-    el.addEventListener('dragover', (e) => { if (droppableUrl(e)) e.preventDefault(); });
-    el.addEventListener('drop', (e) => { const url = droppedUrl(e); if (url) { e.preventDefault(); T.openTab({ url, position: 'end' }); } });
+    el.addEventListener('dragover', (e) => { if (droppable(e)) { e.preventDefault(); copyFiles(e); } });
+    el.addEventListener('drop', (e) => {
+      const d = dropped(e);
+      if (!d) return;
+      e.preventDefault();
+      e.stopPropagation();
+      droppedUrls(d).then(openAtEnd);
+    });
   }
 }
 
@@ -764,20 +784,57 @@ function dropDrag() {
   } else render();
 }
 
-// Links and text dragged in from pages and other apps.
-function droppableUrl(e) {
-  const types = e.dataTransfer ? [...e.dataTransfer.types] : [];
-  return types.includes('text/uri-list') || types.includes('text/plain');
+// Links, text and files dragged in from pages and other apps.
+const types = (e) => (e.dataTransfer ? [...e.dataTransfer.types] : []);
+const hasFiles = (e) => types(e).includes('Files');
+function droppable(e) {
+  const t = types(e);
+  return t.includes('Files') || t.includes('text/uri-list') || t.includes('text/plain');
 }
-function droppedUrl(e) {
+// (Files are copied, never moved: a move would have the app they came from take them away.)
+const copyFiles = (e) => { if (hasFiles(e)) e.dataTransfer.dropEffect = 'copy'; };
+// What a drop brings: files on this computer (their paths), or else a link, or an address dropped as text.
+// (An image dragged from a page comes as a file too, one that isn't on this computer: its link is what opens.)
+function dropped(e) {
   const dt = e.dataTransfer;
-  if (!dt) return '';
+  if (!dt) return null;
+  const paths = [...(dt.files || [])].map((f) => wb.filePath(f)).filter(Boolean);
+  if (paths.length) return { paths };
   let url = (dt.getData('text/uri-list') || '').split('\n').find((l) => l && !l.startsWith('#')) || '';
   if (!url) {
     const text = (dt.getData('text/plain') || '').trim();
     if (window.WBEngine.looksLikeUrl(text)) url = window.WBEngine.toUrl(text);
   }
-  return /^(https?|ftp|file):/i.test(url) ? url.trim() : '';
+  url = url.trim();
+  return /^(https?|ftp|file):/i.test(url) ? { url } : null;
+}
+// …as the addresses to open (a promise: files are looked at by the main process, which opens only files).
+const droppedUrls = (d) => (d.paths ? wb.invoke('files:urls', d.paths).catch(() => []) : Promise.resolve([d.url]));
+// New tabs at the end of the strip, the first in front.
+const openAtEnd = (urls) => urls.forEach((url, i) => T.openTab({ url, position: 'end', active: i === 0 }));
+
+// Files dropped anywhere else in the window (a page opens what's dropped on it itself, as Chrome has it: in a
+// new tab next to it): the address bar opens the first in the tab in front, anywhere else they open in new tabs.
+// Links and text dropped elsewhere are left to where they're dropped (a field takes text).
+function acceptFileDrops() {
+  document.addEventListener('dragover', (e) => {
+    if (e.defaultPrevented || !hasFiles(e)) return;
+    e.preventDefault();
+    copyFiles(e);
+  });
+  document.addEventListener('drop', (e) => {
+    if (e.defaultPrevented || !hasFiles(e)) return;
+    const d = dropped(e);
+    e.preventDefault();
+    if (!d) return;
+    const intoAddress = e.target && e.target.closest && e.target.closest('#address-input');
+    droppedUrls(d).then((urls) => {
+      if (!urls.length) return;
+      if (!intoAddress) { openAtEnd(urls); return; }
+      T.openUrl(urls[0]);
+      for (const url of urls.slice(1)) T.openTab({ url, position: 'end', active: false });
+    });
+  });
 }
 
 // --------------------------------------------------------------- previews
@@ -837,6 +894,7 @@ const captureSoon = (() => {
 // ------------------------------------------------------------------- init
 export function init() {
   render();
+  acceptFileDrops();
   on('structure', () => render());
   on('workspace', (ws, prev) => {
     previewHide();
