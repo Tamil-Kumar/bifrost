@@ -79,7 +79,7 @@ the sidebar's bottom row evenly spaced, collapsed and open), find, zoom,
 context menu, tab dragging in every tab layout and pinning, the tab group line, private windows), `extensions` (MV3 service worker APIs,
 onInstalled, storage and alarm events in the worker, context menus, popups and a popup in the side panel, Dark Reader, Stylus with a
 usercss theme on a local YouTube stand-in, site styles), `daily` (the address bar, unsaved changes, downloads and
-the side panel's (a bar and the percentage as one goes, Cancel, Restart), pages' dialogs, tabs back after a restart, and the window working while Bifrost is still starting: its own
+the side panel's (a bar and the percentage as one goes, Cancel, Restart, Remove), pages' dialogs, tabs back after a restart, and the window working while Bifrost is still starting: its own
 pages at once, web pages once it has started), `gestures` (two-finger swipes: the arrow, on
 either side, and turning back taking it out at once; going only once the fingers lift, said by the touchpad watcher, played here by
 tests/fixtures/touchpad-standin.mjs, or else by the end of the scroll gesture; coasting; the swipes that

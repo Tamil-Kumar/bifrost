@@ -191,13 +191,13 @@ try {
     assert(/index\.html$/.test(await activeUrl()), 'the page stayed where it was');
   });
 
-  await R.step('the side panel’s downloads: a bar and the percentage as one goes (a bar alone when its size isn’t known), Cancel, and Restart from the beginning instead of the old one', async () => {
+  await R.step('the side panel’s downloads: a bar and the percentage as one goes (a bar alone when its size isn’t known), Cancel, Restart from the beginning instead of the old one, and Remove from downloads', async () => {
     await setSetting('downloads.showOnStart', false);
     await setSetting('downloads.askWhereToSave', false);
     await setSetting('downloads.folder', DOWNLOADS);
     await cmd('panelDownloads');
     await t.until(() => document.querySelector('.p-foot') && /All downloads/.test(document.body.textContent), null, 4000, 'the downloads panel');
-    const rows = () => t.ui(() => [...document.querySelectorAll('.p-dl')].filter((r) => /slow\.bin|nosize\.bin/.test(r.textContent)).map((r) => {
+    const rows = (which = 'slow\\.bin|nosize\\.bin') => t.ui((which) => [...document.querySelectorAll('.p-dl')].filter((r) => new RegExp(which).test(r.querySelector('.p-title').textContent)).map((r) => {
       const bar = r.querySelector('.dl-bar');
       return {
         id: Number(r.dataset.id), name: r.querySelector('.p-title').textContent, cls: r.className,
@@ -205,7 +205,7 @@ try {
         now: bar ? bar.getAttribute('aria-valuenow') : null, pct: (r.querySelector('.p-dl-pct') || {}).textContent ?? null,
         status: r.querySelector('.p-dl-status').textContent, buttons: [...r.querySelectorAll('.p-dl-actions button')].map((b) => b.title),
       };
-    }));
+    }), which);
     const click = (id, title) => t.ui(([id, title]) => { const b = [...document.querySelectorAll(`.p-dl[data-id="${id}"] .p-dl-actions button`)].find((x) => x.title === title); if (!b) throw new Error('no ' + title); b.click(); return true; }, [id, title]);
     const start = (q = '') => t.main((_, url) => { global.__bifrost.mainSession.downloadURL(url); }, site.url + '/slow.bin' + q);
     const listed = () => t.main(() => global.__bifrost.downloads.list().filter((d) => /slow|nosize/.test(d.filename || '')).map((d) => ({ id: d.id, state: d.state, received: d.received })));
@@ -214,7 +214,7 @@ try {
       // Going: a bar as far along as it is, the percentage beside it, the size, speed and time left.
       const first = await waitFor(async () => { const r = (await rows())[0]; return r && /active/.test(r.cls) && r.width > 0 && /\bof\b/.test(r.status) ? r : null; }, 8000, 'the download going in the panel');
       assert(first.name === 'slow.bin' && first.pct === Math.floor(first.width) + '%' && first.now === String(Math.floor(first.width)) && !first.indeterminate, 'its bar and percentage: ' + JSON.stringify(first));
-      assert(JSON.stringify(first.buttons) === '["Cancel","Restart"]', 'Cancel and Restart: ' + JSON.stringify(first.buttons));
+      assert(JSON.stringify(first.buttons) === '["Cancel","Restart","Cancel and remove from downloads"]', 'Cancel, Restart, Remove: ' + JSON.stringify(first.buttons));
       const later = await waitFor(async () => { const r = (await rows()).find((x) => x.id === first.id); return r && r.width >= first.width + 5 ? r : null; }, 8000, 'the bar to move along');
       assert(/\d+(\.\d+)? ?[KM]B\/s/.test(later.status) && /left/.test(later.status), 'speed and time left: ' + later.status);
       await t.shot('daily-downloads-panel');
@@ -228,7 +228,7 @@ try {
       // Cancel: it stops, says so, can be restarted (not cancelled again), and nothing of it is left in the folder.
       await click(again.id, 'Cancel');
       const stopped = await waitFor(async () => { const r = (await rows())[0]; return r && /stopped/.test(r.cls) ? r : null; }, 8000, 'it cancelled');
-      assert(stopped.status === 'Cancelled' && stopped.width === null && JSON.stringify(stopped.buttons) === '["Restart"]', 'cancelled: ' + JSON.stringify(stopped));
+      assert(stopped.status === 'Cancelled' && stopped.width === null && JSON.stringify(stopped.buttons) === '["Restart","Remove from downloads"]', 'cancelled: ' + JSON.stringify(stopped));
       assert(!fs.readdirSync(DOWNLOADS).some((f) => /^slow/.test(f)), 'nothing of it left: ' + fs.readdirSync(DOWNLOADS).join(', '));
       await click(stopped.id, 'Restart');
       const third = await waitFor(async () => { const r = await rows(); return r.length === 1 && r[0].id !== stopped.id && /active/.test(r[0].cls) ? r[0] : null; }, 8000, 'the cancelled one to start over');
@@ -240,6 +240,23 @@ try {
       assert(unsized.indeterminate === true && unsized.pct === '' && unsized.now === null && !/\bof\b/.test(unsized.status), 'a bar alone: ' + JSON.stringify(unsized));
       await click(unsized.id, 'Cancel');
       await waitFor(async () => (await rows()).find((r) => r.name === 'nosize.bin' && /stopped/.test(r.cls)), 8000, 'it cancelled');
+      // Remove from downloads: a cancelled one; one still going (cancelled with it: nothing of it left); a
+      // finished one, whose file stays where it is.
+      const gone = (id) => waitFor(async () => !(await rows('.')).some((r) => r.id === id) && !(await t.main((_, id) => global.__bifrost.downloads.list().some((d) => d.id === id), id)), 8000, 'it out of the list');
+      await click(unsized.id, 'Remove from downloads');
+      await gone(unsized.id);
+      await start();
+      const going = await waitFor(async () => (await rows('^slow')).find((r) => /active/.test(r.cls) && r.width > 0) || null, 8000, 'another going');
+      await click(going.id, 'Cancel and remove from downloads');
+      await gone(going.id);
+      assert(!fs.readdirSync(DOWNLOADS).some((f) => /^slow/.test(f)), 'nothing of it left: ' + fs.readdirSync(DOWNLOADS).join(', '));
+      await t.main((_, url) => { global.__bifrost.mainSession.downloadURL(url); }, site.url + '/files/report.bin');
+      const done = await waitFor(async () => (await rows('^report')).find((r) => /done/.test(r.cls)) || null, 8000, 'a finished one');
+      assert(JSON.stringify(done.buttons) === '["Show in folder","Remove from downloads (the file stays)"]', 'finished: ' + JSON.stringify(done.buttons));
+      const file = await t.main((_, id) => (global.__bifrost.downloads.list().find((d) => d.id === id) || {}).path, done.id);
+      await click(done.id, 'Remove from downloads (the file stays)');
+      await gone(done.id);
+      assert(file && fs.existsSync(file), 'its file stays: ' + file);
     } finally {
       await t.main(() => { for (const d of global.__bifrost.downloads.list()) if (d.state === 'progressing') global.__bifrost.downloads.action(d.id, 'cancel'); });
       await setSetting('downloads.showOnStart', true);

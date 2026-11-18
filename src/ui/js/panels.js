@@ -798,7 +798,8 @@ async function renderHistory(append = false) {
 // ---------------------------------------------------------------- downloads
 // One still going shows how far along it is (a bar, and the percentage when its size is known), its speed
 // and time left, and Cancel; one that stopped (cancelled, failed) or is still going can be started over
-// (Restart: from the beginning, instead of the old one). They're kept up to date in place as they move.
+// (Restart: from the beginning, instead of the old one); any can be taken out of the list (a finished one's
+// file stays). They're kept up to date in place as they move.
 const warn = (e) => emit('toast', { text: e.message, iconName: 'warn' });
 const dlRows = new Map();   // id → { el, rec }
 const dlAct = (id, what) => wb.invoke('downloads:action', id, what).catch(warn);
@@ -818,7 +819,8 @@ function dlRow(d) {
         h('div.p-dl-actions', null,
           kind === 'active' ? btn('Cancel', 'close', 'cancel', '.p-dl-cancel') : null,
           kind !== 'done' ? btn('Restart', 'reload', 'restart', '.p-dl-restart') : null,
-          kind === 'done' ? btn('Show in folder', 'folderOpen', 'show') : null)),
+          kind === 'done' ? btn('Show in folder', 'folderOpen', 'show') : null,
+          btn(kind === 'active' ? 'Cancel and remove from downloads' : kind === 'done' ? 'Remove from downloads (the file stays)' : 'Remove from downloads', 'trash', 'remove', '.p-dl-remove'))),
       kind === 'active' ? h('div.p-dl-progress', null,
         h('div.dl-bar' + (pct == null ? '.indeterminate' : ''), { role: 'progressbar', 'aria-label': 'Downloaded', 'aria-valuemin': '0', 'aria-valuemax': '100', ...(pct == null ? {} : { 'aria-valuenow': String(pct) }) }, h('span', { style: { width: (pct || 0) + '%' } })),
         h('span.p-dl-pct', null, pct == null ? '' : pct + '%')) : null,

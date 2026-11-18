@@ -152,8 +152,8 @@ function attach(ses, { isPrivate }) {
       if (now - lastEmit > 200 || rec.state !== 'progressing') { lastEmit = now; broadcast(rec); if (!isPrivate) events.emit('updated', rec, item); }
     });
     item.once('done', (e, state) => {
-      // (one being started over: restart() takes it out of the list)
-      if (rec.restarting) { live.delete(rec.id); return; }
+      // (one being started over or removed: restart() or remove() takes it out of the list)
+      if (rec.leaving) { live.delete(rec.id); return; }
       rec.path = item.getSavePath() || rec.path;
       rec.filename = rec.path ? path.basename(rec.path) : rec.filename;
       rec.received = item.getReceivedBytes();
@@ -222,7 +222,7 @@ function action(id, what) {
     case 'cancel': if (l) l.item.cancel(); return true;
     case 'open': { const p = l ? '' : pathOf(id); if (!p || !fs.existsSync(p)) throw new Error('The file is missing or still downloading.'); return openFile(p); }
     case 'show': { const p = pathOf(id); if (p && fs.existsSync(p)) shell.showItemInFolder(p); else shell.openPath(folder()); return true; }
-    case 'remove': if (!l) { const priv = privateRecs.delete(id); if (!priv) ctx.db.removeDownload(id); events.emit('erased', id); broadcastRemoved(id, priv); } return true;
+    case 'remove': return remove(id);
     case 'delete': { const p = pathOf(id); if (!l && p && fs.existsSync(p)) fs.rmSync(p, { force: true }); ctx.db.removeDownload(id); events.emit('erased', id); broadcastRemoved(id, false); return true; }
     case 'deleteFile': { const p = pathOf(id); if (l) throw new Error('Download must be complete'); if (p && fs.existsSync(p)) fs.rmSync(p, { force: true }); return true; }
     case 'retry': {
@@ -251,12 +251,7 @@ async function restart(id) {
   if (l) {
     rec = l.rec;
     ses = l.ses;
-    rec.restarting = true;
-    await new Promise((resolve) => {
-      const t = setTimeout(resolve, 3000);
-      l.item.once('done', () => { clearTimeout(t); setImmediate(resolve); });
-      try { l.item.cancel(); } catch { clearTimeout(t); resolve(); }
-    });
+    await cancelLeaving(l);
   } else {
     rec = privateRecs.get(id) || ctx.db.downloads(1000).find((x) => x.id === id);
     if (!rec) return false;
@@ -267,14 +262,40 @@ async function restart(id) {
   ses.downloadURL(rec.url);
   try { await begun; } catch (e) {
     // (it stays in the list as it was: cancelled now, if it was going)
-    if (l) { rec.restarting = false; rec.state = 'cancelled'; rec.ended = Date.now(); rec.speed = 0; if (!rec.private) ctx.db.updateDownload(id, rec); broadcast(rec); }
+    if (l) { rec.leaving = false; rec.state = 'cancelled'; rec.ended = Date.now(); rec.speed = 0; if (!rec.private) ctx.db.updateDownload(id, rec); broadcast(rec); }
     throw e;
   }
-  const isPrivate = !!rec.private || privateRecs.has(id);
-  if (isPrivate) privateRecs.delete(id);
-  else { ctx.db.removeDownload(id); events.emit('erased', id); }
-  broadcastRemoved(id, isPrivate);
+  forget(id, !!rec.private || privateRecs.has(id));
   return true;
+}
+
+// Takes a download out of the list (its file, if it finished, stays where it is); one still going is
+// cancelled first, which deletes what it had of the file.
+async function remove(id) {
+  const l = live.get(id);
+  if (l) await cancelLeaving(l);
+  forget(id, privateRecs.has(id) || !!(l && l.rec.private));
+  return true;
+}
+
+// Cancels a download that's going and waits (3 s at most) for it to have stopped: it's leaving the list, so
+// its done handler only lets go of it.
+function cancelLeaving(l) {
+  l.rec.leaving = true;
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, 3000);
+    l.item.once('done', () => { clearTimeout(t); setImmediate(resolve); });
+    try { l.item.cancel(); } catch { clearTimeout(t); resolve(); }
+  });
+}
+
+// A download gone from the list: from the history (or the private window's), for extensions, and from every
+// window's and downloads page's list.
+function forget(id, isPrivate) {
+  if (isPrivate) privateRecs.delete(id);
+  else ctx.db.removeDownload(id);
+  events.emit('erased', id);
+  broadcastRemoved(id, isPrivate);
 }
 
 function pathOf(id) {

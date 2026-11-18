@@ -506,7 +506,7 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 .p-dl-actions { flex: none; display: flex; gap: 2px; margin-right: -4px; }
 .p-dl-actions .icon-btn { width: 26px; height: 26px; }
 .p-dl-actions .icon-btn svg.i { width: 15px; height: 15px; }
-.p-dl-cancel:hover { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
+.p-dl-cancel:hover, .p-dl-remove:hover { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
 
 /* ============================================================ horizontal bar */
 #hbar {
