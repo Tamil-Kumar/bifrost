@@ -8,8 +8,11 @@
 // one thing to open, spaces and all (Windows doesn't put a file's name in quotes). Chromium reads a command
 // line so, and a later start's arguments reach the running Bifrost that way ([Bifrost.exe, the file]); but
 // process.argv is the command line cut at every space (['--single-argument', 'C:\Users\Sam', 'Lee\notes.pdf']),
-// so the pieces are put back together. A later start also works out what it was asked to open itself and
-// sends that along (requestSingleInstanceLock's data: index.js), so either way gets there.
+// so the pieces are put back together. On Windows the running Bifrost gets a later start's last argument with
+// a NUL after it (Electron reads the command line out of the message with its terminating NUL: seen in the
+// release workflow's open check), which no path or address has: it's taken off. A later start also works out
+// what it was asked to open itself and sends that along (requestSingleInstanceLock's data: index.js), so
+// either way gets there.
 const fs = require('node:fs');
 const nodePath = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -20,7 +23,7 @@ const LONGEST = 32768;     // characters in an address or a path
 
 const isFileAt = (fsx, p) => { try { return fsx.statSync(p).isFile(); } catch { return false; } };
 const unquote = (s) => {
-  const t = String(s).trim();
+  const t = String(s).replace(/\0/g, '').trim();
   return t.length > 1 && t[0] === '"' && t[t.length - 1] === '"' ? t.slice(1, -1).trim() : t;
 };
 const options = (o = {}) => {

@@ -73,9 +73,10 @@ const sessionFile = path.join(profile, 'session.json');
 const openLog = path.join(work, 'open-log.txt');
 process.env.BIFROST_OPEN_LOG = openLog;
 let logShown = 0;
+const logText = () => { try { return fs.readFileSync(openLog, 'utf8').split('\n').filter(Boolean); } catch { return []; } };
+const logLines = () => logText().map((l) => { try { return JSON.parse(l); } catch { return {}; } });
 function showLog() {
-  let lines = [];
-  try { lines = fs.readFileSync(openLog, 'utf8').split('\n').filter(Boolean); } catch { /* none yet */ }
+  const lines = logText();
   for (const l of lines.slice(logShown)) log('  Bifrost: ' + l);
   logShown = lines.length;
 }
@@ -210,6 +211,10 @@ try {
   ]) {
     open(what);
     ok = (await waitFor(what, label)) && ok;
+    // Which way it got there: the running Bifrost's own reading of the later start's command line, or only
+    // what the later start sent along (both should: src/main/open-args.js).
+    const later = logLines().filter((l) => l.laterStart).pop();
+    if (later) log(`  …the running Bifrost's reading of the command line ${has(later.read || [], what) ? 'found it too' : 'didn’t find it: it came from what the later start sent'}`);
   }
 } catch (e) {
   log(String(e.message || e));

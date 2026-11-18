@@ -45,8 +45,9 @@ if (!app.requestSingleInstanceLock({ profile: profile.dir, open: launchUrls })) 
   app.quit();
 } else {
   app.on('second-instance', (e, argv, workingDirectory, data) => {
-    const urls = openArgs.merge(openArgs.fromArgv(argv, { cwd: workingDirectory }), openArgs.fromData(data));
-    openArgs.note({ laterStart: true, argv: argv.slice(1), cwd: workingDirectory, sent: data && data.open, opening: urls });
+    const read = openArgs.fromArgv(argv, { cwd: workingDirectory });
+    const urls = openArgs.merge(read, openArgs.fromData(data));
+    openArgs.note({ laterStart: true, argv: argv.slice(1), cwd: workingDirectory, read, sent: data && data.open, opening: urls });
     if (!urls.length && !process.defaultApp && argv.slice(1).some((a) => !String(a).startsWith('-'))) console.warn('[open] nothing to open in ' + JSON.stringify(argv.slice(1)) + ' (sent: ' + JSON.stringify(data && data.open) + ')');
     const windows = require('./windows');
     if (argv.includes('--new-window') || !ctx.registry.lastFocused({ private: false })) windows.create({ urls });

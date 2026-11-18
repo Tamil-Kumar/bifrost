@@ -36,6 +36,9 @@ check('a PDF opened from Explorer, Bifrost not running: process.argv is the comm
   A.fromArgv([EXE, '--single-argument', 'C:\\Users\\Sam', 'Lee\\Downloads\\Lecture', 'notes.pdf'], W), [LECTURE]);
 check('…Bifrost running: the later start\'s arguments as Chromium read them (the file whole, no --single-argument)',
   A.fromArgv([EXE, 'C:\\Users\\Sam Lee\\Downloads\\Lecture notes.pdf'], W), [LECTURE]);
+check('…as Windows really hands it over: with a NUL after it (the release workflow\'s open check saw it)',
+  A.fromArgv([EXE, '--allow-file-access-from-files', '--enable-sandbox', '--enable-features=OverlayScrollbar,BackForwardCache', 'C:\\Users\\Sam Lee\\Downloads\\Lecture notes.pdf\u0000'], W), [LECTURE]);
+check('…a link too', A.fromArgv([EXE, '--enable-sandbox', 'https://example.com/a?q=1&b=two%20words\u0000'], W), ['https://example.com/a?q=1&b=two%20words']);
 check('…with the switches Chromium puts in front of it',
   A.fromArgv([EXE, '--allow-file-access-from-files', '--original-process-start-time=13379', 'C:\\Users\\Sam Lee\\Downloads\\Lecture notes.pdf'], W), [LECTURE]);
 check('a file name with # and %, an upper-case one on another drive',
