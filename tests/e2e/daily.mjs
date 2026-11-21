@@ -367,6 +367,8 @@ try {
     // On a tab: that tab opens the first, the rest next to it.
     await openTab(site.url + '/next.html');
     await waitFor(async () => /next\.html$/.test(await activeUrl()), 8000, 'next');
+    // (the new tab's row done moving into place before it's aimed at)
+    await sleep(500);
     const tabAt = await t.ui(() => { const S = window.__wbTest.state; const w = S.workspaces.find((x) => x.id === S.activeWorkspaceId); const el = document.querySelector(`.tab[data-id="${w.activeTabId}"]`); const b = el.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; });
     let n = (await tabUrls()).length;
     await dragFiles('ui', tabAt.x, tabAt.y, [PDF]);

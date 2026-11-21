@@ -22,6 +22,11 @@
 //
 // A page Bifrost gives Catppuccin's colors (Catppuccin for every site: main/web-styles.js recolorFor) is told
 // dark or light by them, and Chromium's dark mode stays off on it: it's in those colors already.
+//
+// Frames from other sites (in processes of their own) are attached to and told the same while dark mode is
+// on (Google's account card stayed white in a dark Gmail). And each frame hears whether it's on ('tab-dark-mode',
+// and 'tab:start'): what Chromium's dark mode doesn't reach, a page drawn on a canvas (Google Docs) and icons
+// drawn as masks over a dark color, preload/recolor.js turns itself (makeInk).
 const fs = require('node:fs');
 const path = require('node:path');
 const { EventEmitter } = require('node:events');
@@ -174,21 +179,94 @@ function perTab(url, wc) {
 const state = new WeakMap();   // webContents -> what it's told ({ scheme, dark })
 const NONE = { scheme: null, dark: false };
 
+// What one session is told (the page's, or a frame's from another site), as it changes from was to want.
+async function tell(dbg, want, was, sessionId) {
+  if (want.scheme !== was.scheme) await dbg.sendCommand('Emulation.setEmulatedMedia', { features: want.scheme ? [{ name: 'prefers-color-scheme', value: want.scheme }] : [] }, sessionId);
+  if (want.dark !== was.dark) await dbg.sendCommand('Emulation.setAutoDarkModeOverride', want.dark ? { enabled: true } : {}, sessionId);
+}
+
+// A frame from another site runs in a process of its own (Chromium's site isolation), which what the page's
+// session says doesn't reach: Google's account card stayed white in a dark Gmail, an embedded form in a dark
+// page. Each is attached as it starts (held until it's been told), and told the same; and the frames in it.
+const kids = new WeakMap();      // webContents -> Set of its frames' sessions
+const attaching = new WeakSet(); // webContents whose session attaches to its frames
+const AUTO = { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'iframe' }] };
+function watchKids(wc) {
+  if (kids.has(wc)) return;
+  kids.set(wc, new Set());
+  wc.debugger.on('message', (_e, method, params) => {
+    if (method === 'Target.attachedToTarget') {
+      const id = params && params.sessionId;
+      if (!id) return;
+      const dbg = wc.debugger;
+      const frame = params.targetInfo && params.targetInfo.type === 'iframe';
+      if (frame) kids.get(wc).add(id);
+      (async () => {
+        try {
+          if (frame) {
+            await dbg.sendCommand('Target.setAutoAttach', AUTO, id);
+            await tell(dbg, state.get(wc) || NONE, NONE, id);
+          }
+        } catch { /* gone already */ } finally {
+          // (always let it go on: a frame held is a frame that never shows)
+          dbg.sendCommand('Runtime.runIfWaitingForDebugger', {}, id).catch(() => {});
+        }
+      })();
+    } else if (method === 'Target.detachedFromTarget' && params && params.sessionId) {
+      const set = kids.get(wc);
+      if (set) set.delete(params.sessionId);
+    }
+  });
+}
+// …and let go: told as they were, no longer attached to.
+async function letKidsGo(wc, was) {
+  if (!attaching.has(wc)) return;
+  attaching.delete(wc);
+  await tellKids(wc, NONE, was);
+  await wc.debugger.sendCommand('Target.setAutoAttach', { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }).catch(() => {});
+  const set = kids.get(wc);
+  if (!set) return;
+  for (const id of set) wc.debugger.sendCommand('Target.detachFromTarget', { sessionId: id }).catch(() => {});
+  set.clear();
+}
+async function tellKids(wc, want, was) {
+  const set = kids.get(wc);
+  if (!set) return;
+  await Promise.all([...set].map((id) => tell(wc.debugger, want, was, id).catch(() => set.delete(id))));
+}
+
+// Each frame of the tab hears whether Chromium's dark mode is on (preload/recolor.js: pages drawn on a canvas,
+// icons drawn as masks, made to show).
+function tellFrames(wc, dark) {
+  let frames = [];
+  try { frames = wc.mainFrame.framesInSubtree; } catch { return; }
+  for (const f of frames) { try { f.send('tab-dark-mode', !!dark); } catch { /* gone */ } }
+}
+// …and a page asks as it starts (guests.js 'tab:start').
+function darkModeOn(wc) { const st = wc && state.get(wc); return !!(st && st.dark); }
+
 async function emulate(wc, url) {
   if (!wc || wc.isDestroyed()) return;
   const want = perTab(url == null ? wc.getURL() : url, wc);
   const was = state.get(wc) || NONE;
   if (was.scheme === want.scheme && was.dark === want.dark) return;
   state.set(wc, want);
+  if (want.dark !== was.dark) tellFrames(wc, want.dark);
   const dbg = wc.debugger;
   try {
     if (want.scheme || want.dark) {
       TD.use(wc, 'theme');
-      if (want.scheme !== was.scheme) await dbg.sendCommand('Emulation.setEmulatedMedia', { features: want.scheme ? [{ name: 'prefers-color-scheme', value: want.scheme }] : [] });
-      if (want.dark !== was.dark) await dbg.sendCommand('Emulation.setAutoDarkModeOverride', want.dark ? { enabled: true } : {});
+      await tell(dbg, want, was);
+      // (frames from other sites: while Chromium's dark mode is on; a scheme alone they get from Chromium's own
+      // setting, as the page did before Bifrost told it)
+      if (want.dark) {
+        watchKids(wc);
+        if (!attaching.has(wc)) { attaching.add(wc); await dbg.sendCommand('Target.setAutoAttach', AUTO); }
+        await tellKids(wc, want, was);
+      } else await letKidsGo(wc, was);
     } else if (dbg.isAttached() && (was.scheme || was.dark)) {
-      await dbg.sendCommand('Emulation.setEmulatedMedia', { features: [] });
-      if (was.dark) await dbg.sendCommand('Emulation.setAutoDarkModeOverride', {});
+      await tell(dbg, NONE, was);
+      await letKidsGo(wc, was);
       TD.release(wc, 'theme');
     }
   } catch (e) {
@@ -224,7 +302,7 @@ function attach(guest) {
   guest.on('did-navigate', (_e, url) => emulate(guest, url));
   // Opening DevTools on the tab ends Bifrost's session with it (the page goes back to the system's scheme,
   // and out of dark mode, while they're open); closing them, it's told again.
-  try { guest.debugger.on('detach', () => state.delete(guest)); } catch { /* fine */ }
+  try { guest.debugger.on('detach', () => { state.delete(guest); attaching.delete(guest); const set = kids.get(guest); if (set) set.clear(); }); } catch { /* fine */ }
   guest.on('devtools-closed', () => setTimeout(() => { if (!guest.isDestroyed()) emulate(guest); }, 100));
   guest.once('destroyed', () => state.delete(guest));
 }
@@ -235,4 +313,4 @@ function init() {
   ctx.settings.on('changed', ({ path: p }) => { if (!p || p.startsWith('appearance')) apply(); });
 }
 
-module.exports = { init, apply, attach, wanted, learnedList, forget, events, CHECK };
+module.exports = { init, apply, attach, wanted, learnedList, forget, events, CHECK, darkModeOn };

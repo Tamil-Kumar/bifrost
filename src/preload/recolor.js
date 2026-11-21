@@ -26,7 +26,16 @@
 // Also turned: colors in style="" attributes and the old bgcolor and <font color> ones, SVG fill and stroke
 // attributes, stylesheets from other sites (read through the main process, which sends only CSS, without your
 // cookies), styles a page's scripts add as it runs (CSS-in-JS: insertRule and the like are watched from the
-// page's own world), the open shadow roots of web components, and frames. Pictures aren't touched.
+// page's own world), the open shadow roots of web components, and frames.
+//
+// Pictures stay as they are (photos, logos), except icons, which Google draws as black glyphs on nothing (in a
+// sprite, an <img>, an SVG) and which wouldn't show on a dark base: the main process reads such a picture and
+// gives it back in text's colors (recolorIcon, svgText; web-styles.js iconFetch). An icon drawn as a mask over
+// its background-color takes text's color; an SVG in three colors or more (a logo) keeps them; white on a
+// one-color icon (Drive's files) is base. Text right over a picture keeps the page's own color (it was chosen
+// for that picture), and text or an icon that still doesn't read on what's behind it gets base's or text's.
+// A page drawn on a canvas (Google Docs) and an icon drawn as a mask that doesn't show: makeInk, which does
+// the same for Chromium's dark mode.
 //
 // Self-contained (a sandboxed preload can't require local files); the color work at the top is exported for the
 // tests when this file is loaded outside a page.
@@ -487,6 +496,14 @@ function makeCore() {
     }
     return -1;
   }
+  // url()'s address, whole ('' when it can't be).
+  function urlOf(inner, base) {
+    let u = inner.trim();
+    const q = u[0] === '"' || u[0] === "'" ? u[0] : '';
+    if (q) u = u.slice(1, u.endsWith(q) ? -1 : undefined).replace(/\\(["'\\])/g, '$1');
+    if (/^data:/i.test(u)) return u;
+    try { return new URL(u, base || undefined).href; } catch { return ''; }
+  }
   function absUrl(inner, base) {
     let u = inner.trim();
     const q = u[0] === '"' || u[0] === "'" ? u[0] : '';
@@ -548,7 +565,11 @@ function makeCore() {
     const name = word.toLowerCase();
     if (name === 'url') {
       if (o.map === false) return whole;
-      return svgUrl(P, inner) || absUrl(inner, o.base) || whole;
+      const svg = svgUrl(P, inner);
+      if (svg) return svg;
+      // (a picture that's an icon: in text's colors, once the main process has made it so: o.icon)
+      if (o.icon) { const got = o.icon(urlOf(inner, o.base)); if (got) return 'url("' + got + '")'; }
+      return absUrl(inner, o.base) || whole;
     }
     if (name === 'var') return varRef(P, inner, role, '', o);
     if (COLOR_FN.has(name)) {
@@ -591,12 +612,107 @@ function makeCore() {
     try {
       if (/;base64/i.test(m[1] || '')) { const bin = atob(body.replace(/\s+/g, '')); body = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))); } else body = decodeURIComponent(body);
     } catch { return null; }
+    body = svgText(P, body);
+    if (body == null) return null;
+    return 'url("data:image/svg+xml,' + body.replace(/[%#<>"\n\r\t]/g, (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')) + '")';
+  }
+  // An SVG picture's text (one drawn as a background, or an <img>'s) with its colors as an icon's, text's: its
+  // fills, strokes and stops, and what it draws in without saying (black; currentColor, which is black in a
+  // picture) in text's color too. null: nothing to change, or it's art (a logo: three colors or more), kept.
+  const SVG_ATTR = /\b(fill|stroke|stop-color|flood-color|color)(\s*=\s*)(['"])([^'"]*)\3/gi;
+  const SVG_PROP = /\b(fill|stroke|stop-color|flood-color)(\s*:\s*)([^;'"}<>]+)/gi;
+  function svgText(P, body) {
+    const colors = [];
+    const grab = (v) => { const c = parse(String(v).trim()); if (c) colors.push(c); };
+    body.replace(SVG_ATTR, (all, a, eq, qq, v) => { grab(v); return all; });
+    body.replace(SVG_PROP, (all, a, colon, v) => { grab(v); return all; });
+    if (isArt(colors)) return null;
     let changed = false;
     const turn = (v) => { const c = parse(v.trim()); if (!c) return v; changed = true; return format(mapColor(P, c, 't')); };
-    body = body.replace(/\b(fill|stroke|stop-color|flood-color|color)(\s*=\s*)(['"])([^'"]*)\3/gi, (all, a, eq, qq, v) => a + eq + qq + turn(v) + qq);
-    body = body.replace(/\b(fill|stroke|stop-color|flood-color)(\s*:\s*)([^;'"}<>]+)/gi, (all, a, colon, v) => a + colon + turn(v));
-    if (!changed) return null;
-    return 'url("data:image/svg+xml,' + body.replace(/[%#<>"\n\r\t]/g, (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')) + '")';
+    body = body.replace(SVG_ATTR, (all, a, eq, qq, v) => a + eq + qq + turn(v) + qq);
+    body = body.replace(SVG_PROP, (all, a, colon, v) => a + colon + turn(v));
+    const root = /<svg\b[^>]*>/i.exec(body);
+    if (root) {
+      const text = format(mapColor(P, [0, 0, 0, 1], 't'));
+      let tag = root[0];
+      if (!/\sfill\s*=/i.test(tag) && !/fill\s*:/i.test(tag)) tag = tag.replace(/^<svg\b/i, `<svg fill="${text}"`);
+      if (!/\scolor\s*=/i.test(tag)) tag = tag.replace(/^<svg\b/i, `<svg color="${text}"`);
+      if (tag !== root[0]) { body = body.slice(0, root.index) + tag + body.slice(root.index + root[0].length); changed = true; }
+    }
+    return changed ? body : null;
+  }
+
+  // ---------------------------------------------------------------- pictures
+  // How much of a color a color is (0-1, as mapRgb has it) and its hue.
+  function hueOf(c) {
+    const lab = toLab(c[0], c[1], c[2]);
+    const C = Math.hypot(lab[1], lab[2]);
+    const h = Math.atan2(lab[2], lab[1]);
+    return { L: lab[0], C, h, colorful: C < 0.012 ? 0 : smooth(0.15, 0.4, C / Math.max(0.01, maxChroma(lab[0], h))) * smooth(0.012, 0.03, C) };
+  }
+  // Colors that are art, a logo or a brand's mark (Google's four, a microphone in them): three hues or more.
+  function isArt(colors) {
+    const hues = new Set();
+    for (const c of colors) {
+      if (c[3] === 0) continue;
+      const x = hueOf(c);
+      if (x.colorful > 0.5) hues.add(Math.round((((x.h * 180 / Math.PI) + 360) % 360) / 30) % 12);
+      if (hues.size >= 3) return true;
+    }
+    return false;
+  }
+  const isColor = (c) => !!c && hueOf(c).colorful > 0.5;
+
+  // A picture that's an icon, drawn in text's colors where it wouldn't show as it is (a black glyph on a
+  // see-through background, on a dark page; a white one on a light page): px, its pixels (BGRA, alpha
+  // premultiplied, as Chromium keeps a picture), are changed in place, and true. false for anything else: a
+  // photo, a logo, a picture with a background of its own, an icon that shows as it is.
+  function recolorIcon(P, px, w, h) {
+    const n = w * h;
+    if (!n || px.length < n * 4) return false;
+    const step = n > 250000 ? Math.ceil(n / 250000) : 1;
+    let clear = 0, looked = 0, seen = 0, neutral = 0, sumL = 0;
+    for (let i = 0; i < n; i += step) {
+      looked++;
+      const a = px[i * 4 + 3];
+      if (a < 26) { clear++; continue; }
+      if (a < 128) continue;
+      const k = 255 / a;
+      const lab = toLab(Math.min(255, px[i * 4 + 2] * k), Math.min(255, px[i * 4 + 1] * k), Math.min(255, px[i * 4] * k));
+      seen++;
+      if (Math.hypot(lab[1], lab[2]) < 0.04) neutral++;
+      sumL += lab[0];
+    }
+    if (seen < 6 || clear < looked * 0.2 || neutral < seen * 0.9) return false;
+    const L = sumL / seen;
+    if (P.dark ? L >= 0.62 : L <= 0.6) return false;
+    const memo = new Map();
+    for (let i = 0; i < n; i++) {
+      const o = i * 4, a = px[o + 3];
+      if (!a) continue;
+      const k = 255 / a;
+      const r = Math.min(255, Math.round(px[o + 2] * k)), g = Math.min(255, Math.round(px[o + 1] * k)), b = Math.min(255, Math.round(px[o] * k));
+      const key = (r >> 2) << 12 | (g >> 2) << 6 | (b >> 2);
+      let m = memo.get(key);
+      if (!m) { m = mapColor(P, [r, g, b, 1], 't'); memo.set(key, m); }
+      px[o] = Math.round(m[2] * a / 255); px[o + 1] = Math.round(m[1] * a / 255); px[o + 2] = Math.round(m[0] * a / 255);
+    }
+    return true;
+  }
+
+  // A picture's lightness turned around, its colors kept (a page drawn on a canvas, as Google Docs does: white
+  // to bg, black to fg, a blue link a lighter blue): an SVG filter as a CSS filter value. bg, fg: [r, g, b].
+  function inkFilter(bg, fg) {
+    const Y = [0.2126, 0.7152, 0.0722];
+    const rows = [];
+    for (let c = 0; c < 3; c++) {
+      const b = bg[c] / 255, t = fg[c] / 255, k = b - t - 1;
+      rows.push([(c === 0 ? 1 : 0) + k * Y[0], (c === 1 ? 1 : 0) + k * Y[1], (c === 2 ? 1 : 0) + k * Y[2], 0, t]);
+    }
+    rows.push([0, 0, 0, 1, 0]);
+    const values = rows.flat().map((x) => String(Math.round(x * 10000) / 10000)).join(' ');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><filter id="i" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="${values}"/></filter></svg>`;
+    return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '#i")';
   }
 
   // var(--x[, fallback]) -> var(--bf<code>-x, var(--x[, fallback turned])): the twin where Bifrost set one (the
@@ -690,11 +806,11 @@ function makeCore() {
   // twin's value for code.
   function cached(P, kind, value, code, o = {}) {
     const hasUrl = value.indexOf('url(') >= 0 || value.indexOf('URL(') >= 0;
-    const key = kind + code + '\u0001' + (hasUrl ? (o.base || '') + '\u0001' : '') + value;
+    const key = kind + code + '\u0001' + (hasUrl ? (o.base || '') + '\u0001' + (o.icon ? 'i' + (o.iv || 0) : '') + '\u0001' : '') + value;
     let hit = P.values.get(key);
     if (!hit) {
       const uses = value.indexOf('var(') >= 0 ? [] : null;
-      const opts = { base: o.base, uses };
+      const opts = { base: o.base, uses, icon: hasUrl ? o.icon : null };
       const out = kind === 't' ? twinValue(P, value, code, opts) : rewrite(P, value, code, opts);
       hit = { out, uses };
       if (P.values.size > 50000) P.values.clear();
@@ -707,8 +823,11 @@ function makeCore() {
   // A rule's declarations as the browser writes them back (style.cssText: one call, where asking for each property
   // is two calls a property; Bootstrap's rules set thousands of variables) -> [property, value, important] for the
   // ones that color something, and every variable (all: every one).
+  // (an icon drawn as a mask over its background-color, as Google draws many: that color is the icon's)
+  const MASK = new Set(['mask', 'mask-image', '-webkit-mask', '-webkit-mask-image', '-webkit-mask-box-image']);
   function declarations(text, all) {
     const out = [];
+    let masked = false;
     // (nearly always nothing in it can hide a ';': split as it is)
     const plain = !/["'{[\\]/.test(text);
     const list = plain ? text.split(';') : splitDecls(text);
@@ -719,6 +838,7 @@ function makeCore() {
       if (!p) continue;
       if (!(p.charCodeAt(0) === 45 && p.charCodeAt(1) === 45)) {
         p = p.toLowerCase();
+        if (MASK.has(p) && /url\(|image-set\(/i.test(decl)) masked = true;
         // (background-clip: text kept: that rule's background is its text's color, a gradient on letters)
         if (!all && !ROLE.has(p) && p !== 'color-scheme' && p !== 'scrollbar-color' && !(CLIP.has(p) && /\btext\b/i.test(decl))) continue;
       }
@@ -729,6 +849,7 @@ function makeCore() {
       // (and background-clip: text inside the shorthand, which is how CSSOM writes it: "background: linear-gradient(…) text")
       if (p === 'background' && /text/i.test(v) && clipsText(v)) out.push(['background-clip', 'text', false]);
     }
+    if (masked && out.some((d) => d[0] === 'background' || d[0] === 'background-color')) out.push(['-bifrost-masked', '', false]);
     return out;
   }
   // A background shorthand's own "text" (not one inside a function or a string): its background-clip.
@@ -767,6 +888,7 @@ function makeCore() {
 
   return {
     parse, format, prepare, mapColor, rewrite, twinValue, cached, parts, scrollbar, declarations, twin, curve, rampAt, fromLab, toLab, lum, ratio,
+    svgText, isArt, isColor, hueOf, recolorIcon, inkFilter,
     ROLE, SHORT, NAMED, NAMES, KEEP, TINT_ALPHA, CLIP,
   };
 }
@@ -806,24 +928,204 @@ function startEngine() {
   // (made the first time this page is to be in Catppuccin's colors: most pages never are, and then nothing of
   // this is done in them, in every frame of every page)
   let engine = null;
+  // (Bifrost's other stylesheets in the page, makeInk's: not the page's, so not turned)
+  const own = new WeakSet();
   const get = () => engine || (engine = makeEngine(makeCore(), window, {
     main: true,
+    own,
     // another site's stylesheet: what the main process has read already (at once), or read now
     cssNow: (url) => { try { return ipcRenderer.sendSync('recolor:css-now', url); } catch { return null; } },
     css: (url) => ipcRenderer.invoke('recolor:css', url).catch(() => null),
+    // a picture that may be an icon: it in text's colors (a data: address), or null
+    icon: (url) => ipcRenderer.invoke('recolor:icon', url).catch(() => null),
     pageWorld: (func) => contextBridge.executeInMainWorld({ func }),
   }));
-  const set = (cfg) => { if (engine || (cfg && cfg.palette)) get().setConfig(cfg); };
+  // Pages drawn on a canvas and icons drawn as masks, made to show on a dark page (makeInk): in Catppuccin's
+  // colors while the page is in them, in Chromium's dark mode's while that's on.
+  let ink = null;
+  let recolorCfg = null, chromiumDark = false;
+  const inkNow = () => {
+    const m = recolorCfg && recolorCfg.palette ? { palette: recolorCfg.palette } : chromiumDark ? { chromium: true } : null;
+    if (!ink && !m) return;
+    if (!ink) ink = makeInk(makeCore(), window, own);
+    ink.set(m);
+  };
+  const set = (cfg) => {
+    recolorCfg = cfg && cfg.palette ? cfg : null;
+    if (engine || recolorCfg) get().setConfig(cfg);
+    inkNow();
+  };
+  const setDark = (on) => { chromiumDark = !!on; inkNow(); };
   try { Object.defineProperty(globalThis, '__bifrostRecolor', { get: () => (engine ? engine.stats : null), configurable: true }); } catch { /* there */ }
+  try { Object.defineProperty(globalThis, '__bifrostInk', { get: () => (ink ? ink.stats : null), configurable: true }); } catch { /* there */ }
   // (tab.js calls this after it puts your styles for the site in: they go last)
   globalThis.__bifrostArrange = () => { if (engine) engine.arrange(); };
   ipcRenderer.on('tab-recolor', (_e, cfg) => set(cfg));
+  ipcRenderer.on('tab-dark-mode', (_e, on) => setDark(on));
   if (isTop) {
     const st = topStart();
-    if (st && st.recolor) set(st.recolor);
+    if (st && st.darkMode) chromiumDark = true;
+    if (st && st.recolor) set(st.recolor); else inkNow();
   } else {
-    frameStart().then((r) => { if (r && r.recolor && !(engine && engine.on())) set(r.recolor); });
+    frameStart().then((r) => {
+      if (r && r.darkMode) chromiumDark = true;
+      if (r && r.recolor && !(engine && engine.on())) set(r.recolor); else inkNow();
+    });
   }
+}
+
+// What a dark page doesn't show by itself: a page drawn on a canvas (Google Docs draws its pages so: black
+// letters, on white or on nothing, which no stylesheet reaches and Chromium's dark mode leaves as they are) and
+// icons drawn as a mask over a dark background-color (Google's: Chromium's dark mode keeps a dark background dark,
+// and one in a rule Bifrost couldn't tell was a mask's is turned as a background). A canvas that's mostly white
+// paper, or black ink on nothing, has its lightness turned around (core.inkFilter: white to the page's
+// background, black to its text, colors kept); such an icon is drawn in text's color. Each is marked
+// data-bifrost-ink (paper, ink, mask) for one stylesheet of Bifrost's. m: { palette } (Catppuccin's colors) or
+// { chromium: true } (Chromium's dark mode: white goes to #121212), or null: off.
+function makeInk(core, win, own) {
+  const document = win.document;
+  const getComputedStyle = (el) => win.getComputedStyle(el);
+  const ATTR = 'data-bifrost-ink';
+  const MASKS = 'div:empty,span:empty,i:empty,a:empty,b:empty,em:empty,button:empty,li:empty,label:empty';
+  const stats = { canvases: 0, papers: 0, masks: 0, ms: 0 };
+  let mode = null, sheet = null, mo = null, timer = 0, pending = [];
+  const looked = new WeakMap();   // canvas -> how many times looked at (it may draw later)
+
+  const rgb = (hex) => { const n = parseInt(String(hex).slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  function css() {
+    if (mode.chromium) {
+      return `canvas[${ATTR}]{filter:${core.inkFilter([18, 18, 18], [227, 227, 227])}!important}` +
+        `[${ATTR}="mask"]{filter:invert(1) hue-rotate(180deg)!important}`;
+    }
+    const p = mode.palette;
+    return `canvas[${ATTR}]{filter:${core.inkFilter(rgb(p.base), rgb(p.text))}!important}` +
+      `[${ATTR}="mask"]{background-color:${p.subtext1}!important}`;
+  }
+  const dark = () => !!mode && (mode.chromium || core.lum(rgb(mode.palette.base)) < core.lum(rgb(mode.palette.text)));
+
+  // A canvas, looked at small: 'paper' (mostly opaque white, little color), 'ink' (mostly nothing, what's drawn
+  // dark gray), '' (anything else: a photo, a chart in colors, a game), or null: nothing drawn yet, or it can't
+  // be read (a picture from another site drawn on it).
+  const probe = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(40, 40).getContext('2d', { willReadFrequently: true }) : null;
+  function kind(cv) {
+    if (!probe || !cv.width || !cv.height) return null;
+    const r = cv.getBoundingClientRect();
+    if (r.width < 200 || r.height < 100) return '';
+    let d;
+    try { probe.clearRect(0, 0, 40, 40); probe.drawImage(cv, 0, 0, 40, 40); d = probe.getImageData(0, 0, 40, 40).data; } catch { return null; }
+    let opaque = 0, white = 0, seen = 0, inky = 0, colored = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const a = d[i + 3];
+      if (a < 20) continue;
+      seen++;
+      const lab = core.toLab(d[i], d[i + 1], d[i + 2]);
+      const C = Math.hypot(lab[1], lab[2]);
+      if (C > 0.06) colored++;
+      if (a > 230) { opaque++; if (lab[0] > 0.9 && C < 0.03) white++; }
+      if (lab[0] < 0.45 && C < 0.06) inky++;
+    }
+    const n = 1600;
+    if (!seen) return null;
+    if (opaque > n * 0.85 && white > n * 0.6 && colored < seen * 0.08) return 'paper';
+    if (seen < n * 0.5 && inky > seen * 0.7 && colored < seen * 0.2) return 'ink';
+    return '';
+  }
+  function canvasOne(cv) {
+    if (!mode || cv.hasAttribute(ATTR)) return;
+    const k = kind(cv);
+    const times = (looked.get(cv) || 0) + 1;
+    looked.set(cv, times);
+    // (white paper needs turning on a dark page only; black ink on nothing, too)
+    if (k && dark()) { cv.setAttribute(ATTR, k); stats.papers++; return; }
+    // (nothing on it yet: looked at again, a few times, as a page draws its canvases a little later)
+    if (k === null && times < 5) setTimeout(() => canvasOne(cv), [400, 1500, 4000, 10000][times - 1]);
+  }
+
+  // An icon drawn as a mask (a small element with nothing in it, a mask-image, a background-color) that doesn't
+  // show on the page as it is.
+  function maskOne(el, again) {
+    const had = el.getAttribute(ATTR) === 'mask';
+    if (el.hasAttribute(ATTR) && !had) return;
+    if (had) { if (!again) return; el.removeAttribute(ATTR); }
+    const cs = getComputedStyle(el);
+    const m = cs.webkitMaskImage || cs.maskImage;
+    if (!m || m === 'none' || !/url\(|image-set\(/i.test(m)) return;
+    const c = core.parse(cs.backgroundColor);
+    if (!c || c[3] < 0.3) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width || r.width > 96 || r.height > 96) return;
+    let hide;
+    if (mode.chromium) hide = core.toLab(c[0], c[1], c[2])[0] < 0.55 && core.hueOf(c).colorful < 0.5;
+    else hide = core.ratio(core.lum(c), core.lum(rgb(mode.palette.base))) < 2.6;
+    if (hide) { el.setAttribute(ATTR, 'mask'); if (!had) stats.masks++; }
+  }
+
+  function scan(root, masks = true, again = false) {
+    if (!mode) return;
+    const t0 = performance.now();
+    try {
+      const canvases = root.localName === 'canvas' ? [root] : root.querySelectorAll ? root.querySelectorAll('canvas') : [];
+      for (const cv of canvases) { stats.canvases++; canvasOne(cv); }
+      if (masks && dark() && root.querySelectorAll) {
+        const els = root.matches && root.matches(MASKS) ? [root] : [];
+        let k = 0;
+        for (const el of root.querySelectorAll(MASKS)) { if (++k > 4000) break; els.push(el); }
+        for (const el of els) maskOne(el, again);
+      }
+    } catch { /* gone */ }
+    stats.ms += performance.now() - t0;
+  }
+  function soon(node) {
+    pending.push(node);
+    if (!timer) timer = setTimeout(() => {
+      timer = 0;
+      const list = pending;
+      pending = [];
+      if (list.length > 200) scan(document); else for (const n of list) if (n.isConnected) scan(n);
+    }, 250);
+  }
+  function unmark() {
+    try { for (const el of document.querySelectorAll(`[${ATTR}]`)) el.removeAttribute(ATTR); } catch { /* fine */ }
+  }
+  function arrange() {
+    try {
+      const cur = document.adoptedStyleSheets.filter((x) => x !== sheet);
+      document.adoptedStyleSheets = mode ? [...cur, sheet] : cur;
+    } catch { /* fine */ }
+  }
+
+  function set(m) {
+    const was = mode;
+    mode = m;
+    if (!m) {
+      if (mo) { mo.disconnect(); mo = null; }
+      if (was) { unmark(); arrange(); }
+      return;
+    }
+    if (!sheet) { sheet = new CSSStyleSheet({ media: 'screen' }); if (own) own.add(sheet); }
+    try { sheet.replaceSync(css()); } catch { /* fine */ }
+    // (other colors: what was marked is looked at again)
+    if (was) unmark();
+    const go = () => {
+      if (!mode) return;
+      arrange();
+      // (in Catppuccin's colors, icons drawn as masks are looked at once the page's stylesheets are turned: a
+      // mask's rule says its color is an icon's, and most need nothing more)
+      scan(document, !!mode.chromium);
+      if (!mo) {
+        mo = new win.MutationObserver((records) => {
+          for (const r of records) for (const node of r.addedNodes) if (node.nodeType === 1) soon(node);
+        });
+        try { mo.observe(document.documentElement || document, { childList: true, subtree: true }); } catch { /* fine */ }
+      }
+      // (a page laid out late, its icons' styles in late; and in Catppuccin's colors, the masks looked at again
+      // as they are without Bifrost's mark: the page's stylesheets may have been turned since)
+      setTimeout(() => { if (mode) scan(document); }, 1500);
+      if (!mode.chromium) setTimeout(() => { if (mode && !mode.chromium) scan(document, true, true); }, 5000);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go, { once: true }); else go();
+  }
+  return { set, stats };
 }
 
 // One document's engine: the page's (win: its window), or, run from the page's, a frame's the page writes into
@@ -856,6 +1158,13 @@ function makeEngine(core, win, env) {
     xo: new Map(),                // another site's stylesheet address -> { state, text, ir, waiters }
     xoPending: 0, raf: 0, cover: null, canvas: false, domReady: false, inlineAgain: false, reading: null,
     stats: { ms: 0, updates: 0, rules: 0, chars: 0 },   // (the time spent here, how many rules read, how much written: in this world only)
+    icons: new Map(),             // a picture's address -> { data (it as an icon in text's colors, or null), users }
+    iconGen: 0, iconOf: null, iconTimer: 0,
+    imgRules: new Map(),          // an <img>'s src="" -> the rule giving it its picture in text's colors (null: asked)
+    imgHref: new Map(),           // …and the picture it showed
+    picSels: new Set(), picTimer: 0, picDone: new WeakSet(), picColors: new Map(),   // text over pictures (pictureText)
+    fgTimer: 0, fgDone: new WeakSet(),   // what was looked at for reading on what's behind it (contrastPass)
+    art: new WeakMap(),           // an <svg> -> whether it's art (a logo: its colors kept)
     kids: [],                     // WeakRefs to the <iframe>s whose documents this engine runs one for
     kidHeard: new WeakSet(),      // …and those it listens to (their load: another document)
   };
@@ -1118,6 +1427,8 @@ function makeEngine(core, win, env) {
             }
           }
         }
+        // (a rule that puts a picture behind something: text over it may be the page's to color, pictureText)
+        if (n.sel && decls && decls.some((d) => (d[0] === 'background' || d[0] === 'background-image') && /url\(/i.test(d[1]) && !/^\s*url\(\s*["']?data:image\/svg/i.test(d[1]))) S.picSels.add(n.sel);
         if (n.kids) visit(n.kids, n.base || base);
         if (n.frames) visit(n.frames, base);
       }
@@ -1129,13 +1440,15 @@ function makeEngine(core, win, env) {
   function emitDecls(decls, base) {
     let s = '';
     const P = S.P;
-    // (a gradient drawn on letters: background-clip: text — its colors are text's)
-    let letters = false;
-    for (const d of decls) if (core.CLIP.has(d[0])) letters = true;
+    // (a gradient drawn on letters: background-clip: text — its colors are text's; and an icon drawn as a mask
+    // over its background-color: that's its color, text's too)
+    let letters = false, masked = false;
+    for (const d of decls) { if (core.CLIP.has(d[0])) letters = true; else if (d[0] === '-bifrost-masked') masked = true; }
     for (const d of decls) {
       const p = d[0], v = d[1], bang = d[2] ? '!important' : '';
-      if (core.CLIP.has(p)) continue;
-      if (letters && (p === 'background' || p === 'background-image' || p === 'background-color')) { s += p + ':' + core.cached(P, 'v', v, 't', { base }) + bang + ';'; continue; }
+      if (core.CLIP.has(p) || p === '-bifrost-masked') continue;
+      if ((letters || masked) && (p === 'background' || p === 'background-image' || p === 'background-color')) { s += p + ':' + core.cached(P, 'v', v, 't', { base }) + bang + ';'; continue; }
+      if (p === 'background' || p === 'background-image') { s += p + ':' + core.cached(P, 'v', v, 'b', { base, icon: S.iconOf, iv: S.iconGen }) + bang + ';'; continue; }
       if (isCustom(p)) {
         const codes = S.codes.get(p);
         if (codes) for (const c of codes) s += core.twin(p, c) + ':' + core.cached(P, 't', v, c, { base }) + bang + ';';
@@ -1222,7 +1535,7 @@ function makeEngine(core, win, env) {
     S.scopes.set(root, sc);
     S.roots.push(new WeakRef(root));
     const mo = new MutationObserver((records) => onMutations(sc, records));
-    try { mo.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'bgcolor', 'color', 'fill', 'stroke', 'text', 'media', 'disabled', 'rel', 'href'] }); } catch { /* not a node */ }
+    try { mo.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['style', 'bgcolor', 'color', 'fill', 'stroke', 'text', 'media', 'disabled', 'rel', 'href', 'src'] }); } catch { /* not a node */ }
     sc.mo = mo;
     watchIn(sc, root);
     return sc;
@@ -1251,7 +1564,7 @@ function makeEngine(core, win, env) {
     const list = [];
     const site = sc.doc ? siteSheet() : null;
     try { for (const sh of root.styleSheets) list.push(sh); } catch { /* none */ }
-    try { for (const sh of root.adoptedStyleSheets) if (!S.ours.has(sh) && sh !== site) list.push(sh); } catch { /* none */ }
+    try { for (const sh of root.adoptedStyleSheets) if (!S.ours.has(sh) && sh !== site && !(env.own && env.own.has(sh))) list.push(sh); } catch { /* none */ }
     if (list.length !== sc.list.length || list.some((x, i) => x !== sc.list[i])) S.liveChanged = true;
     sc.list = list;
     for (const sh of list) {
@@ -1328,6 +1641,8 @@ function makeEngine(core, win, env) {
     flush();
     S.stats.ms += performance.now() - t0;
     S.stats.updates++;
+    if (env.main && S.picSels.size && !S.picTimer) S.picTimer = setTimeout(pictureText, 300);
+    if (S.domReady) fgSoon(800);
   }
   // Stylesheets no longer in any root: forgotten (their variables too).
   function prune() {
@@ -1399,7 +1714,8 @@ function makeEngine(core, win, env) {
         if (st.getPropertyPriority(prop) === 'important') continue;
         const uses = [];
         const role = letters && (prop === 'background-image' || prop === 'background-color') ? 't' : tok.r;
-        want.set('--bifrost-c-' + tok.t, core.cached(S.P, 'v', v, role, { uses, base }));
+        const icon = role === 'b' && (prop === 'background' || prop === 'background-image') ? S.iconOf : null;
+        want.set('--bifrost-c-' + tok.t, core.cached(S.P, 'v', v, role, { uses, base, icon, iv: S.iconGen }));
         for (const [nn, cc] of uses) addCode(nn, cc);
         tokens.push(tok.t);
       }
@@ -1428,16 +1744,232 @@ function makeEngine(core, win, env) {
     let c = core.parse(v);
     if (!c && /^[0-9a-f]{6}$/i.test(v.trim())) c = core.parse('#' + v.trim());
     if (!c) { S.attrRules.set(key, ''); return; }
-    const rule = `:where(${spec[2]}[${attr}=${cssString(v)} i]){${spec[0]}:${core.format(core.mapColor(S.P, c, spec[1]))}}`;
+    // (a color, not a gray, in an SVG that's art — a logo — is kept: data-bifrost-art, artIn)
+    const keep = (attr === 'fill' || attr === 'stroke') && core.isColor(c) ? ':not([data-bifrost-art] *)' : '';
+    const rule = `:where(${spec[2]}[${attr}=${cssString(v)} i]${keep}){${spec[0]}:${core.format(core.mapColor(S.P, c, spec[1]))}}`;
     S.attrRules.set(key, rule);
     for (const b of [S.docBase, S.shadowBase]) { try { b.insertRule(rule, b.cssRules.length); } catch { /* fine */ } }
   }
-  const PRES_SEL = '[style],[bgcolor],font[color],body[text],[fill],[stroke],iframe';
+  const PRES_SEL = '[style],[bgcolor],font[color],body[text],[fill],[stroke],iframe,img';
   const one = (e) => {
     if (e.hasAttribute('style')) inline(e);
     for (const a of ['bgcolor', 'color', 'fill', 'stroke', 'text']) if (e.hasAttribute(a)) presentational(e, a);
+    if ((e.hasAttribute('fill') || e.hasAttribute('stroke')) && e.ownerSVGElement) artIn(e.ownerSVGElement);
     if (e.localName === 'iframe') frameIn(e);
+    else if (e.localName === 'img') imgIcon(e);
   };
+
+  // An inline SVG drawn in three colors or more (a logo, Google's microphone): art, its colors kept (its grays
+  // turned all the same: a chart's labels).
+  function artIn(svg) {
+    if (S.art.has(svg)) return;
+    const colors = [];
+    try {
+      for (const e of [svg, ...svg.querySelectorAll('[fill],[stroke],[stop-color]')]) {
+        for (const a of ['fill', 'stroke', 'stop-color']) { const c = core.parse(e.getAttribute(a) || ''); if (c) colors.push(c); }
+      }
+    } catch { /* fine */ }
+    const art = core.isArt(colors);
+    S.art.set(svg, art);
+    if (art && !svg.hasAttribute('data-bifrost-art')) svg.setAttribute('data-bifrost-art', '');
+    // (an icon in one color with white drawn on it, as Drive's files are: the white is on the color, and goes to
+    // base, which reads on Catppuccin's colors in every flavor; text's, light in Mocha, didn't on its pastels)
+    if (!art && colors.some(core.isColor) && colors.some((c) => c[3] !== 0 && core.hueOf(c).L > 0.95 && core.hueOf(c).C < 0.02)) {
+      if (!svg.hasAttribute('data-bifrost-duo')) svg.setAttribute('data-bifrost-duo', '');
+    }
+  }
+
+  // ---------------------------------------------------------------- text over pictures
+  // Text right over a picture (a course's banner, a photo behind a headline) keeps the page's own color: it
+  // was chosen for that picture, which isn't turned (white letters on a dark banner went dark in Latte). Its
+  // color is read with Bifrost's stylesheets out of the way for a moment (no frame is drawn in between), and
+  // given back to it by a rule of Bifrost's (data-bifrost-pic). Only text with nothing of its own between it
+  // and the picture: a list on a white card over a background photo (Gmail's themes) is the page's as turned.
+  function pictureText() {
+    S.picTimer = 0;
+    if (!S.on) return;
+    const want = [];
+    for (const sel of S.picSels) {
+      let els;
+      try { els = document.querySelectorAll(sel); } catch { S.picSels.delete(sel); continue; }
+      for (const el of els) {
+        if (S.picDone.has(el)) continue;
+        S.picDone.add(el);
+        const cs = getComputedStyle(el);
+        if (!/url\(/i.test(cs.backgroundImage)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 120 || r.height < 40) continue;
+        const walk = document.createTreeWalker(el, 4);
+        const seen = new Set();
+        for (let t = walk.nextNode(), k = 0; t && k < 300; t = walk.nextNode(), k++) {
+          const p = t.parentElement;
+          if (!p || seen.has(p) || !t.nodeValue.trim()) continue;
+          seen.add(p);
+          let open = true;
+          for (let e = p; e && e !== el; e = e.parentElement) {
+            const st = getComputedStyle(e);
+            const c = core.parse(st.backgroundColor);
+            if ((c && c[3] > 0.5) || st.backgroundImage !== 'none') { open = false; break; }
+          }
+          if (open) want.push(p);
+        }
+      }
+    }
+    if (!want.length) return;
+    let cur;
+    try { cur = document.adoptedStyleSheets; } catch { return; }
+    const colors = [];
+    try {
+      document.adoptedStyleSheets = cur.filter((x) => !S.ours.has(x));
+      for (const e of want) colors.push(getComputedStyle(e).color);
+    } finally { try { document.adoptedStyleSheets = cur; } catch { /* fine */ } }
+    let added = false;
+    want.forEach((e, i) => {
+      const c = core.parse(colors[i]);
+      if (!c) return;
+      const v = c.join(',');
+      if (!S.picColors.has(v)) { S.picColors.set(v, `:where([data-bifrost-pic="${v}"]){color:${core.format(c)}!important}`); added = true; }
+      if (e.getAttribute('data-bifrost-pic') !== v) e.setAttribute('data-bifrost-pic', v);
+    });
+    if (added) writeBases();
+  }
+
+  // ---------------------------------------------------------------- what still doesn't read
+  // Text (and one-color SVG icons) that the turned colors left too close to what's behind them: white letters or
+  // a glyph on a button whose color Catppuccin's makes lighter (Latte: white on its blue went dark on dark), a
+  // color and a background from rules Bifrost couldn't connect, turned the same way. Each is given base's color
+  // or text's, whichever reads on what's behind it (data-bifrost-fg). Looked at once the page is drawn, and for
+  // what's added to it.
+  const FG_MAX = 3000;
+  function fgSoon(ms) { if (!S.fgTimer && S.on) S.fgTimer = setTimeout(contrastPass, ms); }
+  function contrastPass() {
+    S.fgTimer = 0;
+    if (!S.on || !document.body) return;
+    const t0 = performance.now();
+    const P = S.P;
+    const memo = new Map();
+    // What's behind an element: the first background of its own or an ancestor's (a gradient's first color);
+    // null for a picture (text over one is the page's: pictureText).
+    const behind = (el) => {
+      const path = [];
+      let out = P.rgb.base;
+      for (let e = el, k = 0; e && k < 60; e = e.parentElement || (e.parentNode && e.parentNode.host) || null, k++) {
+        if (memo.has(e)) { out = memo.get(e); break; }
+        path.push(e);
+        const cs = getComputedStyle(e);
+        const img = cs.backgroundImage;
+        if (img && img !== 'none') {
+          if (/url\(/i.test(img)) { out = null; break; }
+          const m = /rgba?\([^)]*\)/i.exec(img);
+          const g = m && core.parse(m[0]);
+          if (g && g[3] >= 0.5) { out = g; break; }
+        }
+        const c = core.parse(cs.backgroundColor);
+        if (c && c[3] >= 0.5) { out = c; break; }
+      }
+      for (const e of path) memo.set(e, out);
+      return out;
+    };
+    const fix = (el, fg, bg) => {
+      const a = fg[3] == null ? 1 : fg[3];
+      if (a < 0.5) return;
+      const seen = [0, 1, 2].map((i) => fg[i] * a + bg[i] * (1 - a));
+      const yb = core.lum(bg);
+      const now = core.ratio(core.lum(seen), yb);
+      if (now >= 2.4) return;
+      const rb = core.ratio(P.yBase, yb), rt = core.ratio(P.yText, yb);
+      const k = rb > rt ? 'base' : 'text';
+      if (Math.max(rb, rt) < now + 1.5) return;
+      if (el.getAttribute('data-bifrost-fg') !== k) el.setAttribute('data-bifrost-fg', k);
+    };
+    let n = 0;
+    const walk = document.createTreeWalker(document.body, 4);
+    const done = S.fgDone;
+    for (let t = walk.nextNode(); t && n < FG_MAX; t = walk.nextNode()) {
+      const el = t.parentElement;
+      if (!el || done.has(el) || !t.nodeValue.trim()) continue;
+      done.add(el);
+      n++;
+      if (el.closest('[data-bifrost-pic],[data-bifrost-art]')) continue;
+      const fg = core.parse(getComputedStyle(el).color);
+      const bg = fg && behind(el);
+      if (bg) fix(el, fg, bg);
+    }
+    for (const svg of document.querySelectorAll('svg')) {
+      if (n >= FG_MAX) break;
+      if (done.has(svg) || svg.hasAttribute('data-bifrost-art')) continue;
+      done.add(svg);
+      n++;
+      // (an icon drawn in one color: every shape the same fill)
+      let fill = '';
+      let one = true;
+      for (const e of svg.querySelectorAll('path,circle,rect,polygon,ellipse')) {
+        const f = getComputedStyle(e).fill;
+        if (!f || f === 'none') continue;
+        if (fill && f !== fill) { one = false; break; }
+        fill = f;
+      }
+      if (!one || !fill) continue;
+      const fg = core.parse(fill);
+      const bg = fg && behind(svg.parentElement || svg);
+      if (bg) fix(svg, fg, bg);
+    }
+    S.stats.ms += performance.now() - t0;
+  }
+
+  // ---------------------------------------------------------------- icons that are pictures
+  // A picture (a background's, an <img>'s) that's an icon drawn in one gray on nothing (a black glyph, as Google
+  // draws most of theirs) doesn't show on Catppuccin's dark base: the main process reads it (without your
+  // cookies) and, if it's that, gives it back in text's colors (web-styles.js iconFetch). Until then, and for
+  // anything else (a photo, a logo), it's as it is.
+  const ICONS_MAX = 600;
+  function iconOf(href) {
+    if (!href || href.length > 200000 || !/^(https?:|data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,])/i.test(href)) return null;
+    let e = S.icons.get(href);
+    if (e) return e.data;
+    if (S.icons.size >= ICONS_MAX || !env.icon) return null;
+    e = { data: null };
+    S.icons.set(href, e);
+    env.icon(href, S.cfg && S.cfg.key).then((data) => {
+      if (!data || !S.on) return;
+      e.data = data;
+      S.iconGen++;
+      // (all the icons that come in together: the page's stylesheets written once again for them)
+      if (!S.iconTimer) S.iconTimer = setTimeout(() => {
+        S.iconTimer = 0;
+        if (!S.on) return;
+        eachScope((sc) => {
+          for (const sh of sc.list) { const src = S.sources.get(sh); if (src && src.text && src.text.indexOf('url(') >= 0) S.dirty.add(src); }
+          try { for (const el of sc.root.querySelectorAll('[style*="url("]')) { S.seen.delete(el); inline(el); } } catch { /* none */ }
+        });
+        for (const [src, rule] of [...S.imgRules]) if (rule === null) imgRule(src);
+        flush();
+      }, 120);
+    }, () => {});
+    return null;
+  }
+  S.iconOf = iconOf;
+  const IMG_MAX = 600;   // (bigger than this either way: a picture, not an icon)
+  function imgIcon(img) {
+    const src = img.getAttribute('src');
+    if (!src || S.imgRules.has(src)) return;
+    const look = () => {
+      if (S.imgRules.has(src) || img.getAttribute('src') !== src) return;
+      if (!img.naturalWidth || img.naturalWidth > IMG_MAX || img.naturalHeight > IMG_MAX) return;
+      S.imgRules.set(src, null);
+      S.imgHref.set(src, img.currentSrc || img.src);
+      imgRule(src);
+    };
+    if (img.complete) look(); else img.addEventListener('load', look, { once: true });
+  }
+  // (its rule, once the main process has the icon: given by the address in src="", whatever srcset picked)
+  function imgRule(src) {
+    const data = iconOf(S.imgHref.get(src));
+    if (!data) return;
+    const rule = `:where(img[src=${cssString(src)}]){content:url(${cssString(data)})}`;
+    S.imgRules.set(src, rule);
+    for (const b of [S.docBase, S.shadowBase]) { try { b.insertRule(rule, b.cssRules.length); } catch { /* fine */ } }
+  }
   function added(el) {
     one(el);
     if (el.firstElementChild) { try { for (const e of el.querySelectorAll(PRES_SEL)) one(e); } catch { /* fine */ } }
@@ -1463,7 +1995,7 @@ function makeEngine(core, win, env) {
     if (had) { try { had.engine.setConfig(null); } catch { /* its document went */ } kidOf.delete(f); }
     if (!w) return;
     let engine;
-    try { engine = makeEngine(core, w, { main: false, cssNow: env.cssNow, css: env.css, pageWorld: null }); } catch { return; }
+    try { engine = makeEngine(core, w, { main: false, cssNow: env.cssNow, css: env.css, icon: env.icon, pageWorld: null }); } catch { return; }
     kidOf.set(f, { win: w, engine });
     S.kids.push(new WeakRef(f));
     try { engine.setConfig(S.cfg); } catch { /* its document went */ }
@@ -1484,6 +2016,7 @@ function makeEngine(core, win, env) {
       if (r.type === 'attributes') {
         const a = r.attributeName;
         if (a === 'style') inline(t);
+        else if (a === 'src') { if (t.localName === 'img') imgIcon(t); }
         else if (a === 'media' || a === 'disabled' || a === 'rel' || a === 'href') { if (t.localName === 'link' || t.localName === 'style') sheets = true; }
         else presentational(t, a);
         continue;
@@ -1498,6 +2031,7 @@ function makeEngine(core, win, env) {
       if (!sheets) for (const node of r.removedNodes) if (node.localName === 'style' || node.localName === 'link') { sheets = true; break; }
     }
     if (sheets) update(sc); else flush();
+    if (S.domReady) fgSoon(1200);
   }
 
   // ---------------------------------------------------------------- the base: what's under it all
@@ -1517,6 +2051,11 @@ function makeEngine(core, win, env) {
     s += `::selection{background-color:${fade(c('mauve'), P.dark ? 0.32 : 0.25)};color:${c('text')}}`;
     for (const [p, t] of INLINE) s += `:where([data-bifrost-c~="${t}"]){${p}:var(--bifrost-c-${t})!important}`;
     for (const r of S.attrRules.values()) if (r) s += r;
+    for (const r of S.imgRules.values()) if (r) s += r;
+    if (doc) for (const r of S.picColors.values()) s += r;
+    // (white on an icon's one color: base; and what still didn't read, contrastPass)
+    s += `:where([data-bifrost-duo]) :is([fill="#fff" i],[fill="#ffffff" i],[fill="white" i],[fill="#fafafa" i],[fill="#fefefe" i]){fill:${c('base')}}`;
+    for (const k of ['base', 'text']) s += `:where([data-bifrost-fg="${k}"]){color:${c(k)}!important}:where(svg[data-bifrost-fg="${k}"] :is(path,circle,rect,polygon,ellipse,use,text):not([fill="none" i])){fill:${c(k)}!important}`;
     return s;
   }
   function writeBases() {
@@ -1673,7 +2212,13 @@ function makeEngine(core, win, env) {
     Object.assign(S, {
       cfg: null, P: null, roots: [], scopes: new WeakMap(), sources: new WeakMap(), live: new Set(), codes: new Map(), defSources: new Map(),
       dirty: new Set(), seen: new WeakMap(), applied: new WeakMap(), attrRules: new Map(), pendingLinks: new Set(), cover: null, canvas: false,
+      icons: new Map(), imgRules: new Map(), imgHref: new Map(), art: new WeakMap(),
+      picSels: new Set(), picDone: new WeakSet(), picColors: new Map(), fgDone: new WeakSet(),
     });
+    if (S.fgTimer) { clearTimeout(S.fgTimer); S.fgTimer = 0; }
+    try { for (const e of document.querySelectorAll('[data-bifrost-fg],[data-bifrost-duo],[data-bifrost-art]')) { e.removeAttribute('data-bifrost-fg'); e.removeAttribute('data-bifrost-duo'); e.removeAttribute('data-bifrost-art'); } } catch { /* fine */ }
+    if (S.picTimer) { clearTimeout(S.picTimer); S.picTimer = 0; }
+    try { for (const e of document.querySelectorAll('[data-bifrost-pic]')) e.removeAttribute('data-bifrost-pic'); } catch { /* fine */ }
   }
   function setConfig(cfg) {
     if (!cfg || !cfg.palette) { if (S.on) stop(); return; }
@@ -1682,6 +2227,12 @@ function makeEngine(core, win, env) {
     S.cfg = cfg;
     S.P = core.prepare(cfg.palette);
     S.attrRules.clear();
+    // (icons are made for a palette: asked for again; and what reads on what is looked at again)
+    S.icons = new Map();
+    S.imgRules = new Map();
+    S.fgDone = new WeakSet();
+    try { for (const e of document.querySelectorAll('[data-bifrost-fg]')) e.removeAttribute('data-bifrost-fg'); } catch { /* fine */ }
+    fgSoon(800);
     S.seen = new WeakMap();
     eachScope((sc) => { for (const sh of sc.list) { const src = S.sources.get(sh); if (src) S.dirty.add(src); } });
     writeBases();

@@ -111,7 +111,10 @@ its sign-in, the others signed in to again), `webstyles`
 (dark mode for websites against local stand-in sites, read off the screen: turned on in Settings and in open
 tabs at once, a site's own dark theme, per site with Alt+Shift+A and the info popover, Alt+Shift+D, a site
 whose own dark theme is partly white darkened by Bifrost (remembered, listed in Settings, forgotten there), a
-site you choose Bifrost's dark mode for, brightness and sepia on the top page only; your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
+site you choose Bifrost's dark mode for, brightness and sepia on the top page only; a page built as Google
+builds theirs in dark mode (a frame from another site, a page drawn on a canvas, icons drawn as masks) and in
+Catppuccin for every site (icons in pictures, masks, a logo and a photo kept, white on a one-color icon, a
+banner's letters, canvases, white on a strong blue, Latte); your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
 link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
 Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be
@@ -143,7 +146,8 @@ YouTube changed) and which refused, `catppuccin` a theme as Catppuccin's colors,
 Catppuccin's library with them in it, `recolor` Catppuccin for every site's colors (every way CSS writes a color
 read; what a background, text, a line and a shadow become in Mocha, in Latte and in Bifrost's themes, by lightness
 and hue; text readable on them; values rewritten: gradients, shadows, variables pointed at their twins, the numbers
-Bootstrap, shadcn and Tailwind keep in variables, url()s), `domain-list` the ad
+Bootstrap, shadcn and Tailwind keep in variables, url()s; icons in pictures and SVGs, logos kept, masks, the
+filter for a page drawn on a canvas), `domain-list` the ad
 blocker's domain list made from HaGeZi's files, which sites are the same company's, and the bundled list with
 Bifrost's exceptions (what it blocks and what it leaves alone), `domain-set` that list's table (whole domains,
 exceptions, rules with a *; its file; for the bundled list, blocked or not as the filter engine it replaced has
@@ -206,6 +210,18 @@ own network for a page on the web), rules scripts add (their insertRule is watch
 shadow roots, frames and the frames a page writes into itself. The palette is Mocha (Latte where websites are
 light), or your theme's while websites match it; a page one of your styles is for is left to that style, and
 sites can be turned off in their info popover.
+
+Pictures stay as they are, photos and logos, except icons: Google draws most of theirs as black glyphs on
+nothing (a sprite as a background, an `<img>`, an SVG), which don't show on a dark base, so the main process
+reads such a picture (no cookies, as stylesheets) and gives it back in text's colors when it's see-through and
+drawn in one gray. An icon drawn as a mask over its background-color takes text's color; an SVG in three colors
+or more (a logo) keeps them; white on a one-color icon (Drive's files) is base. Text right over a picture (a
+course banner) keeps the page's own color, and anything still too close to what's behind it gets base's or
+text's. A page drawn on a canvas (Google Docs: white paper, or black ink on nothing) has its lightness turned
+around by an SVG filter, white to base and black to text; dark mode for websites does the same (to Chromium's
+dark gray), turns icons drawn as masks over a dark color light, and darkens frames from other sites too, which
+the tab's own session didn't reach (Google's account card). Your styles that say where they come from are
+updated once a day (Settings → Your styles → Keep your styles up to date).
 
 ## Releases
 

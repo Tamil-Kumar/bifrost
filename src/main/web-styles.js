@@ -27,11 +27,15 @@
 // colors, in your theme's while websites match it, else Mocha where pages are told they're dark and Latte where
 // they're light; or null. Pages it turns are told dark or light by those colors, and Chromium's own dark mode
 // stays off on them (main/web-theme.js). Stylesheets from other sites, which a page can't read, are read here for
-// it (cssFetch): only CSS, without your cookies, and none from your own network for a page on the web.
+// it (cssFetch): only CSS, without your cookies, and none from your own network for a page on the web; and the
+// pictures it shows that may be icons, given back in text's colors if they are (iconFetch).
+//
+// Your styles that say where they come from are looked at for newer versions once a day (webStyles.autoUpdate:
+// autoUpdate), as Stylus does: sites change, and Catppuccin's styles for them follow.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { net, webContents, nativeTheme } = require('electron');
+const { net, webContents, nativeTheme, nativeImage } = require('electron');
 const { EventEmitter } = require('node:events');
 const ctx = require('./context');
 const U = require('../shared/usercss');
@@ -47,6 +51,14 @@ const CSS_KEEP = 30 * 60e3;         // another site's stylesheet, read for a pag
 const CSS_RETRY = 60e3;             // one that couldn't be read: not asked for again for this long
 const CSS_MAX = 5 * 1024 * 1024;    // the biggest one read
 const CSS_ALL = 40 * 1024 * 1024;   // all of them together, at most
+const UPDATE_FIRST = 3 * 60e3;      // your styles looked at for newer versions this long after the start…
+const UPDATE_EVERY = 24 * 3600e3;   // …and then once a day
+const PIC_MAX = 2 * 1024 * 1024;    // the biggest picture read to be an icon
+const ICON_COUNT = 2000;            // icons kept in text's colors (and pictures known not to be ones), at most
+const ICON_ALL = 30 * 1024 * 1024;  // …and their size together
+// (the color work of Catppuccin for every site, which the pages run: loaded the first time a picture is looked at)
+let coreCache = null;
+const recolorCore = () => coreCache || (coreCache = require(RECOLOR_PRELOAD));
 
 // An address on your own network (or this computer).
 function privateAddress(ip) {
@@ -73,6 +85,9 @@ class WebStyles extends EventEmitter {
     this.css = new Map();          // another site's stylesheet's address -> { text, at, wait }
     this.cssBytes = 0;
     this.palettes = new Map();     // what a page gets for Catppuccin for every site, by what it's made from
+    this.icons = new Map();        // palette key + a picture's address -> { data (it as an icon in text's colors, or null), wait }
+    this.iconBytes = 0;
+    this.iconPalettes = new Map(); // palette key -> recolor.js's prepared palette
   }
 
   // A browsing session (sessions.js): Catppuccin for every site's page script in each of its frames, and other
@@ -116,6 +131,26 @@ class WebStyles extends EventEmitter {
       setTimeout(() => this.retheme(), 3000);
     }
     if (this.styles.some((s) => this.cameEmpty(s))) setTimeout(() => this.buildEmpty().catch(() => {}), 2500);
+    this.updateTimer = setTimeout(() => this.autoUpdate(), UPDATE_FIRST);
+  }
+
+  // Your styles kept up to date (webStyles.autoUpdate): sites change their pages (Google's names for things,
+  // often), and the styles for them follow, so those that say where they come from (Catppuccin's do) are looked
+  // at once a day: a few minutes after the start, and then each hour whether a day has gone by since the last
+  // look (styles-checked.json: a browser started every morning looks once a day, not each time).
+  autoUpdate() {
+    clearTimeout(this.updateTimer);
+    this.updateTimer = setTimeout(() => this.autoUpdate(), 60 * 60e3);
+    if (this.config().autoUpdate === false || !this.styles.some((s) => (s.meta && s.meta.updateURL) || s.installedFrom)) return;
+    const file = path.join(ctx.profile.dir, 'styles-checked.json');
+    let last = 0;
+    try { last = Number(JSON.parse(fs.readFileSync(file, 'utf8')).at) || 0; } catch { /* never */ }
+    if (Date.now() - last < UPDATE_EVERY && last <= Date.now()) return;
+    try { fs.writeFileSync(file, JSON.stringify({ at: Date.now() })); } catch { /* looked at again next hour */ }
+    this.checkUpdates().then((r) => {
+      if (r.updated.length) console.log('[styles] updated:', r.updated.join(', '));
+      this.lastAuto = { at: Date.now(), ...r };
+    }, (e) => console.warn('[styles] update check', e && e.message));
   }
 
   config() { return ctx.settings.get('webStyles') || {}; }
@@ -448,6 +483,109 @@ class WebStyles extends EventEmitter {
     };
     if (!(await local(url))) return true;
     return local(page);
+  }
+
+  // ---- pictures a turned page shows that may be icons (preload/recolor.js asks): Google draws most of its icons
+  // as black glyphs on nothing, in pictures (a sprite as a background, an <img>), which don't show on Catppuccin's
+  // dark base. Read here (without your cookies, none from your own network for a page on the web, as stylesheets
+  // are), and given back in text's colors if it's an icon that wouldn't show in the page's colors (recolor.js's
+  // recolorIcon: see-through, drawn in one gray; an SVG's colors, unless it's art); null for anything else.
+  async iconFetch(event, url) {
+    const page = this.cssAsker(event);
+    if (!page || !url) return null;
+    const pal = this.recolorFor(page, event.sender.getURL());
+    if (!pal) return null;
+    const key = pal.key + '\u0001' + url;
+    const e = this.icons.get(key);
+    if (e) return e.wait || e.data;
+    const wait = this.iconMake(event.sender.session, url, page, pal).catch(() => null).then((data) => {
+      this.icons.set(key, { data, at: Date.now() });
+      this.iconBytes += data ? data.length : 0;
+      // (the oldest go first: at most this many, and this much)
+      for (const [k, v] of this.icons) {
+        if (this.icons.size <= ICON_COUNT && this.iconBytes <= ICON_ALL) break;
+        if (v.wait) continue;
+        this.iconBytes -= v.data ? v.data.length : 0;
+        this.icons.delete(k);
+      }
+      return data;
+    });
+    this.icons.set(key, { wait });
+    return wait;
+  }
+
+  async iconMake(ses, url, page, pal) {
+    let body, type;
+    const d = /^data:([^;,]*)((?:;[^;,]*)*),/i.exec(url);
+    if (d) {
+      type = d[1].toLowerCase();
+      const raw = url.slice(d[0].length);
+      body = /;base64/i.test(d[2]) ? Buffer.from(raw, 'base64') : Buffer.from(decodeURIComponent(raw), 'utf8');
+    } else {
+      const r = await this.picDownload(ses, url, page);
+      body = r.body;
+      type = r.type;
+    }
+    if (!body || !body.length || body.length > PIC_MAX) return null;
+    const core = recolorCore();
+    let P = this.iconPalettes.get(pal.key);
+    if (!P) { P = core.prepare(pal.palette); this.iconPalettes.set(pal.key, P); }
+    if (/svg/i.test(type) || /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg\b/i.test(body.slice(0, 400).toString('utf8'))) {
+      const out = core.svgText(P, body.toString('utf8'));
+      return out ? 'data:image/svg+xml;base64,' + Buffer.from(out, 'utf8').toString('base64') : null;
+    }
+    const img = nativeImage.createFromBuffer(body);
+    if (img.isEmpty()) return null;
+    const { width, height } = img.getSize();
+    if (!width || !height || width * height > 1200000) return null;
+    const px = img.toBitmap();
+    if (!core.recolorIcon(P, px, width, height)) return null;
+    return 'data:image/png;base64,' + nativeImage.createFromBitmap(px, { width, height }).toPNG().toString('base64');
+  }
+
+  // A picture: { body, type }, through the same six at a time as stylesheets, redirects looked at first.
+  async picDownload(ses, url, page) {
+    while ((this.cssActive || 0) >= 6) await new Promise((r) => (this.cssQueue || (this.cssQueue = [])).push(r));
+    this.cssActive = (this.cssActive || 0) + 1;
+    try {
+      let u = url;
+      for (let hop = 0; hop < 4; hop++) {
+        if (!/^https?:\/\//i.test(u)) throw new Error('not a web address');
+        if (!(await this.cssReachable(ses, u, page))) throw new Error('on your own network');
+        const r = await this.picOnce(ses, u);
+        if (r.redirect) { u = new URL(r.redirect, u).href; continue; }
+        return r;
+      }
+      throw new Error('too many redirects');
+    } finally {
+      this.cssActive--;
+      const next = this.cssQueue && this.cssQueue.shift();
+      if (next) next();
+    }
+  }
+
+  picOnce(ses, url) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const end = (fn, v) => { if (done) return; done = true; clearTimeout(timer); fn(v); };
+      const req = net.request({ url, session: ses, redirect: 'manual', useSessionCookies: false, credentials: 'omit' });
+      const timer = setTimeout(() => { try { req.abort(); } catch { /* gone */ } end(reject, new Error('too slow')); }, 15000);
+      req.on('redirect', (status, method, to) => { try { req.abort(); } catch { /* gone */ } end(resolve, { redirect: to }); });
+      req.on('response', (res) => {
+        const v = res.headers['content-type'];
+        const type = String(Array.isArray(v) ? v[0] : v || '');
+        if (res.statusCode < 200 || res.statusCode >= 300) { try { req.abort(); } catch { /* gone */ } return end(reject, new Error('answered ' + res.statusCode)); }
+        // (only pictures: a page couldn't show anything else as one either)
+        if (!/^image\//i.test(type)) { try { req.abort(); } catch { /* gone */ } return end(reject, new Error('not a picture')); }
+        const chunks = [];
+        let size = 0;
+        res.on('data', (c) => { size += c.length; if (size > PIC_MAX) { try { req.abort(); } catch { /* gone */ } end(reject, new Error('too big')); } else chunks.push(c); });
+        res.on('end', () => end(resolve, { body: Buffer.concat(chunks), type }));
+        res.on('error', (e) => end(reject, e));
+      });
+      req.on('error', (e) => end(reject, e));
+      req.end();
+    });
   }
 
   // ---------------------------------------------------------------- your theme on websites

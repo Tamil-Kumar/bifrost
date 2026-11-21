@@ -104,8 +104,38 @@ check('…a picture’s data: URL and a string left alone', rw('url("data:image/
 check('…an SVG drawn into the stylesheet (Bootstrap’s select arrow): its stroke an icon’s, light now; written plainly or in base64',
   [rw("url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23343a40' d='m2 5 6 6 6-6'/%3e%3c/svg%3e\")", 'b')[0],
     rw('url(data:image/svg+xml;base64,' + Buffer.from('<svg><path fill="#000" style="stroke:red"/></svg>').toString('base64') + ')', 'b')[0]],
-  ["url(\"data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cdd6f4' d='m2 5 6 6 6-6'/%3e%3c/svg%3e\")",
-    'url("data:image/svg+xml,%3csvg%3e%3cpath fill=%22%23cdd6f4%22 style=%22stroke:%23f38ba8%22/%3e%3c/svg%3e")']);
+  ["url(\"data:image/svg+xml,%3csvg color=%22%23cdd6f4%22 fill=%22%23cdd6f4%22 xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23cdd6f4' d='m2 5 6 6 6-6'/%3e%3c/svg%3e\")",
+    'url("data:image/svg+xml,%3csvg color=%22%23cdd6f4%22 fill=%22%23cdd6f4%22%3e%3cpath fill=%22%23cdd6f4%22 style=%22stroke:%23f38ba8%22/%3e%3c/svg%3e")']);
+// Pictures that are icons, as Google draws them: in text's colors on a dark page; logos kept.
+check('an SVG icon that draws in the default black (or currentColor, black in a picture): in text\'s color',
+  R.svgText(mocha, '<svg viewBox="0 0 24 24"><path d="M0 0h24v24z"/><path stroke="currentColor"/></svg>'), '<svg color="#cdd6f4" fill="#cdd6f4" viewBox="0 0 24 24"><path d="M0 0h24v24z"/><path stroke="currentColor"/></svg>');
+check('…a logo (three colors or more, Google\'s four) kept as it is, in the stylesheet too; a two-colored mark turned',
+  [R.svgText(mocha, '<svg><path fill="#4285F4"/><path fill="#EA4335"/><path fill="#FBBC05"/><path fill="#34A853"/></svg>'),
+    rw("url(\"data:image/svg+xml,%3csvg%3e%3cpath fill='%234285F4'/%3e%3cpath fill='%23EA4335'/%3e%3cpath fill='%23FBBC05'/%3e%3c/svg%3e\")", 'b')[0].includes('4285F4'),
+    R.isArt([[30, 142, 62, 1], [251, 188, 5, 1]])], [null, true, false]);
+check('a picture from elsewhere that\'s an icon: the one in text\'s colors once there is one (o.icon), else its address made whole',
+  [rw('url(img/menu.png) no-repeat', 'b', { icon: (u) => (u === 'https://site.test/css/img/menu.png' ? 'data:image/png;base64,AAAA' : null) })[0], rw('url(img/menu.png)', 'b', { icon: () => null })[0]],
+  ['url("data:image/png;base64,AAAA") no-repeat', 'url("https://site.test/css/img/menu.png")']);
+check('an icon drawn as a mask over its background-color (Google\'s): the rule says so, for that color to be text\'s',
+  [R.declarations('-webkit-mask: url(i.svg) center / 20px no-repeat; background-color: #444746', false), R.declarations('-webkit-mask-image: linear-gradient(#000, transparent); background: #fff', false).length],
+  [[['background-color', '#444746', false], ['-bifrost-masked', '', false]], 1]);
+// (a picture, as Chromium keeps one: BGRA, alpha premultiplied)
+const picture = (w, h, fn) => { const px = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const [r, g, b, a] = fn(x, y); const o = (y * w + x) * 4; px[o] = b * a / 255; px[o + 1] = g * a / 255; px[o + 2] = r * a / 255; px[o + 3] = a; } return px; };
+const glyph = () => picture(24, 24, (x, y) => (y > 5 && y < 9 || y > 11 && y < 14 ? [68, 71, 70, 255] : [0, 0, 0, 0]));
+const at = (px, w, x, y) => { const o = (y * w + x) * 4; return [px[o + 2], px[o + 1], px[o], px[o + 3]]; };
+const g1 = glyph();
+check('a black icon on nothing, on a dark page: drawn in text\'s colors, its edges as see-through as they were',
+  [R.recolorIcon(mocha, g1, 24, 24), at(g1, 24, 3, 7).slice(3)[0], R.ratio(R.lum(at(g1, 24, 3, 7)), R.lum([30, 30, 46])) >= 4.5, at(g1, 24, 3, 2)[3]], [true, 255, true, 0]);
+check('…left as it is on a light page (it shows), and anything that isn\'t one: a logo in colors, a photo, a picture with a white background',
+  [R.recolorIcon(latte, glyph(), 24, 24),
+    R.recolorIcon(mocha, picture(30, 10, (x) => (x < 10 ? [66, 133, 244, 255] : x < 20 ? [234, 67, 53, 255] : [0, 0, 0, 0])), 30, 10),
+    R.recolorIcon(mocha, picture(20, 20, (x, y) => [x * 12, y * 12, 200, 255]), 20, 20),
+    R.recolorIcon(mocha, picture(20, 20, (x, y) => (y === 9 ? [0, 0, 0, 255] : [255, 255, 255, 255])), 20, 20)], [false, false, false, false]);
+// The filter for a page drawn on a canvas: white to base, black to text, a blue a lighter blue.
+const matrix = decodeURIComponent(R.inkFilter([30, 30, 46], [205, 214, 244])).match(/values="([^"]+)"/)[1].split(' ').map(Number);
+const apply = (c) => [0, 1, 2].map((i) => Math.round(255 * Math.max(0, Math.min(1, matrix[i * 5] * c[0] / 255 + matrix[i * 5 + 1] * c[1] / 255 + matrix[i * 5 + 2] * c[2] / 255 + matrix[i * 5 + 4]))));
+check('a canvas page\'s colors turned around: white to base, black to text, a link\'s blue still blue and readable on base',
+  [apply([255, 255, 255]), apply([0, 0, 0]), (() => { const b = apply([17, 85, 204]); return b[2] > b[0] && R.ratio(R.lum(b), R.lum([30, 30, 46])) >= 4.5; })()], [[30, 30, 46], [205, 214, 244], true]);
 check('a gradient on letters (background-clip: text) kept with the rule’s colors, so its background can be text’s', R.declarations('background: linear-gradient(90deg, #ff0080, #7928ca); -webkit-background-clip: text; padding: 0', false).map((d) => d[0]), ['background', '-webkit-background-clip']);
 check('…and as CSSOM writes it, inside the background shorthand ("… text"), not a "text" in a function or a string', [
   'background: linear-gradient(90deg, rgb(255, 0, 128), rgb(121, 40, 202)) text; color: transparent',

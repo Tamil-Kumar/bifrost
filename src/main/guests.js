@@ -130,6 +130,7 @@ function init() {
     try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
     try { out.css = cssFor(event, href); } catch { out.css = ''; }
     try { out.recolor = recolorFor(event, href); } catch { out.recolor = null; }
+    try { out.darkMode = require('./web-theme').darkModeOn(event.sender); } catch { out.darkMode = false; }
     try { if (ctx.adblock && /^https?:/i.test(href)) out.adblock = ctx.adblock.startFor(event, href); } catch (e) { console.warn('[adblock] cosmetics', e.message); }
     if (process.env.BIFROST_TEST === '1') global.__tabStarts = (global.__tabStarts || 0) + 1;
     event.returnValue = out;
@@ -141,6 +142,7 @@ function init() {
     try { out.shown = pageShown(event.sender); } catch { out.shown = true; }
     try { out.css = cssFor(event, String(url || '')); } catch { out.css = ''; }
     try { out.recolor = recolorFor(event, String(url || '')); } catch { out.recolor = null; }
+    try { out.darkMode = require('./web-theme').darkModeOn(event.sender); } catch { out.darkMode = false; }
     return out;
   });
   // Catppuccin for every site (preload/recolor.js): another site's stylesheet, which the page can't read itself,
@@ -152,6 +154,8 @@ function init() {
     event.returnValue = text;
   });
   ipcMain.handle('recolor:css', (event, url) => (ctx.webStyles ? ctx.webStyles.cssFetch(event, String(url || '')) : null));
+  // …and a picture it shows that may be an icon: given back in text's colors if it is one (web-styles.js).
+  ipcMain.handle('recolor:icon', (event, url) => (ctx.webStyles ? ctx.webStyles.iconFetch(event, String(url || '')) : null));
 
   let looking = pageLookWanted();
   ctx.settings.on('changed', ({ path }) => {

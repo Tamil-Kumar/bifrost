@@ -24,11 +24,12 @@
 //    style of yours is for left to that style; off for a site in its info popover; in your theme's colors while
 //    websites match it (Frost, Latte), Latte for websites told they're light; off, the site's own colors again.
 import http from 'node:http';
+import zlib from 'node:zlib';
 import { createRequire } from 'node:module';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test', 'gsite.test', 'gstatic.test', 'gframe.test'];
 const CORE = createRequire(import.meta.url)('../../src/preload/recolor.js');
 const CAT = createRequire(import.meta.url)('../../src/shared/catppuccin.js');
 const THEMES = createRequire(import.meta.url)('../../src/shared/themes.js');
@@ -127,6 +128,57 @@ const STYLUS2 = `/* ==UserStyle==
   body when (@tone = dark) { background: #101820 !important; }
   body when (@tone = light) { background: #f0f4f8 !important; }
 }`;
+// A page built the way Google builds theirs (for dark mode and Catppuccin for every site): icons as black glyphs
+// in pictures from another site (a sprite as a background, <img>s: a PNG, an SVG), icons drawn as masks over
+// their background-color (in the same rule, and in another), a logo (a colored PNG, an inline SVG in Google's
+// four colors), a photo, a file icon in one color with white on it, a banner with white letters over a picture,
+// a page drawn on a canvas (white paper, as Docs did, and black ink on nothing, as it does), a frame from
+// another site, and white letters on a strong blue.
+// (pictures: PNGs made here, RGBA)
+function png(w, h, fn) {
+  const raw = Buffer.alloc((w * 4 + 1) * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw.set(fn(x, y), y * (w * 4 + 1) + 1 + x * 4);
+  const chunk = (type, data) => { const b = Buffer.alloc(12 + data.length); b.writeUInt32BE(data.length, 0); b.write(type, 4, 'ascii'); data.copy(b, 8); b.writeUInt32BE(zlib.crc32(b.subarray(4, 8 + data.length)), 8 + data.length); return b; };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+}
+const PICS = {
+  '/icon.png': png(24, 24, (x, y) => ((y > 5 && y < 9) || (y > 11 && y < 14) || (y > 16 && y < 19) ? [0, 0, 0, 255] : [0, 0, 0, 0])),
+  '/logo.png': png(60, 20, (x) => (x < 15 ? [66, 133, 244, 255] : x < 30 ? [234, 67, 53, 255] : x < 45 ? [251, 188, 5, 255] : [52, 168, 83, 255]).map((v, i) => (i === 3 && x % 15 > 11 ? 0 : v))),
+  '/photo.png': png(60, 40, (x, y) => [120 + x * 2, 80 + y * 3, 200 - x, 255]),
+  '/banner.png': png(400, 100, (x, y) => [25 + (x % 40), 90 + (y % 30), 200, 255]),
+};
+const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h18v3H3zm0 6h18v3H3zm0 6h18v3H3z"/></svg>';
+const GSITE = `<!doctype html><html><head><meta charset=utf-8><title>Google-like</title><style>
+body { margin: 0; background: #f8fafd; color: #1f1f1f; font: 14px sans-serif; }
+.ic { width: 24px; height: 24px; background: url(http://gstatic.test/icon.png) no-repeat; display: inline-block; }
+.mi { width: 24px; height: 24px; -webkit-mask: url(http://gstatic.test/icon.svg) center / 24px no-repeat; background-color: #444746; display: inline-block; }
+.m2 { width: 24px; height: 24px; -webkit-mask: url(http://gstatic.test/icon.svg) center / 24px no-repeat; display: inline-block; }
+#mask2 { background-color: #444746; }
+.banner { width: 400px; height: 100px; background: url(/banner.png) center / cover; position: relative; }
+.banner h1 { position: absolute; left: 16px; bottom: 8px; margin: 0; color: #fff; font-size: 26px; }
+.chip { background: #1a73e8; color: #fff; padding: 4px 10px; }
+canvas, iframe { display: block; margin: 8px 0; }
+</style></head><body>
+<div style="padding:8px"><span class=ic id=sprite></span> <img id=pic src="http://gstatic.test/icon.png" width=24 height=24> <img id=svgimg src="http://gstatic.test/icon.svg" width=24 height=24>
+<img id=logo src="http://gstatic.test/logo.png" width=60 height=20> <img id=photo src="http://gstatic.test/photo.png" width=60 height=40>
+<span class=mi id=mask></span> <span class=m2 id=mask2></span>
+<svg id=glogo width=60 height=20 viewBox="0 0 60 20"><rect width=15 height=20 fill="#4285F4"/><rect x=15 width=15 height=20 fill="#EA4335"/><rect x=30 width=15 height=20 fill="#FBBC05"/><rect x=45 width=15 height=20 fill="#34A853"/></svg>
+<svg id=duo width=20 height=20 viewBox="0 0 20 20"><rect width=20 height=20 rx=2 fill="#4285f4"/><rect id=duoline x=4 y=8 width=12 height=3 fill="#fff"/></svg>
+<span class=chip id=chip>Joined</span></div>
+<div class=banner id=banner><h1 id=bt>CS 37300 Data Mining</h1></div>
+<canvas id=paper width=400 height=160></canvas>
+<canvas id=ink width=400 height=160></canvas>
+<iframe id=xf src="http://gframe.test/" style="width:300px;height:80px;border:0"></iframe>
+<script>
+for (const [id, white] of [['paper', true], ['ink', false]]) {
+  const c = document.getElementById(id).getContext('2d');
+  if (white) { c.fillStyle = '#ffffff'; c.fillRect(0, 0, 400, 160); }
+  c.fillStyle = '#000000'; c.font = 'bold 22px sans-serif';
+  for (let i = 0; i < 5; i++) c.fillText('Lab report: titration, page ' + (i + 1), 10, 28 + i * 28);
+}
+</script></body></html>`;
 const server = http.createServer((req, res) => {
   const host = String(req.headers.host || '').replace(/:\d+$/, '');
   const send = (type, body, headers = {}) => { res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', ...headers }); res.end(body); };
@@ -143,6 +195,11 @@ const server = http.createServer((req, res) => {
   if (host === 'cdn.test' && req.url.startsWith('/x.css')) return send('text/css', '.xo { background: #fff3cd; color: #664d03; }');
   if (host === 'paint.test' && req.url.startsWith('/frame')) return send('text/html', '<!doctype html><style>body{background:#fff;color:#333}</style><body>frame</body>');
   if (host === 'paint.test') return send('text/html', PAINT);
+  // (as Google's gstatic does: a mask's picture is read with CORS)
+  if (host === 'gstatic.test' && req.url.startsWith('/icon.svg')) return send('image/svg+xml', ICON_SVG, { 'access-control-allow-origin': '*' });
+  if (PICS[req.url.split('?')[0]]) return send('image/png', PICS[req.url.split('?')[0]], { 'access-control-allow-origin': '*' });
+  if (host === 'gsite.test') return send('text/html', GSITE);
+  if (host === 'gframe.test') return send('text/html', '<!doctype html><style>body{margin:0;background:#ffffff;color:#1f1f1f;font:14px sans-serif}</style><body><p style="padding:8px">student@purdue.edu</p></body>');
   send('text/html', page(host));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -317,6 +374,37 @@ try {
     await set('webStyles.sepia', 0);
     await until(async () => (await inTab(framed, 'getComputedStyle(document.documentElement).filter')) === 'none', 3000, 'the filter gone');
     await set('webStyles.dark', false);
+  });
+
+  // Where things are on a tab's page, and what's on screen there.
+  const centerOf = (id, sel) => inTab(id, `(() => { const r = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)]; })()`);
+  const pixelAt = (id, x, y) => t.main(async ({ webContents }, [id, x, y]) => { const img = await webContents.fromId(id).capturePage({ x, y, width: 1, height: 1 }); const b = img.toBitmap(); return [b[2], b[1], b[0]]; }, [id, x, y]);
+  // (the lightest green in a strip of the page: letters drawn light somewhere in it)
+  const lightest = (id, x, y, w, h) => t.main(async ({ webContents }, [id, x, y, w, h]) => { const b = (await webContents.fromId(id).capturePage({ x, y, width: w, height: h })).toBitmap(); let max = 0; for (let i = 1; i < b.length; i += 4) max = Math.max(max, b[i]); return max; }, [id, x, y, w, h]);
+  const lightness = (c) => CORE.toLab(c[0], c[1], c[2])[0];
+  const inkMarks = (id) => inTab(id, "Object.fromEntries([...document.querySelectorAll('[data-bifrost-ink]')].map((e) => [e.id, e.getAttribute('data-bifrost-ink')]))");
+
+  await R.step('dark mode on a page built as Google builds theirs: a frame from another site darkened too (Google’s account card stayed white), a page drawn on a canvas turned around (white paper; black ink on nothing, as Docs draws), icons drawn as masks over a dark color shown; all as it was with dark mode off', async () => {
+    await set('webStyles.dark', true);
+    const g = await open('http://gsite.test/');
+    await front(g);
+    await until(async () => { const [x, y] = await centerOf(g, '#xf'); return lightness(await pixelAt(g, x, y)) < 0.3; }, 8000, 'the frame from another site dark');
+    const m = await until(async () => { const k = await inkMarks(g); return k.paper === 'paper' && k.ink === 'ink' && k.mask === 'mask' && k.mask2 === 'mask' ? k : null; }, 8000, 'the canvases and the masks marked').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await inkMarks(g))); });
+    assert(!m.photo && !m.sprite, 'nothing else marked: ' + JSON.stringify(m));
+    for (const id of ['#paper', '#ink']) {
+      const [x, y] = await centerOf(g, id);
+      assert(lightness(await pixelAt(g, x + 190, y + 70)) < 0.3, id + ': its paper dark');
+      assert(await lightest(g, x - 190, y - 70, 300, 26) > 180, id + ': its letters light');
+    }
+    await sleep(300);
+    await t.shot('webstyles-dark-google');
+    const [mx, my] = await centerOf(g, '#mask');
+    assert(await lightest(g, mx - 12, my - 12, 24, 24) > 150, 'the mask icon light');
+    await set('webStyles.dark', false);
+    await until(async () => Object.keys(await inkMarks(g)).length === 0, 5000, 'the marks gone');
+    const [x, y] = await centerOf(g, '#xf');
+    await until(async () => lightness(await pixelAt(g, x, y)) > 0.9, 5000, 'the frame its own white again');
+    await t.main(({ webContents }, id) => webContents.fromId(id).close(), g);
   });
 
   let styled, csp;
@@ -604,6 +692,39 @@ try {
     await sleep(300);
     await t.shot('webstyles-recolor');
     await t.main(({ webContents }, id) => webContents.fromId(id).close(), again);
+  });
+
+  await R.step('Catppuccin for every site on a page built as Google builds theirs: icons drawn as pictures from another site (a sprite, an <img>, an SVG) in text’s colors; a logo and a photo kept; icons drawn as masks in text’s color; Google’s four colors in an SVG kept; white on a one-color icon base; the banner’s white letters kept; pages drawn on a canvas turned around; white on a strong blue still reads; in Latte, a black icon left as it is', async () => {
+    const was = { webTheme: await get('appearance.webTheme'), match: await get('webStyles.matchTheme'), recolor: await get('webStyles.recolor') };
+    await set('webStyles.matchTheme', false);
+    await set('webStyles.recolor', true);
+    const g = await open('http://gsite.test/');
+    await front(g);
+    const look = () => inTab(g, `(() => { const cs = (s) => getComputedStyle(document.querySelector(s)); return {
+      sprite: cs('#sprite').backgroundImage.slice(0, 27), pic: cs('#pic').content.slice(0, 27), svg: cs('#svgimg').content.slice(0, 29), logo: cs('#logo').content, photo: cs('#photo').content,
+      mask: cs('#mask').backgroundColor, mask2: cs('#mask2').backgroundColor, glogo: cs('#glogo rect').fill, duo: cs('#duoline').fill, banner: cs('#bt').color,
+      paper: document.getElementById('paper').getAttribute('data-bifrost-ink'), ink: document.getElementById('ink').getAttribute('data-bifrost-ink'), chip: [cs('#chip').color, cs('#chip').backgroundColor] }; })()`);
+    const M = CAT.PALETTES.mocha;
+    const exp = { sprite: 'url("data:image/png;base64,', pic: 'url("data:image/png;base64,', svg: 'url("data:image/svg+xml;base6', logo: 'normal', photo: 'normal',
+      mask: turned(MOCHA, '#444746', 't'), mask2: rgb(M.subtext1), glogo: 'rgb(66, 133, 244)', duo: rgb(M.base), banner: 'rgb(255, 255, 255)', paper: 'paper', ink: 'ink' };
+    const diff = (got, want) => Object.keys(want).filter((k) => got[k] !== want[k]).map((k) => `${k}: ${got[k]} (want ${want[k]})`);
+    const got = await until(async () => { const x = await look(); return diff(x, exp).length ? null : x; }, 12000, 'the page in Mocha').catch(async (e) => { throw new Error(e.message + '\n' + diff(await look(), exp).join('\n')); });
+    const [fg, bg] = got.chip.map((c) => CORE.parse(c));
+    assert(CORE.ratio(CORE.lum(fg), CORE.lum(bg)) >= 2.4, 'white on the strong blue: ' + got.chip);
+    // (on screen: the sprite's glyph light, a canvas page dark with light letters)
+    const [sx, sy] = await centerOf(g, '#sprite');
+    assert(await lightest(g, sx - 12, sy - 12, 24, 24) > 180, 'the sprite’s glyph light');
+    const [px, py] = await centerOf(g, '#paper');
+    assert(lightness(await pixelAt(g, px + 190, py + 70)) < 0.3 && await lightest(g, px - 190, py - 70, 300, 26) > 180, 'the canvas page');
+    await sleep(300);
+    await t.shot('webstyles-recolor-google');
+    // Latte (websites told they're light): a black icon shows on it as it is; the banner's letters still white.
+    await set('appearance.webTheme', 'light');
+    await until(async () => { const x = await look(); return x.pic === 'normal' && /^url\("http/.test(x.sprite) && x.banner === 'rgb(255, 255, 255)' && !x.paper ? x : null; }, 10000, 'Latte').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await look())); });
+    await set('appearance.webTheme', was.webTheme);
+    await set('webStyles.matchTheme', was.match);
+    await set('webStyles.recolor', was.recolor);
+    await t.main(({ webContents }, id) => webContents.fromId(id).close(), g);
   });
 
   await R.step('…Catppuccin for every site and your style for the site: yours over it; a page one of your styles is for left to that style; off for a site in its info popover (and by the launcher’s command), and on again; in your theme’s colors while websites match it (Frost, Latte); Latte for websites told they’re light; no other site’s stylesheet read from your own network; off in Settings: the site’s own colors', async () => {
