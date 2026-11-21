@@ -160,17 +160,28 @@ body { margin: 0; background: #f8fafd; color: #1f1f1f; font: 14px sans-serif; }
 .banner h1 { position: absolute; left: 16px; bottom: 8px; margin: 0; color: #fff; font-size: 26px; }
 .chip { background: #1a73e8; color: #fff; padding: 4px 10px; }
 canvas, iframe { display: block; margin: 8px 0; }
+/* SpeechDrop's file cards: a page icon in the header's corner, the file's name over the header in black */
+.fh { width: 220px; height: 149px; background: #fff url(http://gstatic.test/icon.svg) no-repeat right bottom; background-size: 100px 95px; }
+.fh > h3 { margin: 0; color: black; }
+/* a picture its own size, all of the element */
+.b2 { width: 400px; height: 100px; background: url(/banner.png) no-repeat; }
+.b2 h2 { margin: 0; color: #fff; }
 </style></head><body>
 <div style="padding:8px"><span class=ic id=sprite></span> <img id=pic src="http://gstatic.test/icon.png" width=24 height=24> <img id=svgimg src="http://gstatic.test/icon.svg" width=24 height=24>
 <img id=logo src="http://gstatic.test/logo.png" width=60 height=20> <img id=photo src="http://gstatic.test/photo.png" width=60 height=40>
-<span class=mi id=mask></span> <span class=m2 id=mask2></span>
+<span class=mi id=mask></span> <span class=m2 id=mask2></span> <span class=mi id=mask3>&nbsp;</span>
 <svg id=glogo width=60 height=20 viewBox="0 0 60 20"><rect width=15 height=20 fill="#4285F4"/><rect x=15 width=15 height=20 fill="#EA4335"/><rect x=30 width=15 height=20 fill="#FBBC05"/><rect x=45 width=15 height=20 fill="#34A853"/></svg>
 <svg id=duo width=20 height=20 viewBox="0 0 20 20"><rect width=20 height=20 rx=2 fill="#4285f4"/><rect id=duoline x=4 y=8 width=12 height=3 fill="#fff"/></svg>
 <span class=chip id=chip>Joined</span></div>
+<div style="display:flex;flex-wrap:wrap;gap:0 12px;align-items:flex-start;max-width:1000px">
 <div class=banner id=banner><h1 id=bt>CS 37300 Data Mining</h1></div>
+<div class=b2 id=b2><h2 id=b2t>Unit 3: Stoichiometry</h2></div>
 <canvas id=paper width=400 height=160></canvas>
 <canvas id=ink width=400 height=160></canvas>
+<canvas id=sheet width=400 height=160></canvas>
+<div class=fh id=fh><h3 id=fht>Aff 1AC - Round 3.docx</h3></div>
 <iframe id=xf src="http://gframe.test/" style="width:300px;height:80px;border:0"></iframe>
+</div>
 <script>
 for (const [id, white] of [['paper', true], ['ink', false]]) {
   const c = document.getElementById(id).getContext('2d');
@@ -178,6 +189,20 @@ for (const [id, white] of [['paper', true], ['ink', false]]) {
   c.fillStyle = '#000000'; c.font = 'bold 22px sans-serif';
   for (let i = 0; i < 5; i++) c.fillText('Lab report: titration, page ' + (i + 1), 10, 28 + i * 28);
 }
+// (as Sheets draws its grid: a canvas with no see-through, black where it isn't drawn yet, drawn a piece at a time;
+// a column filled light red, the header of the column you're in blue)
+const s = document.getElementById('sheet').getContext('2d', { alpha: false });
+setTimeout(() => { s.fillStyle = '#ffffff'; s.fillRect(0, 0, 200, 160); }, 300);
+setTimeout(() => {
+  s.fillStyle = '#ffffff'; s.fillRect(0, 0, 400, 160);
+  s.fillStyle = '#d3e3fd'; s.fillRect(100, 0, 100, 20);
+  s.fillStyle = '#f4cccc'; s.fillRect(300, 20, 100, 140);
+  s.strokeStyle = '#e1e1e1';
+  for (let x = 0; x < 400; x += 100) { s.beginPath(); s.moveTo(x + 0.5, 0); s.lineTo(x + 0.5, 160); s.stroke(); }
+  for (let y = 20; y < 160; y += 20) { s.beginPath(); s.moveTo(0, y + 0.5); s.lineTo(400, y + 0.5); s.stroke(); }
+  s.fillStyle = '#000000'; s.font = 'bold 15px sans-serif';
+  [['Name', 'Lab 1', 'Lab 2', 'Late?'], ['Ana', '92', '88', 'no'], ['Ben', '75', '81', 'yes'], ['Chloe', '98', '95', 'no']].forEach((row, r) => row.forEach((v, i) => s.fillText(v, i * 100 + 6, 36 + r * 20)));
+}, 1800);
 </script></body></html>`;
 const server = http.createServer((req, res) => {
   const host = String(req.headers.host || '').replace(/:\d+$/, '');
@@ -389,17 +414,24 @@ try {
     const g = await open('http://gsite.test/');
     await front(g);
     await until(async () => { const [x, y] = await centerOf(g, '#xf'); return lightness(await pixelAt(g, x, y)) < 0.3; }, 8000, 'the frame from another site dark');
-    const m = await until(async () => { const k = await inkMarks(g); return k.paper === 'paper' && k.ink === 'ink' && k.mask === 'mask' && k.mask2 === 'mask' ? k : null; }, 8000, 'the canvases and the masks marked').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await inkMarks(g))); });
+    const m = await until(async () => { const k = await inkMarks(g); return k.paper === 'paper' && k.ink === 'ink' && k.sheet === 'paper' && k.mask === 'mask' && k.mask2 === 'mask' && k.mask3 === 'mask' ? k : null; }, 8000, 'the canvases and the masks marked').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await inkMarks(g))); });
     assert(!m.photo && !m.sprite, 'nothing else marked: ' + JSON.stringify(m));
     for (const id of ['#paper', '#ink']) {
       const [x, y] = await centerOf(g, id);
       assert(lightness(await pixelAt(g, x + 190, y + 70)) < 0.3, id + ': its paper dark');
       assert(await lightest(g, x - 190, y - 70, 300, 26) > 180, id + ': its letters light');
     }
+    {
+      const [x, y] = await centerOf(g, '#sheet');
+      assert(lightness(await pixelAt(g, x - 50, y + 50)) < 0.3, 'the spreadsheet’s white cells dark');
+      assert(await lightest(g, x - 200, y - 60, 300, 20) > 180, 'the spreadsheet’s letters light');
+    }
     await sleep(300);
     await t.shot('webstyles-dark-google');
-    const [mx, my] = await centerOf(g, '#mask');
-    assert(await lightest(g, mx - 12, my - 12, 24, 24) > 150, 'the mask icon light');
+    for (const id of ['#mask', '#mask3']) {
+      const [mx, my] = await centerOf(g, id);
+      assert(await lightest(g, mx - 12, my - 12, 24, 24) > 150, id + ': the mask icon light');
+    }
     await set('webStyles.dark', false);
     await until(async () => Object.keys(await inkMarks(g)).length === 0, 5000, 'the marks gone');
     const [x, y] = await centerOf(g, '#xf');
@@ -702,11 +734,13 @@ try {
     await front(g);
     const look = () => inTab(g, `(() => { const cs = (s) => getComputedStyle(document.querySelector(s)); return {
       sprite: cs('#sprite').backgroundImage.slice(0, 27), pic: cs('#pic').content.slice(0, 27), svg: cs('#svgimg').content.slice(0, 29), logo: cs('#logo').content, photo: cs('#photo').content,
-      mask: cs('#mask').backgroundColor, mask2: cs('#mask2').backgroundColor, glogo: cs('#glogo rect').fill, duo: cs('#duoline').fill, banner: cs('#bt').color,
-      paper: document.getElementById('paper').getAttribute('data-bifrost-ink'), ink: document.getElementById('ink').getAttribute('data-bifrost-ink'), chip: [cs('#chip').color, cs('#chip').backgroundColor] }; })()`);
+      mask: cs('#mask').backgroundColor, mask2: cs('#mask2').backgroundColor, mask3: cs('#mask3').backgroundColor, glogo: cs('#glogo rect').fill, duo: cs('#duoline').fill, banner: cs('#bt').color, b2: cs('#b2t').color,
+      card: cs('#fht').color, cardPic: document.getElementById('fht').getAttribute('data-bifrost-pic'),
+      paper: document.getElementById('paper').getAttribute('data-bifrost-ink'), ink: document.getElementById('ink').getAttribute('data-bifrost-ink'), sheet: document.getElementById('sheet').getAttribute('data-bifrost-ink'), chip: [cs('#chip').color, cs('#chip').backgroundColor] }; })()`);
     const M = CAT.PALETTES.mocha;
     const exp = { sprite: 'url("data:image/png;base64,', pic: 'url("data:image/png;base64,', svg: 'url("data:image/svg+xml;base6', logo: 'normal', photo: 'normal',
-      mask: turned(MOCHA, '#444746', 't'), mask2: rgb(M.subtext1), glogo: 'rgb(66, 133, 244)', duo: rgb(M.base), banner: 'rgb(255, 255, 255)', paper: 'paper', ink: 'ink' };
+      mask: turned(MOCHA, '#444746', 't'), mask2: rgb(M.subtext1), mask3: turned(MOCHA, '#444746', 't'), glogo: 'rgb(66, 133, 244)', duo: rgb(M.base), banner: 'rgb(255, 255, 255)', b2: 'rgb(255, 255, 255)',
+      card: turned(MOCHA, '#000000', 't'), cardPic: null, paper: 'paper', ink: 'ink', sheet: 'paper' };
     const diff = (got, want) => Object.keys(want).filter((k) => got[k] !== want[k]).map((k) => `${k}: ${got[k]} (want ${want[k]})`);
     const got = await until(async () => { const x = await look(); return diff(x, exp).length ? null : x; }, 12000, 'the page in Mocha').catch(async (e) => { throw new Error(e.message + '\n' + diff(await look(), exp).join('\n')); });
     const [fg, bg] = got.chip.map((c) => CORE.parse(c));
@@ -720,7 +754,7 @@ try {
     await t.shot('webstyles-recolor-google');
     // Latte (websites told they're light): a black icon shows on it as it is; the banner's letters still white.
     await set('appearance.webTheme', 'light');
-    await until(async () => { const x = await look(); return x.pic === 'normal' && /^url\("http/.test(x.sprite) && x.banner === 'rgb(255, 255, 255)' && !x.paper ? x : null; }, 10000, 'Latte').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await look())); });
+    await until(async () => { const x = await look(); return x.pic === 'normal' && /^url\("http/.test(x.sprite) && x.banner === 'rgb(255, 255, 255)' && x.b2 === 'rgb(255, 255, 255)' && x.card === turned(CORE.prepare(CAT.PALETTES.latte), '#000000', 't') && !x.cardPic && !x.paper ? x : null; }, 10000, 'Latte').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await look())); });
     await set('appearance.webTheme', was.webTheme);
     await set('webStyles.matchTheme', was.match);
     await set('webStyles.recolor', was.recolor);

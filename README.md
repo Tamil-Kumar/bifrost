@@ -112,9 +112,10 @@ its sign-in, the others signed in to again), `webstyles`
 tabs at once, a site's own dark theme, per site with Alt+Shift+A and the info popover, Alt+Shift+D, a site
 whose own dark theme is partly white darkened by Bifrost (remembered, listed in Settings, forgotten there), a
 site you choose Bifrost's dark mode for, brightness and sepia on the top page only; a page built as Google
-builds theirs in dark mode (a frame from another site, a page drawn on a canvas, icons drawn as masks) and in
-Catppuccin for every site (icons in pictures, masks, a logo and a photo kept, white on a one-color icon, a
-banner's letters, canvases, white on a strong blue, Latte); your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
+builds theirs in dark mode (a frame from another site, a page drawn on a canvas, a spreadsheet drawn on one a
+piece at a time, icons drawn as masks, with a space in them too) and in Catppuccin for every site (icons in
+pictures, masks, a logo and a photo kept, white on a one-color icon, a banner's letters, a card with an icon in
+its corner, canvases, white on a strong blue, Latte); your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
 link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
 Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be
@@ -216,10 +217,12 @@ nothing (a sprite as a background, an `<img>`, an SVG), which don't show on a da
 reads such a picture (no cookies, as stylesheets) and gives it back in text's colors when it's see-through and
 drawn in one gray. An icon drawn as a mask over its background-color takes text's color; an SVG in three colors
 or more (a logo) keeps them; white on a one-color icon (Drive's files) is base. Text right over a picture (a
-course banner) keeps the page's own color, and anything still too close to what's behind it gets base's or
-text's. A page drawn on a canvas (Google Docs: white paper, or black ink on nothing) has its lightness turned
-around by an SVG filter, white to base and black to text; dark mode for websites does the same (to Chromium's
-dark gray), turns icons drawn as masks over a dark color light, and darkens frames from other sites too, which
+course banner: a picture that covers half the element or more, not an icon in its corner) keeps the page's own
+color, and anything still too close to what's behind it gets base's or text's. A page drawn on a canvas (Google
+Docs: white paper, or black ink on nothing; Sheets' grid, its pale fills too, looked at again till it's all
+drawn) has its lightness turned around by an SVG filter, white to base and black to text; dark mode for websites
+does the same (to Chromium's dark gray), turns icons drawn as masks over a dark color light (Docs' and Sheets'
+toolbars), and darkens frames from other sites too, which
 the tab's own session didn't reach (Google's account card). Your styles that say where they come from are
 updated once a day (Settings → Your styles → Keep your styles up to date).
 

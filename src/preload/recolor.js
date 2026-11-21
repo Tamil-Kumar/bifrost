@@ -986,7 +986,9 @@ function makeInk(core, win, own) {
   const document = win.document;
   const getComputedStyle = (el) => win.getComputedStyle(el);
   const ATTR = 'data-bifrost-ink';
-  const MASKS = 'div:empty,span:empty,i:empty,a:empty,b:empty,em:empty,button:empty,li:empty,label:empty';
+  // (an icon's element: nothing in it but, as Google writes theirs, a space: &nbsp;)
+  const MASKS = 'div,span,i,a,b,em,button,li,label';
+  const blank = (el) => el.childElementCount === 0 && !el.textContent.trim();
   const stats = { canvases: 0, papers: 0, masks: 0, ms: 0 };
   let mode = null, sheet = null, mo = null, timer = 0, pending = [];
   const looked = new WeakMap();   // canvas -> how many times looked at (it may draw later)
@@ -1003,30 +1005,39 @@ function makeInk(core, win, own) {
   }
   const dark = () => !!mode && (mode.chromium || core.lum(rgb(mode.palette.base)) < core.lum(rgb(mode.palette.text)));
 
-  // A canvas, looked at small: 'paper' (mostly opaque white, little color), 'ink' (mostly nothing, what's drawn
-  // dark gray), '' (anything else: a photo, a chart in colors, a game), or null: nothing drawn yet, or it can't
-  // be read (a picture from another site drawn on it).
-  const probe = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(40, 40).getContext('2d', { willReadFrequently: true }) : null;
+  // A canvas, looked at small: 'paper' (mostly opaque white or pale fills, little strong color), 'ink' (mostly
+  // nothing, what's drawn dark gray), '' (anything else: a photo, a chart in colors, a game), or null: nothing
+  // drawn yet (or only part of it), or it can't be read (a picture from another site drawn on it).
+  // (a new one each time: one used again kept what was drawn on it last when the next canvas drew nothing on it,
+  // a canvas with nothing drawn on it yet read as the one before it)
+  const probeOf = () => (typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(40, 40).getContext('2d', { willReadFrequently: true }) : null);
   function kind(cv) {
-    if (!probe || !cv.width || !cv.height) return null;
+    const probe = cv.width && cv.height ? probeOf() : null;
+    if (!probe) return null;
     const r = cv.getBoundingClientRect();
     if (r.width < 200 || r.height < 100) return '';
     let d;
-    try { probe.clearRect(0, 0, 40, 40); probe.drawImage(cv, 0, 0, 40, 40); d = probe.getImageData(0, 0, 40, 40).data; } catch { return null; }
-    let opaque = 0, white = 0, seen = 0, inky = 0, colored = 0;
+    try { probe.drawImage(cv, 0, 0, 40, 40); d = probe.getImageData(0, 0, 40, 40).data; } catch { return null; }
+    let opaque = 0, light = 0, seen = 0, inky = 0, colored = 0, strong = 0, black = 0;
     for (let i = 0; i < d.length; i += 4) {
       const a = d[i + 3];
       if (a < 20) continue;
       seen++;
+      if (a === 255 && !d[i] && !d[i + 1] && !d[i + 2]) black++;
       const lab = core.toLab(d[i], d[i + 1], d[i + 2]);
       const C = Math.hypot(lab[1], lab[2]);
       if (C > 0.06) colored++;
-      if (a > 230) { opaque++; if (lab[0] > 0.9 && C < 0.03) white++; }
+      if (C > 0.1) strong++;
+      // (light: white, and the pale fills a document or a spreadsheet's cells have: Sheets' light red, its blue
+      // for the column you're in)
+      if (a > 230) { opaque++; if (lab[0] > 0.78 && C < 0.1) light++; }
       if (lab[0] < 0.45 && C < 0.06) inky++;
     }
     const n = 1600;
-    if (!seen) return null;
-    if (opaque > n * 0.85 && white > n * 0.6 && colored < seen * 0.08) return 'paper';
+    // (nothing drawn on it yet, or not all of it: nothing, or, on a canvas without see-through (alpha: false, as
+    // Sheets' grid is), black where it isn't drawn yet: Sheets draws its grid a piece at a time)
+    if (!seen || black > n * 0.1) return null;
+    if (opaque > n * 0.85 && light > n * 0.6 && strong < seen * 0.15) return 'paper';
     if (seen < n * 0.5 && inky > seen * 0.7 && colored < seen * 0.2) return 'ink';
     return '';
   }
@@ -1037,8 +1048,9 @@ function makeInk(core, win, own) {
     looked.set(cv, times);
     // (white paper needs turning on a dark page only; black ink on nothing, too)
     if (k && dark()) { cv.setAttribute(ATTR, k); stats.papers++; return; }
-    // (nothing on it yet: looked at again, a few times, as a page draws its canvases a little later)
-    if (k === null && times < 5) setTimeout(() => canvasOne(cv), [400, 1500, 4000, 10000][times - 1]);
+    // (nothing on it yet: looked at again, a few times, as a page draws its canvases a little later; Sheets' grid
+    // once the spreadsheet is in, which can be a while)
+    if (k === null && times < 7) setTimeout(() => canvasOne(cv), [400, 1500, 4000, 10000, 20000, 40000][times - 1]);
   }
 
   // An icon drawn as a mask (a small element with nothing in it, a mask-image, a background-color) that doesn't
@@ -1067,10 +1079,10 @@ function makeInk(core, win, own) {
       const canvases = root.localName === 'canvas' ? [root] : root.querySelectorAll ? root.querySelectorAll('canvas') : [];
       for (const cv of canvases) { stats.canvases++; canvasOne(cv); }
       if (masks && dark() && root.querySelectorAll) {
-        const els = root.matches && root.matches(MASKS) ? [root] : [];
+        const els = root.matches && root.matches(MASKS) && blank(root) ? [root] : [];
         let k = 0;
-        for (const el of root.querySelectorAll(MASKS)) { if (++k > 4000) break; els.push(el); }
-        for (const el of els) maskOne(el, again);
+        for (const el of root.querySelectorAll(MASKS)) { if (++k > 20000) break; if (blank(el)) els.push(el); }
+        for (const el of els.slice(0, 4000)) maskOne(el, again);
       }
     } catch { /* gone */ }
     stats.ms += performance.now() - t0;
@@ -1779,6 +1791,48 @@ function makeEngine(core, win, env) {
     }
   }
 
+  // ---------------------------------------------------------------- what's behind something: a picture?
+  // An element's background picture is a backdrop (a banner's photo, a pattern: text over it is the page's to
+  // color) when it covers half the element or more; an icon in a corner of it is not (SpeechDrop's file cards:
+  // a page icon at the bottom right, the file's name over the card, not over the icon). A picture whose size is
+  // its own is looked at once it's loaded (both passes again then); until then it may be (null).
+  const natural = new Map();   // a picture's address -> [width, height] (null: loading)
+  function backdrop(cs, r) {
+    const img = cs.backgroundImage;
+    const m = /url\(\s*(["']?)(.*?)\1\s*\)/i.exec(img);
+    if (!m) return false;
+    const size = String(cs.backgroundSize).split(',')[0].trim();
+    if (/cover|contain/.test(size)) return true;
+    if (!/no-repeat/.test(String(cs.backgroundRepeat).split(',')[0])) return true;
+    const area = r.width * r.height;
+    if (!area) return false;
+    const dims = size.split(/\s+/);
+    const len = (v, full) => (/%$/.test(v) ? full * parseFloat(v) / 100 : /px$/.test(v) ? parseFloat(v) : NaN);
+    let w = len(dims[0], r.width), h = len(dims[1] || 'auto', r.height);
+    if (isNaN(w) || isNaN(h)) {
+      const nat = natural.get(m[2]);
+      if (nat === undefined && natural.size < 500) {
+        natural.set(m[2], null);
+        const pic = new win.Image();
+        pic.onload = () => {
+          natural.set(m[2], [pic.naturalWidth, pic.naturalHeight]);
+          if (!S.on) return;
+          S.picDone = new WeakSet(); S.fgDone = new WeakSet();
+          if (!S.picTimer) S.picTimer = setTimeout(pictureText, 100);
+          fgSoon(150);
+        };
+        pic.onerror = () => natural.set(m[2], [-1, -1]);
+        pic.src = m[2];
+      }
+      if (!nat) return null;
+      if (nat[0] < 0) return false;
+      // (a picture with no size of its own, an SVG without one: drawn over the whole element)
+      if (!nat[0] || !nat[1]) return true;
+      if (isNaN(w) && isNaN(h)) { w = nat[0]; h = nat[1]; } else if (isNaN(w)) w = h * nat[0] / nat[1]; else h = w * nat[1] / nat[0];
+    }
+    return w * h >= area * 0.5;
+  }
+
   // ---------------------------------------------------------------- text over pictures
   // Text right over a picture (a course's banner, a photo behind a headline) keeps the page's own color: it
   // was chosen for that picture, which isn't turned (white letters on a dark banner went dark in Latte). Its
@@ -1798,7 +1852,7 @@ function makeEngine(core, win, env) {
         const cs = getComputedStyle(el);
         if (!/url\(/i.test(cs.backgroundImage)) continue;
         const r = el.getBoundingClientRect();
-        if (r.width < 120 || r.height < 40) continue;
+        if (r.width < 120 || r.height < 40 || backdrop(cs, r) !== true) continue;
         const walk = document.createTreeWalker(el, 4);
         const seen = new Set();
         for (let t = walk.nextNode(), k = 0; t && k < 300; t = walk.nextNode(), k++) {
@@ -1849,7 +1903,7 @@ function makeEngine(core, win, env) {
     const P = S.P;
     const memo = new Map();
     // What's behind an element: the first background of its own or an ancestor's (a gradient's first color);
-    // null for a picture (text over one is the page's: pictureText).
+    // null for a picture that covers it (text over one is the page's: pictureText), not for an icon in a corner.
     const behind = (el) => {
       const path = [];
       let out = P.rgb.base;
@@ -1859,8 +1913,9 @@ function makeEngine(core, win, env) {
         const cs = getComputedStyle(e);
         const img = cs.backgroundImage;
         if (img && img !== 'none') {
-          if (/url\(/i.test(img)) { out = null; break; }
-          const m = /rgba?\([^)]*\)/i.exec(img);
+          // (one not loaded yet, whose size is its own: as a picture, till it is)
+          if (/url\(/i.test(img) && backdrop(cs, e.getBoundingClientRect()) !== false) { out = null; break; }
+          const m = /(?:rgba?|hsla?)\([^)]*\)/i.exec(img);
           const g = m && core.parse(m[0]);
           if (g && g[3] >= 0.5) { out = g; break; }
         }
