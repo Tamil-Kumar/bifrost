@@ -29,7 +29,7 @@ import { createRequire } from 'node:module';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test', 'gsite.test', 'gstatic.test', 'gframe.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test', 'gsite.test', 'gstatic.test', 'gframe.test', 'classroom.google.test'];
 const CORE = createRequire(import.meta.url)('../../src/preload/recolor.js');
 const CAT = createRequire(import.meta.url)('../../src/shared/catppuccin.js');
 const THEMES = createRequire(import.meta.url)('../../src/shared/themes.js');
@@ -148,7 +148,41 @@ const PICS = {
   '/logo.png': png(60, 20, (x) => (x < 15 ? [66, 133, 244, 255] : x < 30 ? [234, 67, 53, 255] : x < 45 ? [251, 188, 5, 255] : [52, 168, 83, 255]).map((v, i) => (i === 3 && x % 15 > 11 ? 0 : v))),
   '/photo.png': png(60, 40, (x, y) => [120 + x * 2, 80 + y * 3, 200 - x, 255]),
   '/banner.png': png(400, 100, (x, y) => [25 + (x % 40), 90 + (y % 30), 200, 255]),
+  // a preview of a document, as Drive makes them: a white page, gray lines of text, a table (its header strong
+  // blue, its cells pale blue); and a photo the same size
+  '/doc.png': png(316, 210, (x, y) => (x < 16 || x > 300 ? [255, 255, 255, 255] : y < 60 ? (y > 20 && y % 8 < 2 && x < 250 ? [120, 120, 120, 255] : [255, 255, 255, 255]) : y < 80 ? [130, 158, 229, 255] : y % 24 < 2 ? [90, 90, 90, 255] : y % 24 > 9 && y % 24 < 12 && x % 100 < 60 ? [60, 60, 60, 255] : [201, 218, 248, 255])),
+  '/photo2.png': png(316, 210, (x, y) => [(x * 3 + y) % 200 + 40, (y * 2 + 60) % 220, (x + y * 3) % 180 + 50, 255]),
 };
+// Classroom's page: a rounded corner drawn by an SVG in the page's own white over the card's corner (Chromium's
+// dark mode leaves an SVG's colors), previews of the assignment's documents (pictures from another site, one from
+// this site, one as a background), a photo, a gray icon and a white one on a blue button drawn as inline SVGs,
+// and an icon drawn as a mask in a toolbar shown a moment after the page (as Docs' is).
+const CROOM = `<!doctype html><html><head><meta charset=utf-8><title>Classroom-like</title><style>
+body { margin: 0; background: #f8fafd; color: #1f1f1f; font: 14px sans-serif; }
+.nav { position: fixed; left: 0; top: 0; bottom: 0; width: 80px; background: #f8fafd; }
+.main { margin-left: 80px; padding-top: 40px; position: relative; }
+.corner { position: absolute; left: 0; top: 40px; width: 48px; height: 48px; }
+.card { background: #ffffff; min-height: 640px; padding: 24px 24px 24px 56px; }
+h1 { margin: 0 0 12px; font-size: 26px; font-weight: 400; }
+.att { display: flex; gap: 16px; margin: 12px 0; }
+.att img, .att .thumb { width: 121px; height: 82px; display: block; object-fit: cover; }
+.att .card2 { border: 1px solid #c4c7c5; border-radius: 12px; overflow: hidden; height: 80px; }
+.thumb { background: url(http://gstatic.test/doc.png) center / cover; }
+.ico { width: 24px; height: 24px; display: block; }
+.btn { background: #1a73e8; border-radius: 4px; padding: 6px; display: inline-block; }
+.tb { margin-top: 12px; }
+.ti { width: 20px; height: 20px; -webkit-mask: url(http://gstatic.test/icon.svg) center / 20px no-repeat; background-color: #444746; display: inline-block; }
+</style></head><body><div class=nav></div><div class=main>
+<svg class=corner id=corner viewBox="0 0 48 48"><path d="M0 0H48A48 48 0 0 0 0 48Z" fill="#f8fafd"/></svg>
+<div class=card>
+<h1>11/13: 3.7 Reading Focus &amp; Quiz</h1>
+<div class=att><div class=card2><img id=docx src="http://gstatic.test/doc.png"></div><img id=docs src="/doc.png"><div class=thumb id=thumb></div><img id=photo2 src="http://gstatic.test/photo2.png"></div>
+<svg class=ico id=sv viewBox="0 0 24 24"><path d="M3 5h18v3H3zm0 6h18v3H3z" fill="#444746"/></svg>
+<span class=btn id=btn><svg class=ico id=check viewBox="0 0 24 24"><path d="M9 16l-4-4 1.4-1.4L9 13.2l8.6-8.6L19 6z" fill="#ffffff"/></svg></span>
+<div class=tb id=later style="display:none"><div class=ti id=ti>&nbsp;</div></div>
+</div></div>
+<script>setTimeout(() => { document.getElementById('later').style.display = 'block'; }, 2500);</script>
+</body></html>`;
 const ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 5h18v3H3zm0 6h18v3H3zm0 6h18v3H3z"/></svg>';
 const GSITE = `<!doctype html><html><head><meta charset=utf-8><title>Google-like</title><style>
 body { margin: 0; background: #f8fafd; color: #1f1f1f; font: 14px sans-serif; }
@@ -224,6 +258,7 @@ const server = http.createServer((req, res) => {
   if (host === 'gstatic.test' && req.url.startsWith('/icon.svg')) return send('image/svg+xml', ICON_SVG, { 'access-control-allow-origin': '*' });
   if (PICS[req.url.split('?')[0]]) return send('image/png', PICS[req.url.split('?')[0]], { 'access-control-allow-origin': '*' });
   if (host === 'gsite.test') return send('text/html', GSITE);
+  if (host === 'classroom.google.test') return send('text/html', CROOM);
   if (host === 'gframe.test') return send('text/html', '<!doctype html><style>body{margin:0;background:#ffffff;color:#1f1f1f;font:14px sans-serif}</style><body><p style="padding:8px">student@purdue.edu</p></body>');
   send('text/html', page(host));
 });
@@ -761,6 +796,57 @@ try {
     await t.main(({ webContents }, id) => webContents.fromId(id).close(), g);
   });
 
+  await R.step('a page built as Classroom builds theirs, in dark mode and in Catppuccin for every site: previews of documents, Classroom’s size (pictures from another site, looked at on the screen, one cut by a rounded card; one from the page’s site; one as a background) turned as paper is, a photo left; the rounded corner Classroom draws in an SVG in its page’s white dark (in Catppuccin’s colors, what’s behind it: it blended in), a gray SVG icon light (Chromium’s own doing in dark mode), white on a blue button left; an icon drawn as a mask in a toolbar shown later light; none of it in Latte', async () => {
+    const marks = async (g) => ({ ...(await inkMarks(g)) });
+    const want = { docx: 'paper', docs: 'paper', thumb: 'paper', corner: 'svg', ti: 'mask' };
+    const diff = (got, w) => Object.keys(w).filter((k) => got[k] !== w[k]).map((k) => `${k}: ${got[k]} (want ${w[k]})`);
+    const was = { webTheme: await get('appearance.webTheme'), match: await get('webStyles.matchTheme'), recolor: await get('webStyles.recolor') };
+    // (dark mode alone: Catppuccin for every site, on from the steps before, would be over it)
+    await set('webStyles.recolor', false);
+    await set('webStyles.dark', true);
+    let g = await open('http://classroom.google.test/');
+    await front(g);
+    const m = await until(async () => { const k = await marks(g); return diff(k, want).length ? null : k; }, 10000, 'dark mode: the previews, the SVGs, the late icon marked').catch(async (e) => { throw new Error(e.message + '\n' + diff(await marks(g), want).join('\n')); });
+    assert(!m.photo2 && !m.check && !m.sv, 'the photo, the white icon on blue and the gray icon (Chromium turns that) left: ' + JSON.stringify(m));
+    for (const id of ['#docx', '#thumb']) {
+      const [x, y] = await centerOf(g, id);
+      assert(lightness(await pixelAt(g, x - 52, y - 34)) < 0.3, id + ': the preview’s paper dark on screen');
+    }
+    const [cx, cy] = await centerOf(g, '#corner');
+    // (dark, and drawn: the card under it is darker still)
+    const corner = await pixelAt(g, cx - 20, cy - 20), card = await pixelAt(g, cx + 30, cy + 30);
+    assert(lightness(corner) < 0.3 && corner[1] > card[1] + 4, 'the corner dark on screen, over the card: ' + corner + ' / ' + card);
+    const [ix, iy] = await centerOf(g, '#sv');
+    assert(await lightest(g, ix - 12, iy - 12, 24, 24) > 150, 'the gray SVG icon light');
+    const [tx, ty] = await centerOf(g, '#ti');
+    assert(await lightest(g, tx - 10, ty - 10, 20, 20) > 150, 'the late mask icon light');
+    await sleep(300);
+    await t.shot('webstyles-dark-classroom');
+    await set('webStyles.dark', false);
+    await until(async () => Object.keys(await marks(g)).length === 0, 5000, 'the marks gone');
+    await t.main(({ webContents }, id) => webContents.fromId(id).close(), g);
+    // Catppuccin for every site (Mocha): the previews turned; SVG fills: the page's white a background's, a gray an icon's
+    await set('webStyles.matchTheme', false);
+    await set('appearance.webTheme', 'dark');
+    await set('webStyles.recolor', true);
+    g = await open('http://classroom.google.test/?mocha');
+    await front(g);
+    const fills = () => inTab(g, "(() => { const f = (s) => getComputedStyle(document.querySelector(s)).fill; return { corner: f('#corner path'), sv: f('#sv path'), check: f('#check path') }; })()");
+    const wantFills = { corner: turned(MOCHA, '#f8fafd', 'b'), sv: turned(MOCHA, '#444746', 't'), check: turned(MOCHA, '#ffffff', 't') };
+    await until(async () => { const k = await marks(g); return k.docx === 'paper' && k.docs === 'paper' && k.thumb === 'paper' && !k.photo2 ? k : null; }, 10000, 'Mocha: the previews').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await marks(g))); });
+    await until(async () => { const f = await fills(); return diff(f, wantFills).length ? null : f; }, 6000, 'Mocha: the SVGs’ fills').catch(async (e) => { throw new Error(e.message + '\n' + diff(await fills(), wantFills).join('\n')); });
+    const [dx, dy] = await centerOf(g, '#docx');
+    assert(lightness(await pixelAt(g, dx - 52, dy - 34)) < 0.3, 'Mocha: the preview’s paper dark on screen');
+    await sleep(300);
+    await t.shot('webstyles-recolor-classroom');
+    await set('appearance.webTheme', 'light');
+    await until(async () => { const k = await marks(g); return !k.docx && !k.docs && !k.thumb ? true : null; }, 6000, 'Latte: the previews as they are').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await marks(g))); });
+    await set('appearance.webTheme', was.webTheme);
+    await set('webStyles.matchTheme', was.match);
+    await set('webStyles.recolor', was.recolor);
+    await t.main(({ webContents }, id) => webContents.fromId(id).close(), g);
+  });
+
   await R.step('…Catppuccin for every site and your style for the site: yours over it; a page one of your styles is for left to that style; off for a site in its info popover (and by the launcher’s command), and on again; in your theme’s colors while websites match it (Frost, Latte); Latte for websites told they’re light; no other site’s stylesheet read from your own network; off in Settings: the site’s own colors', async () => {
     const look = () => inTab(paint, LOOK);
     // Your style for the site (its info popover's): after Bifrost's, so it wins.
@@ -789,8 +875,9 @@ try {
     await t.ui(() => document.querySelector('.si-pop [data-row=recolor] input').click());
     await until(async () => JSON.stringify(await get('webStyles.recolorSites')) === '{"paint.test":false}', 3000, 'off for paint.test');
     await until(async () => { const l = await look(); return l.body === 'rgb(255, 255, 255)' && l.link === 'rgb(9, 105, 218)' && l.styleAttr === 'rgb(255, 238, 238) / rgb(153, 0, 0)'; }, 5000, 'its own colors');
-    const left = await inTab(paint, "[document.querySelectorAll('[data-bifrost-c]').length, document.adoptedStyleSheets.length, document.getElementById('in').style.cssText]");
-    assert(JSON.stringify(left) === '[0,0,"background: rgb(255, 238, 238); color: rgb(153, 0, 0);"]', 'nothing of Bifrost’s left: ' + JSON.stringify(left));
+    // (all of it gone a moment after the colors are: style="" given back as the page wrote it)
+    const leftNow = () => inTab(paint, "[document.querySelectorAll('[data-bifrost-c]').length, document.adoptedStyleSheets.length, document.getElementById('in').style.cssText]");
+    await until(async () => JSON.stringify(await leftNow()) === '[0,0,"background: rgb(255, 238, 238); color: rgb(153, 0, 0);"]', 3000, 'nothing of Bifrost’s left').catch(async (e) => { throw new Error(e.message + ': ' + JSON.stringify(await leftNow())); });
     await t.ui(() => document.querySelector('.si-pop [data-row=recolor] input').click());
     await until(async () => JSON.stringify(await get('webStyles.recolorSites')) === '{}', 3000, 'on again (as every site)');
     await until(async () => differ(await look(), { ...want(MOCHA), first: (await look()).first }).length === 0, 5000, 'Mocha again').catch(async (e) => { throw new Error(e.message + '\n' + differ(await look(), want(MOCHA)).join('\n')); });

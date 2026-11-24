@@ -156,6 +156,7 @@ function init() {
   ipcMain.handle('recolor:css', (event, url) => (ctx.webStyles ? ctx.webStyles.cssFetch(event, String(url || '')) : null));
   // …and a picture it shows that may be an icon: given back in text's colors if it is one (web-styles.js).
   ipcMain.handle('recolor:icon', (event, url) => (ctx.webStyles ? ctx.webStyles.iconFetch(event, String(url || '')) : null));
+  ipcMain.handle('recolor:look', (event, arg) => (ctx.webStyles ? ctx.webStyles.lookAt(event, arg) : null));
 
   let looking = pageLookWanted();
   ctx.settings.on('changed', ({ path }) => {

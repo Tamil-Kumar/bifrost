@@ -115,7 +115,9 @@ site you choose Bifrost's dark mode for, brightness and sepia on the top page on
 builds theirs in dark mode (a frame from another site, a page drawn on a canvas, a spreadsheet drawn on one a
 piece at a time, icons drawn as masks, with a space in them too) and in Catppuccin for every site (icons in
 pictures, masks, a logo and a photo kept, white on a one-color icon, a banner's letters, a card with an icon in
-its corner, canvases, white on a strong blue, Latte); your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
+its corner, canvases, white on a strong blue, Latte); a page built as Classroom builds theirs in both (previews of
+documents from another site turned as paper, a photo left, its rounded corner drawn in an SVG in the page's
+white, a toolbar's icon shown late); your styles installed from a link, there from the first paint (one question to the main process a page, none for its frames), in a frame of another site's page, and through a
 strict Content-Security-Policy, off and on, edited, deleted, in the info popover; a Stylus backup; a .user.css
 link offering to install itself; a file for importing into Stylus, Catppuccin's: its LESS styles built, with
 Bifrost's copy of Catppuccin's library and the CSS a style imports put in it, how far along, what couldn't be
@@ -218,11 +220,15 @@ reads such a picture (no cookies, as stylesheets) and gives it back in text's co
 drawn in one gray. An icon drawn as a mask over its background-color takes text's color; an SVG in three colors
 or more (a logo) keeps them; white on a one-color icon (Drive's files) is base. Text right over a picture (a
 course banner: a picture that covers half the element or more, not an icon in its corner) keeps the page's own
-color, and anything still too close to what's behind it gets base's or text's. A page drawn on a canvas (Google
+color, and anything still too close to what's behind it gets base's or text's; an SVG that blended into the page
+(Classroom's rounded corner, drawn in its white) blends in still. A page drawn on a canvas (Google
 Docs: white paper, or black ink on nothing; Sheets' grid, its pale fills too, looked at again till it's all
-drawn) has its lightness turned around by an SVG filter, white to base and black to text; dark mode for websites
-does the same (to Chromium's dark gray), turns icons drawn as masks over a dark color light (Docs' and Sheets'
-toolbars), and darkens frames from other sites too, which
+drawn) has its lightness turned around by an SVG filter, white to base and black to text, and so has a preview
+of a document on Google's apps (Docs' and Drive's, Classroom's attachments: from another site, so the main process
+looks at it on the screen and says only whether it's paper); dark mode for websites does the same (to Chromium's
+dark gray), turns icons drawn as masks over a dark color light (Docs' and Sheets' toolbars, once they're shown),
+darkens an SVG drawn in the page's white (Chromium's dark mode leaves those), and darkens frames from other sites
+too, which
 the tab's own session didn't reach (Google's account card). Your styles that say where they come from are
 updated once a day (Settings → Your styles → Keep your styles up to date).
 

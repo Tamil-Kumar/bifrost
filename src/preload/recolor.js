@@ -700,6 +700,31 @@ function makeCore() {
     return true;
   }
 
+  // A picture that's a page of a document (a preview of one: Docs' and Drive's, Classroom's attachments), looked
+  // at small (d: 40x40 pixels, RGBA, or BGRA as the main process reads the screen): opaque, flat (a document's few
+  // colors, not a photo's many: 200 at most, in 5-bit steps), an eighth of it or more white (the paper; a page
+  // that's mostly a table has little left), half of it light (pale cells count), under half strong color (a
+  // table's header), no wider than twice its height nor taller (not a banner). Looked for only on Google's apps
+  // for documents, where pictures this big are previews (pictures, not canvases: kind()).
+  function paperOf(d, w, h, bgra) {
+    if (!d || !w || !h || w / h > 2.1 || h / w > 2.1) return false;
+    const n = d.length / 4;
+    let opaque = 0, light = 0, strong = 0, white = 0;
+    const bins = new Set();
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 240) continue;
+      opaque++;
+      const r = bgra ? d[i + 2] : d[i], g = d[i + 1], b = bgra ? d[i] : d[i + 2];
+      bins.add((r >> 3) << 10 | (g >> 3) << 5 | (b >> 3));
+      const lab = toLab(r, g, b);
+      const C = Math.hypot(lab[1], lab[2]);
+      if (lab[0] > 0.78 && C < 0.1) light++;
+      if (lab[0] > 0.95 && C < 0.025) white++;
+      if (C > 0.1) strong++;
+    }
+    return opaque >= n * 0.95 && bins.size <= 200 && white >= n * 0.12 && light >= n * 0.45 && strong < n * 0.5;
+  }
+
   // A picture's lightness turned around, its colors kept (a page drawn on a canvas, as Google Docs does: white
   // to bg, black to fg, a blue link a lighter blue): an SVG filter as a CSS filter value. bg, fg: [r, g, b].
   function inkFilter(bg, fg) {
@@ -888,7 +913,7 @@ function makeCore() {
 
   return {
     parse, format, prepare, mapColor, rewrite, twinValue, cached, parts, scrollbar, declarations, twin, curve, rampAt, fromLab, toLab, lum, ratio,
-    svgText, isArt, isColor, hueOf, recolorIcon, inkFilter,
+    svgText, isArt, isColor, hueOf, recolorIcon, inkFilter, paperOf,
     ROLE, SHORT, NAMED, NAMES, KEEP, TINT_ALPHA, CLIP,
   };
 }
@@ -947,7 +972,7 @@ function startEngine() {
   const inkNow = () => {
     const m = recolorCfg && recolorCfg.palette ? { palette: recolorCfg.palette } : chromiumDark ? { chromium: true } : null;
     if (!ink && !m) return;
-    if (!ink) ink = makeInk(makeCore(), window, own);
+    if (!ink) ink = makeInk(makeCore(), window, own, isTop ? (rects) => ipcRenderer.invoke('recolor:look', rects).catch(() => null) : null);
     ink.set(m);
   };
   const set = (cfg) => {
@@ -982,29 +1007,45 @@ function startEngine() {
 // background, black to its text, colors kept); such an icon is drawn in text's color. Each is marked
 // data-bifrost-ink (paper, ink, mask) for one stylesheet of Bifrost's. m: { palette } (Catppuccin's colors) or
 // { chromium: true } (Chromium's dark mode: white goes to #121212), or null: off.
-function makeInk(core, win, own) {
+//   On Google's apps, a picture that's a preview of a document (Docs' and Drive's, Classroom's attachments: white
+// paper) is turned as a canvas of paper is. It's read here when it can be (from this site, or with CORS); one
+// from another site (most are) is looked at on the screen by the main process once it's all in view (look:
+// recolor:look, the top frame's only), which says only whether it's paper.
+//   In Chromium's dark mode, an inline SVG drawn only in light grays (white) on a light part of the page — a
+// piece of the page drawn in its white, Classroom's rounded corner — is darkened (data-bifrost-ink="svg"):
+// Chromium's dark mode turns a dark icon in an SVG light (it looks at it as at a picture) but leaves a light one
+// as it is.
+function makeInk(core, win, own, look) {
   const document = win.document;
   const getComputedStyle = (el) => win.getComputedStyle(el);
   const ATTR = 'data-bifrost-ink';
   // (an icon's element: nothing in it but, as Google writes theirs, a space: &nbsp;)
   const MASKS = 'div,span,i,a,b,em,button,li,label';
   const blank = (el) => el.childElementCount === 0 && !el.textContent.trim();
-  const stats = { canvases: 0, papers: 0, masks: 0, ms: 0 };
-  let mode = null, sheet = null, mo = null, timer = 0, pending = [];
+  // (Google's apps for documents — Docs, Sheets, Slides, Drive, Classroom — where pictures this big are previews;
+  // google.test: the tests' stand-in for them, a name no site on the web can have)
+  const google = /^(docs|drive|classroom)\.google\.com$|\.google\.test$/i.test(win.location.hostname);
+  const stats = { canvases: 0, papers: 0, masks: 0, svgs: 0, pictures: 0, looked: 0, ms: 0 };
+  let mode = null, sheet = null, mo = null, io = null, timer = 0, pending = [];
   const looked = new WeakMap();   // canvas -> how many times looked at (it may draw later)
-
+  const watched = new WeakMap();  // element -> what it's watched for ('mask': laid out; 'pic': all in view)
+  const svgSeen = new WeakSet();
+  const picSeen = new WeakMap();  // picture -> how many times looked at on the screen
+  const shown = new WeakMap();    // picture -> the part of it that shows, from its corner
   const rgb = (hex) => { const n = parseInt(String(hex).slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
   function css() {
     if (mode.chromium) {
-      return `canvas[${ATTR}]{filter:${core.inkFilter([18, 18, 18], [227, 227, 227])}!important}` +
+      return `canvas[${ATTR}],[${ATTR}="paper"]{filter:${core.inkFilter([18, 18, 18], [227, 227, 227])}!important}` +
+        // (an SVG in light grays: a CSS filter of its own, as an SVG element doesn't draw at all with a filter
+        // from a data: URL; white to about Chromium's dark gray for a page's white)
+        `svg[${ATTR}="svg"]{filter:invert(.89)!important}` +
         `[${ATTR}="mask"]{filter:invert(1) hue-rotate(180deg)!important}`;
     }
     const p = mode.palette;
-    return `canvas[${ATTR}]{filter:${core.inkFilter(rgb(p.base), rgb(p.text))}!important}` +
+    return `canvas[${ATTR}],[${ATTR}="paper"]{filter:${core.inkFilter(rgb(p.base), rgb(p.text))}!important}` +
       `[${ATTR}="mask"]{background-color:${p.subtext1}!important}`;
   }
   const dark = () => !!mode && (mode.chromium || core.lum(rgb(mode.palette.base)) < core.lum(rgb(mode.palette.text)));
-
   // A canvas, looked at small: 'paper' (mostly opaque white or pale fills, little strong color), 'ink' (mostly
   // nothing, what's drawn dark gray), '' (anything else: a photo, a chart in colors, a game), or null: nothing
   // drawn yet (or only part of it), or it can't be read (a picture from another site drawn on it).
@@ -1052,7 +1093,29 @@ function makeInk(core, win, own) {
     // once the spreadsheet is in, which can be a while)
     if (k === null && times < 7) setTimeout(() => canvasOne(cv), [400, 1500, 4000, 10000, 20000, 40000][times - 1]);
   }
-
+  // Watched till it's laid out (an icon in a toolbar that isn't shown yet: Docs') or all in view (a picture
+  // looked at on the screen).
+  function watch(el, what) {
+    if (watched.get(el) === what) return;
+    if (!io) {
+      io = new win.IntersectionObserver((entries) => {
+        for (const e of entries) {
+          const what = watched.get(e.target);
+          if (!what || !mode) continue;
+          if (what === 'mask' && e.boundingClientRect.width > 0) { io.unobserve(e.target); watched.delete(e.target); maskOne(e.target, false); }
+          else if (what === 'pic' && e.intersectionRatio >= 0.9) {
+            io.unobserve(e.target); watched.delete(e.target);
+            // (the part of it that shows: a preview in a card with rounded corners is cut a little)
+            const b = e.boundingClientRect, v = e.intersectionRect;
+            shown.set(e.target, { dx: v.left - b.left, dy: v.top - b.top, w: v.width, h: v.height });
+            onScreen(e.target);
+          }
+        }
+      }, { threshold: [0, 0.9, 1] });
+    }
+    watched.set(el, what);
+    io.observe(el);
+  }
   // An icon drawn as a mask (a small element with nothing in it, a mask-image, a background-color) that doesn't
   // show on the page as it is.
   function maskOne(el, again) {
@@ -1065,13 +1128,119 @@ function makeInk(core, win, own) {
     const c = core.parse(cs.backgroundColor);
     if (!c || c[3] < 0.3) return;
     const r = el.getBoundingClientRect();
-    if (!r.width || r.width > 96 || r.height > 96) return;
+    // (not laid out yet: looked at once it is)
+    if (!r.width && cs.display !== 'contents') { watch(el, 'mask'); return; }
+    if (r.width > 96 || r.height > 96) return;
     let hide;
     if (mode.chromium) hide = core.toLab(c[0], c[1], c[2])[0] < 0.55 && core.hueOf(c).colorful < 0.5;
     else hide = core.ratio(core.lum(c), core.lum(rgb(mode.palette.base))) < 2.6;
     if (hide) { el.setAttribute(ATTR, 'mask'); if (!had) stats.masks++; }
   }
-
+  // What's behind an element, as the page has it: light (true), dark or a picture (false).
+  function lightBehind(el) {
+    for (let e = el.parentElement, k = 0; e && k < 40; e = e.parentElement, k++) {
+      const cs = getComputedStyle(e);
+      if (/url\(/i.test(cs.backgroundImage)) return false;
+      const c = core.parse(cs.backgroundColor);
+      if (c && c[3] >= 0.5) return core.toLab(c[0], c[1], c[2])[0] > 0.75;
+    }
+    return true;
+  }
+  // An inline SVG in light grays on a light part of the page (Chromium's dark mode only: it leaves those).
+  const SHAPES = 'path,rect,circle,ellipse,polygon,polyline,line,text,use';
+  function svgOne(svg) {
+    if (svgSeen.has(svg) || svg.hasAttribute(ATTR) || svg.ownerSVGElement) return;
+    const r = svg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    svgSeen.add(svg);
+    let painted = 0;
+    const shapes = svg.querySelectorAll(SHAPES);
+    if (shapes.length > 60) return;
+    for (const sh of shapes) {
+      const cs = getComputedStyle(sh);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      for (const [paint, op] of [[cs.fill, cs.fillOpacity], [cs.stroke, cs.strokeOpacity]]) {
+        if (!paint || paint === 'none') continue;
+        if (/url\(/i.test(paint)) return;
+        const c = core.parse(paint);
+        if (!c) return;
+        if (c[3] * (parseFloat(op) || 0) < 0.05) continue;
+        // (a color, or a dark gray, which Chromium's dark mode turns: the SVG is left to it)
+        const lab = core.toLab(c[0], c[1], c[2]);
+        if (lab[0] < 0.8 || Math.hypot(lab[1], lab[2]) > 0.06) return;
+        painted++;
+      }
+    }
+    if (!painted || !lightBehind(svg)) return;
+    svg.setAttribute(ATTR, 'svg');
+    stats.svgs++;
+  }
+  // A picture that may be a preview of a document (Google's apps for documents only), 90x60 or bigger: an <img>,
+  // or an element with nothing in it whose background picture covers it. Read here when it can be; looked at on the screen when it can't.
+  function picOne(el, cs) {
+    if (!google || !dark() || el.hasAttribute(ATTR) || picSeen.has(el)) return;
+    const r = el.getBoundingClientRect();
+    // (Classroom's attachments are about 120x80)
+    if (r.width < 90 || r.height < 60 || r.width * r.height < 6000 || r.width / r.height > 2.1 || r.height / r.width > 2.1) return;
+    if (el.localName === 'img') {
+      if (!el.complete || !el.naturalWidth) { el.addEventListener('load', () => { if (mode) picOne(el); }, { once: true }); return; }
+      const probe = probeOf();
+      if (!probe) return;
+      try {
+        probe.drawImage(el, 0, 0, 40, 40);
+        const d = probe.getImageData(0, 0, 40, 40).data;
+        picSeen.set(el, 9);
+        if (core.paperOf(d, r.width, r.height, false)) { el.setAttribute(ATTR, 'paper'); stats.pictures++; }
+        return;
+      } catch { /* from another site: on the screen */ }
+    } else {
+      cs = cs || getComputedStyle(el);
+      const size = String(cs.backgroundSize);
+      if (!/url\(/i.test(cs.backgroundImage) || !/^(cover|contain|100%( 100%)?)$/.test(size)) return;
+    }
+    if (!look) return;
+    picSeen.set(el, 0);
+    watch(el, 'pic');
+  }
+  // Pictures all in view, looked at on the screen together (a moment after: drawn by then), at most 12 at a time.
+  let screenList = [], screenTimer = 0;
+  function onScreen(el) {
+    screenList.push(el);
+    if (!screenTimer) screenTimer = setTimeout(screenNow, 250);
+  }
+  async function screenNow() {
+    screenTimer = 0;
+    const list = screenList.splice(0, 12);
+    if (screenList.length) screenTimer = setTimeout(screenNow, 300);
+    const els = [], rects = [];
+    const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+    for (const el of list) {
+      if (!el.isConnected || el.hasAttribute(ATTR)) continue;
+      const b = el.getBoundingClientRect();
+      const p = shown.get(el) || { dx: 0, dy: 0, w: b.width, h: b.height };
+      const r = { left: b.left + p.dx, top: b.top + p.dy, right: b.left + p.dx + p.w, bottom: b.top + p.dy + p.h };
+      if (r.left < 0 || r.top < 0 || r.right > vw + 1 || r.bottom > vh + 1 || p.w < 40 || p.h < 30) { watch(el, 'pic'); continue; }
+      els.push(el);
+      rects.push({ x: r.left, y: r.top, w: p.w, h: p.h, bx: b.left, by: b.top });
+    }
+    if (!els.length || !mode) return;
+    const out = await look({ rects: rects.map(({ x, y, w, h }) => ({ x, y, w, h })), vw: win.innerWidth });
+    stats.looked += els.length;
+    els.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      const moved = Math.abs(r.left - rects[i].bx) > 2 || Math.abs(r.top - rects[i].by) > 2;
+      const v = Array.isArray(out) ? out[i] : null;
+      // (not seen: the window hidden, the page moved; looked at again, three times at most)
+      if (v == null || moved) {
+        const n = (picSeen.get(el) || 0) + 1;
+        picSeen.set(el, n);
+        if (n < 3) setTimeout(() => { if (mode && el.isConnected) watch(el, 'pic'); }, 2000);
+        return;
+      }
+      picSeen.set(el, 9);
+      if (v && mode && dark()) { el.setAttribute(ATTR, 'paper'); stats.pictures++; }
+    });
+  }
   function scan(root, masks = true, again = false) {
     if (!mode) return;
     const t0 = performance.now();
@@ -1082,7 +1251,20 @@ function makeInk(core, win, own) {
         const els = root.matches && root.matches(MASKS) && blank(root) ? [root] : [];
         let k = 0;
         for (const el of root.querySelectorAll(MASKS)) { if (++k > 20000) break; if (blank(el)) els.push(el); }
-        for (const el of els.slice(0, 4000)) maskOne(el, again);
+        for (const el of els.slice(0, 4000)) {
+          maskOne(el, again);
+          if (google && el.localName === 'div' && !el.hasAttribute(ATTR)) picOne(el);
+        }
+      }
+      if (dark() && root.querySelectorAll) {
+        if (google) {
+          const imgs = root.localName === 'img' ? [root] : root.querySelectorAll('img');
+          for (let i = 0; i < imgs.length && i < 600; i++) picOne(imgs[i]);
+        }
+        if (mode.chromium) {
+          const svgs = root.localName === 'svg' ? [root] : root.querySelectorAll('svg');
+          for (let i = 0; i < svgs.length && i < 2000; i++) svgOne(svgs[i]);
+        }
       }
     } catch { /* gone */ }
     stats.ms += performance.now() - t0;
@@ -1105,12 +1287,12 @@ function makeInk(core, win, own) {
       document.adoptedStyleSheets = mode ? [...cur, sheet] : cur;
     } catch { /* fine */ }
   }
-
   function set(m) {
     const was = mode;
     mode = m;
     if (!m) {
       if (mo) { mo.disconnect(); mo = null; }
+      if (io) { io.disconnect(); io = null; }
       if (was) { unmark(); arrange(); }
       return;
     }
@@ -1130,9 +1312,10 @@ function makeInk(core, win, own) {
         });
         try { mo.observe(document.documentElement || document, { childList: true, subtree: true }); } catch { /* fine */ }
       }
-      // (a page laid out late, its icons' styles in late; and in Catppuccin's colors, the masks looked at again
-      // as they are without Bifrost's mark: the page's stylesheets may have been turned since)
-      setTimeout(() => { if (mode) scan(document); }, 1500);
+      // (a page laid out late, its icons' styles in late — Docs' toolbar — looked at again a few times; and in
+      // Catppuccin's colors, the masks looked at again as they are without Bifrost's mark: the page's
+      // stylesheets may have been turned since)
+      for (const t of [1500, 4000, 10000]) setTimeout(() => { if (mode) scan(document); }, t);
       if (!mode.chromium) setTimeout(() => { if (mode && !mode.chromium) scan(document, true, true); }, 5000);
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go, { once: true }); else go();
@@ -1925,17 +2108,21 @@ function makeEngine(core, win, env) {
       for (const e of path) memo.set(e, out);
       return out;
     };
-    const fix = (el, fg, bg) => {
+    // (the color that reads where this doesn't: 'base' or 'text'; null when it reads, or neither would better)
+    const low = (fg, bg) => {
       const a = fg[3] == null ? 1 : fg[3];
-      if (a < 0.5) return;
+      if (a < 0.5) return null;
       const seen = [0, 1, 2].map((i) => fg[i] * a + bg[i] * (1 - a));
       const yb = core.lum(bg);
       const now = core.ratio(core.lum(seen), yb);
-      if (now >= 2.4) return;
+      if (now >= 2.4) return null;
       const rb = core.ratio(P.yBase, yb), rt = core.ratio(P.yText, yb);
-      const k = rb > rt ? 'base' : 'text';
-      if (Math.max(rb, rt) < now + 1.5) return;
-      if (el.getAttribute('data-bifrost-fg') !== k) el.setAttribute('data-bifrost-fg', k);
+      if (Math.max(rb, rt) < now + 1.5) return null;
+      return rb > rt ? 'base' : 'text';
+    };
+    const fix = (el, fg, bg) => {
+      const k = low(fg, bg);
+      if (k && el.getAttribute('data-bifrost-fg') !== k) el.setAttribute('data-bifrost-fg', k);
     };
     let n = 0;
     const walk = document.createTreeWalker(document.body, 4);
@@ -1950,8 +2137,9 @@ function makeEngine(core, win, env) {
       const bg = fg && behind(el);
       if (bg) fix(el, fg, bg);
     }
+    const svgs = [];
     for (const svg of document.querySelectorAll('svg')) {
-      if (n >= FG_MAX) break;
+      if (n >= FG_MAX || svgs.length >= 400) break;
       if (done.has(svg) || svg.hasAttribute('data-bifrost-art')) continue;
       done.add(svg);
       n++;
@@ -1967,7 +2155,46 @@ function makeEngine(core, win, env) {
       if (!one || !fill) continue;
       const fg = core.parse(fill);
       const bg = fg && behind(svg.parentElement || svg);
-      if (bg) fix(svg, fg, bg);
+      if (bg) svgs.push([svg, fg, bg]);
+    }
+    // How each looked on the page as it was (read with Bifrost's stylesheets out of the way for a moment, as
+    // pictureText does): one that blended into what's behind it is a piece of the page drawn in SVG, not an icon
+    // (Classroom's rounded corner, in its page's white over a white card; turned as an icon's, it went light on
+    // Mocha's base): it's given what's behind it now, to blend in still (data-bifrost-blend). One that read and
+    // doesn't now gets base's color or text's (data-bifrost-fg).
+    if (svgs.length) {
+      let cur = null;
+      const was = [];
+      try {
+        cur = document.adoptedStyleSheets;
+        document.adoptedStyleSheets = cur.filter((x) => !S.ours.has(x));
+        for (const [svg] of svgs) {
+          const shape = svg.querySelector('path,circle,rect,polygon,ellipse');
+          const fg = shape && core.parse(getComputedStyle(shape).fill);
+          let bg = [255, 255, 255, 1];
+          for (let e = svg.parentElement, k = 0; e && k < 60; e = e.parentElement, k++) {
+            const c = core.parse(getComputedStyle(e).backgroundColor);
+            if (c && c[3] >= 0.5) { bg = c; break; }
+          }
+          was.push(fg && fg[3] >= 0.5 ? core.ratio(core.lum(fg), core.lum(bg)) : null);
+        }
+      } catch { /* fine */ } finally { if (cur) try { document.adoptedStyleSheets = cur; } catch { /* fine */ } }
+      let added = false;
+      svgs.forEach(([svg, fg, bg], i) => {
+        const r = was[i];
+        if (r == null) return;
+        if (r < 1.25) {
+          if (core.ratio(core.lum(fg), core.lum(bg)) < 1.25) return;
+          const v = [bg[0], bg[1], bg[2]].map(Math.round).join(',');
+          const key = 'blend\u0001' + v;
+          if (!S.picColors.has(key)) { S.picColors.set(key, `:where(svg[data-bifrost-blend="${v}"] :is(path,circle,rect,polygon,ellipse,use)){fill:rgb(${v})!important}`); added = true; }
+          if (svg.getAttribute('data-bifrost-blend') !== v) svg.setAttribute('data-bifrost-blend', v);
+          return;
+        }
+        const k = r >= 1.6 && low(fg, bg);
+        if (k && svg.getAttribute('data-bifrost-fg') !== k) svg.setAttribute('data-bifrost-fg', k);
+      });
+      if (added) writeBases();
     }
     S.stats.ms += performance.now() - t0;
   }
@@ -2271,7 +2498,7 @@ function makeEngine(core, win, env) {
       picSels: new Set(), picDone: new WeakSet(), picColors: new Map(), fgDone: new WeakSet(),
     });
     if (S.fgTimer) { clearTimeout(S.fgTimer); S.fgTimer = 0; }
-    try { for (const e of document.querySelectorAll('[data-bifrost-fg],[data-bifrost-duo],[data-bifrost-art]')) { e.removeAttribute('data-bifrost-fg'); e.removeAttribute('data-bifrost-duo'); e.removeAttribute('data-bifrost-art'); } } catch { /* fine */ }
+    try { for (const e of document.querySelectorAll('[data-bifrost-fg],[data-bifrost-duo],[data-bifrost-art],[data-bifrost-blend]')) { e.removeAttribute('data-bifrost-fg'); e.removeAttribute('data-bifrost-duo'); e.removeAttribute('data-bifrost-art'); e.removeAttribute('data-bifrost-blend'); } } catch { /* fine */ }
     if (S.picTimer) { clearTimeout(S.picTimer); S.picTimer = 0; }
     try { for (const e of document.querySelectorAll('[data-bifrost-pic]')) e.removeAttribute('data-bifrost-pic'); } catch { /* fine */ }
   }
@@ -2286,7 +2513,8 @@ function makeEngine(core, win, env) {
     S.icons = new Map();
     S.imgRules = new Map();
     S.fgDone = new WeakSet();
-    try { for (const e of document.querySelectorAll('[data-bifrost-fg]')) e.removeAttribute('data-bifrost-fg'); } catch { /* fine */ }
+    try { for (const e of document.querySelectorAll('[data-bifrost-fg],[data-bifrost-blend]')) { e.removeAttribute('data-bifrost-fg'); e.removeAttribute('data-bifrost-blend'); } } catch { /* fine */ }
+    for (const k of [...S.picColors.keys()]) if (k.startsWith('blend\u0001')) S.picColors.delete(k);
     fgSoon(800);
     S.seen = new WeakMap();
     eachScope((sc) => { for (const sh of sc.list) { const src = S.sources.get(sh); if (src) S.dirty.add(src); } });

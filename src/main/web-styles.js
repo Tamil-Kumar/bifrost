@@ -87,6 +87,7 @@ class WebStyles extends EventEmitter {
     this.palettes = new Map();     // what a page gets for Catppuccin for every site, by what it's made from
     this.icons = new Map();        // palette key + a picture's address -> { data (it as an icon in text's colors, or null), wait }
     this.iconBytes = 0;
+    this.looks = new Map();        // a tab's id -> { url, count }: pictures looked at on the screen for its page (lookAt)
     this.iconPalettes = new Map(); // palette key -> recolor.js's prepared palette
   }
 
@@ -490,6 +491,35 @@ class WebStyles extends EventEmitter {
   // dark base. Read here (without your cookies, none from your own network for a page on the web, as stylesheets
   // are), and given back in text's colors if it's an icon that wouldn't show in the page's colors (recolor.js's
   // recolorIcon: see-through, drawn in one gray; an SVG's colors, unless it's art); null for anything else.
+  // Pictures in a tab's top page that may be previews of documents (makeInk, on Google's apps: from another site,
+  // which the page can't read): each looked at where it is on the screen, small, and said to be paper or not
+  // (null: not seen, the window hidden). Nothing of the picture goes back to the page. 12 at a time, 300 a page.
+  async lookAt(event, arg) {
+    const wc = event && event.sender;
+    if (!wc || wc.isDestroyed() || wc.getType() !== 'webview') return null;
+    if (event.senderFrame && event.senderFrame !== wc.mainFrame) return null;
+    const rects = arg && Array.isArray(arg.rects) ? arg.rects.slice(0, 12) : [];
+    const url = wc.getURL();
+    let n = this.looks.get(wc.id);
+    if (!n || n.url !== url) { n = { url, count: 0 }; this.looks.set(wc.id, n); if (this.looks.size > 200) this.looks.delete(this.looks.keys().next().value); }
+    const core = recolorCore();
+    const zoom = wc.getZoomFactor() || 1;
+    const out = [];
+    for (const r of rects) {
+      const x = Number(r && r.x), y = Number(r && r.y), w = Number(r && r.w), h = Number(r && r.h);
+      if (![x, y, w, h].every(Number.isFinite) || x < 0 || y < 0 || w < 40 || h < 30 || w > 4000 || h > 4000) { out.push(null); continue; }
+      if (n.count >= 300) { out.push(false); continue; }
+      n.count++;
+      try {
+        const img = await wc.capturePage({ x: Math.round(x * zoom), y: Math.round(y * zoom), width: Math.round(w * zoom), height: Math.round(h * zoom) });
+        if (!img || img.isEmpty()) { out.push(null); continue; }
+        const bmp = img.resize({ width: 40, height: 40, quality: 'good' }).toBitmap();
+        out.push(bmp.length >= 1600 ? core.paperOf(bmp, w, h, true) : null);
+      } catch { out.push(null); }
+    }
+    return out;
+  }
+
   async iconFetch(event, url) {
     const page = this.cssAsker(event);
     if (!page || !url) return null;

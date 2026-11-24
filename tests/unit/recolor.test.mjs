@@ -164,5 +164,23 @@ const b = R.cached(mocha, 'v', 'var(--q) linear-gradient(#fff, #000)', 'b', { us
 check('remembered: the same value turns out the same, the variables it uses told again', [a === b, uses, uses2], [true, [['--q', 'b']], [['--q', 'b']]]);
 check('scrollbar-color: the thumb a line, the track a background', R.scrollbar(mocha, '#cccccc #ffffff', {}), '#3a3b4e #1e1e2e');
 
+// ---- a picture that's a preview of a document (40x40, as makeInk and the main process look at them)
+{
+  const pic = (fn, bgra = false) => { const d = new Uint8ClampedArray(1600 * 4); for (let y = 0; y < 40; y++) for (let x = 0; x < 40; x++) { const [r, g, b, a = 255] = fn(x, y); const i = (y * 40 + x) * 4; d[i] = bgra ? b : r; d[i + 1] = g; d[i + 2] = bgra ? r : b; d[i + 3] = a; } return d; };
+  // a page: white, lines of gray text
+  const page = (x, y) => (y > 4 && y % 3 === 0 && x > 4 && x < 34 ? [150, 150, 150] : [255, 255, 255]);
+  // Classroom's attachment: a page with a table, its header strong blue, its cells pale blue
+  const table = (x, y) => (y < 9 ? [255, 255, 255] : x < 3 || x > 36 ? [255, 255, 255] : y < 15 ? [130, 158, 229] : y % 6 === 0 ? [80, 80, 80] : [201, 218, 248]);
+  // a photo: colors everywhere; a product on white: a red shoe filling most of it
+  const photo = (x, y) => [(x * 37 + y * 11) % 256, (x * 13 + y * 29) % 256, (x * 7 + y * 41) % 256];
+  const shoe = (x, y) => ((x - 20) ** 2 / 360 + (y - 20) ** 2 / 200 < 1 ? [200 + (x % 5) * 8, 30 + y, 40] : [255, 255, 255]);
+  const slide = (x, y) => (y > 15 && y < 20 && x > 8 && x < 30 ? [240, 240, 240] : [32, 33, 36]);
+  const icon = (x, y) => (Math.abs(x - 20) < 8 && Math.abs(y - 20) < 8 ? [68, 71, 70, 255] : [0, 0, 0, 0]);
+  check('paper: a page of text, Classroom’s table (strong blue header, pale cells), read as BGRA too',
+    [R.paperOf(pic(page), 200, 260), R.paperOf(pic(table), 158, 105), R.paperOf(pic(table, true), 158, 105, true)], [true, true, true]);
+  check('…not: a photo, a red shoe on white, a dark slide, an icon on nothing, a banner (4:1)',
+    [R.paperOf(pic(photo), 200, 200), R.paperOf(pic(shoe), 200, 200), R.paperOf(pic(slide), 267, 167), R.paperOf(pic(icon), 100, 100), R.paperOf(pic(page), 800, 200)], [false, false, false, false, false]);
+}
+
 console.log(`\nrecolor: ${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);
