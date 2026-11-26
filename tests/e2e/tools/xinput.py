@@ -7,6 +7,7 @@ Reads one command per line on stdin and answers each with one line:
   key K           press and release the key with keysym name K (Return, Escape, a, Control_L, ...)
   keydown K / keyup K
   pos             where the pointer is
+  cursor          whether the pointer shows: how many of its pixels aren't see-through (0: hidden)
 """
 import ctypes, ctypes.util, sys
 
@@ -24,6 +25,13 @@ x11.XDefaultRootWindow.restype = ctypes.c_ulong
 x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
 x11.XQueryPointer.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong),
                               ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_uint)]
+xfixes = ctypes.CDLL(ctypes.util.find_library('Xfixes') or 'libXfixes.so.3')
+class CursorImage(ctypes.Structure):
+    _fields_ = [('x', ctypes.c_short), ('y', ctypes.c_short), ('width', ctypes.c_ushort), ('height', ctypes.c_ushort),
+                ('xhot', ctypes.c_ushort), ('yhot', ctypes.c_ushort), ('cursor_serial', ctypes.c_ulong),
+                ('pixels', ctypes.POINTER(ctypes.c_ulong)), ('atom', ctypes.c_ulong), ('name', ctypes.c_char_p)]
+xfixes.XFixesGetCursorImage.restype = ctypes.POINTER(CursorImage)
+xfixes.XFixesGetCursorImage.argtypes = [ctypes.c_void_p]
 xtst.XTestFakeMotionEvent.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
 xtst.XTestFakeButtonEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
 xtst.XTestFakeKeyEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
@@ -64,6 +72,9 @@ for line in sys.stdin:
             mask = ctypes.c_uint()
             x11.XQueryPointer(d, x11.XDefaultRootWindow(d), ctypes.byref(root), ctypes.byref(child), ctypes.byref(rx), ctypes.byref(ry), ctypes.byref(wx), ctypes.byref(wy), ctypes.byref(mask))
             out = '%d %d' % (rx.value, ry.value)
+        elif a[0] == 'cursor':
+            im = xfixes.XFixesGetCursorImage(d).contents
+            out = str(sum(1 for i in range(im.width * im.height) if (im.pixels[i] >> 24) & 255))
         else:
             out = 'error unknown command'
         x11.XSync(d, 0)

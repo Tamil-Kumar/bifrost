@@ -72,7 +72,8 @@ Suites: `core` (tab close buttons in every layout, Glass menus, palette, launche
 small window's toolbar keeping the window's buttons, the menu and the address bar in the window,
 task manager), `behavior` (settings that change behavior, the Launcher section's included, how long the downloads box stays (with the real pointer: what holds it open, and its close button), one press of the mouse's Back button one page back however many ways it arrives (and with the window busy in between), links opened in a new tab in front or behind; the settings page opening with what
 you see and building the rest after; its side navigation scrolling on its own when it's taller than the window; a box of text too big to show, and My filters' Clear button; "Match the page": a dark page's color taken as it is, the bars staying dark next to a bright one with the page in its frame, or going light, or taking it exactly, with text that reads on each; "Blur the page": the page's picture behind the bars, under dark glass next to a bright page), `everyday` (video, full screen and what shows
-over it, PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
+over it, a video that hides the pointer as it goes full screen (the pointer really gone, also when Chromium last saw the
+mouse over Bifrost's own window), PDFs, pop-ups, Leave site?, permissions and the permissions shield (in the address bar and in the compact toolbar's title pill), notifications, the keyboard following the tab on screen,
 Ctrl+Tab's list of tabs and Ctrl+Tab after Ctrl+W, the side panel and its side bar (websites there: cookies, staying loaded, links, permission
 questions, notifications, dialogs; arranging it: its + off with its menu, its row in Settings → Toolbar & sidebar; its buttons and
 the sidebar's bottom row evenly spaced, collapsed and open), find, zoom,
@@ -129,7 +130,9 @@ site on a light page written as sites are now, at once and from its first paint,
 work makes it (variables, Bootstrap's, shadcn's and Tailwind's numbers in them, style="", bgcolor, an SVG's fill,
 another site's stylesheet through a redirect, a rule a script adds, a web component, a frame and a frame the page
 writes itself), your style for the site over it, a page one of your styles is for left alone, off for a site in
-its info popover, your theme's colors, Latte for light websites, nothing read from your own network, off again),
+its info popover, your theme's colors, Latte for light websites, nothing read from your own network, off again;
+a big stylesheet's work kept for the next load, a changed one read again; a page with no background of its own dark
+in dark mode, a new tab dark while its page loads, a side panel's website dark too),
 `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
 and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
@@ -212,7 +215,14 @@ fill and stroke, stylesheets from other sites (read by the main process: CSS onl
 own network for a page on the web), rules scripts add (their insertRule is watched from the page's world), open
 shadow roots, frames and the frames a page writes into itself. The palette is Mocha (Latte where websites are
 light), or your theme's while websites match it; a page one of your styles is for is left to that style, and
-sites can be turned off in their info popover.
+sites can be turned off in their info popover. What a big stylesheet's rules come to is kept in the main process
+(per site, up to 400 stylesheets or 40 MB), so the next page that uses it doesn't read it again: a site's own file
+by its address and size, and only when it came from the browser's cache (one downloaded fresh is read again and
+replaces it); a `<style>` or another site's stylesheet by a hash of all of its text.
+
+Behind every website (tabs and the side panel's) is the color it would have: Chromium's dark gray in dark mode,
+Catppuccin's base in Catppuccin for every site, white otherwise. A page with no background of its own showed the
+window's white there behind its light letters, and a new tab flashed white while its page loaded.
 
 Pictures stay as they are, photos and logos, except icons: Google draws most of theirs as black glyphs on
 nothing (a sprite as a background, an `<img>`, an SVG), which don't show on a dark base, so the main process

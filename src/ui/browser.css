@@ -404,7 +404,7 @@ img.panel-ico { object-fit: contain; border-radius: 3px; }
 .panel-main { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 .panel-webhost { position: absolute; inset: 0 6px 6px; visibility: hidden; pointer-events: none; }
 #panel[data-kind="web"] .panel-webhost { visibility: visible; pointer-events: auto; }
-.panel-webhost > .panel-webview { position: absolute; inset: 0; visibility: hidden; background: #fff; }
+.panel-webhost > .panel-webview { position: absolute; inset: 0; visibility: hidden; background: var(--backdrop, #fff); }
 #panel[data-kind="web"] .panel-webhost > .panel-webview.on { visibility: visible; }
 :root:not(.panel-open) #panel.keep, :root.html-fs #panel.keep { display: flex !important; position: fixed; top: var(--gap); bottom: var(--gap); left: 0; margin: 0 !important; visibility: hidden; pointer-events: none; z-index: -1; }
 :root:not(.panel-open) #panel.keep .panel-webview, :root.html-fs #panel.keep .panel-webview { visibility: hidden !important; }
@@ -751,7 +751,8 @@ img.pa-fav { object-fit: contain; border-radius: 3px; }
 
 webview.view {
   position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-  border: 0; background: #fff;
+  /* (--backdrop: dark for a page in dark mode or in Catppuccin's colors, views.js setBackdrop) */
+  border: 0; background: var(--backdrop, #fff);
   transition: opacity var(--t-fast);
 }
 webview.view.internal { background: var(--base); }

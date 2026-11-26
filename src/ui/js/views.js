@@ -63,6 +63,46 @@ export function goLive() {
   if (held) layout();
 }
 
+// ---------------------------------------------------------------- what's behind a page
+// The color behind a page before it's drawn and where it draws nothing (main/web-theme.js backdropFor): dark for a
+// page in dark mode or in Catppuccin's colors. A new tab takes the last one said until its own is.
+const backdrops = new Map();   // webContents id -> color ('' for the white)
+let lastBackdrop = '';
+function paintBackdrop(el, color) {
+  if (!el) return;
+  if (color) el.style.setProperty('--backdrop', color); else el.style.removeProperty('--backdrop');
+}
+export function setBackdrop(wcId, color) {
+  backdrops.set(wcId, color || '');
+  if (backdrops.size > 400) backdrops.delete(backdrops.keys().next().value);
+  lastBackdrop = color || '';
+  const t = S.tabs.find((x) => x.wcId === wcId);
+  if (t && t.wv) { paintBackdrop(t.wv, color); return; }
+  // (a website in the side panel)
+  for (const el of document.querySelectorAll('.panel-webview')) {
+    let id = null;
+    try { id = el.getWebContentsId(); } catch { id = null; }
+    if (id === wcId) paintBackdrop(el, color);
+  }
+}
+// (a website in the side panel, once it has its webContents: what was said before that, painted)
+export function backdropOn(el) {
+  let id = null;
+  try { id = el.getWebContentsId(); } catch { return; }
+  if (backdrops.has(id)) paintBackdrop(el, backdrops.get(id));
+}
+
+// ---------------------------------------------------------------- the pointer over a page
+// A page in full screen that hides the pointer (preload/tab.js says so: 'wb-pointer-hidden') has it hidden over its
+// webview here too. Chromium shows the pointer of the page it last saw the mouse over and only looks again when
+// the mouse moves; a window going into full screen on Windows can leave that this window's own page, with the
+// tab's page told the mouse has left (so it doesn't even say it wants no pointer): the arrow stayed over the
+// video till the mouse moved. Whichever of the two Chromium goes by, the pointer's hidden now.
+function setPointerHidden(tab, hidden) {
+  if (tab && tab.wv) tab.wv.style.cursor = hidden ? 'none' : '';
+}
+on('guest-message', (tab, channel, args) => { if (channel === 'wb-pointer-hidden') setPointerHidden(tab, !!(args && args[0])); });
+
 // ---------------------------------------------------------------- create
 export function ensureView(tab) {
   if (tab.wv) return tab.wv;
@@ -70,6 +110,7 @@ export function ensureView(tab) {
   const el = document.createElement('webview');
   el.className = 'view hidden';
   el.classList.toggle('internal', isInternal(tab.url || NEWTAB_URL));
+  if (!isInternal(tab.url || NEWTAB_URL)) paintBackdrop(el, lastBackdrop);
   el.dataset.tab = tab.id;
   el.setAttribute('partition', S.partition);
   el.setAttribute('allowpopups', '');
@@ -111,6 +152,7 @@ function resolveWc(tab, el, tries = 0) {
     return;
   }
   setTab(tab, { wcId: id });
+  if (backdrops.has(id)) paintBackdrop(el, backdrops.get(id));
   reportShown();
   for (const r of wcWaiters.get(tab.id) || []) r(id);
   wcWaiters.delete(tab.id);
@@ -725,6 +767,7 @@ function setHtmlFullscreen(tab, on) {
   const was = S.htmlFullscreenTab;
   S.htmlFullscreenTab = on ? tab : (S.htmlFullscreenTab === tab ? null : S.htmlFullscreenTab);
   document.documentElement.classList.toggle('html-fs', !!S.htmlFullscreenTab);
+  if (!on) setPointerHidden(tab, false);
   layout();
   if (on) {
     if (!fsHint) {

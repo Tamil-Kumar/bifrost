@@ -38,6 +38,7 @@ function listen() {
   wb.on('open-url', (o) => openFromMain(o || {}));
   wb.on('context-menu', (p) => showPageMenu(p));
   wb.on('zoom-changed', ({ wcId, level }) => { const t = tabByWc(wcId); if (t) setTab(t, { zoom: level }); });
+  wb.on('tab-backdrop', ({ wcId, color } = {}) => V.setBackdrop(wcId, color));
   wb.on('window-focus', (f) => { S.focused = !!f; Theme.applyWindowState(); });
   wb.on('fullscreen', (f) => { S.fullscreen = !!f; Theme.applyWindowState(); });
   wb.on('maximized', (m) => { S.maximized = !!m; Theme.applyWindowState(); TB.refreshCaption(); });

@@ -103,6 +103,8 @@ export function xinput() {
     keyDown: (keysym) => cmd('keydown', keysym),
     keyUp: (keysym) => cmd('keyup', keysym),
     pos: () => cmd('pos').then((s) => s.split(' ').map(Number)),
+    // (how many of the pointer's pixels show: 0 when it's hidden)
+    cursor: () => cmd('cursor').then(Number),
     close() { try { proc.stdin.end(); proc.kill(); } catch { /* gone */ } },
   };
 }

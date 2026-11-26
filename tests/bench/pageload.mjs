@@ -1,7 +1,8 @@
 // How long a page takes to load in Bifrost: a local page with a couple of hundred requests over several origins
 // (scripts, styles, pictures, fetches, frames; some of them to ad servers the blocker stops), loaded `runs` times
 // in a tab. Prints the median time to the page's load event for each way of running it:
-//   as it comes · with "Block YouTube ads" off · with the ad blocker off · with nothing of Bifrost's on requests
+//   as it comes · with "Block YouTube ads" off · with the ad blocker off · dark mode, Catppuccin for every site,
+//   both · with nothing of Bifrost's on requests
 //   xvfb-run -a node tests/bench/pageload.mjs [runs] [--only=default,bare] [--no-ads] [--root=<dir>]
 // --only also takes the ones that take the request hooks apart, to see what each costs: before-only, no-received,
 // no-send, nosession, trivial. --no-ads leaves the ad servers' requests out of the page (to compare with the
@@ -57,6 +58,9 @@ const MODES = {
   'no-send': { label: '(without the hook on headers sent)', settings: { privacy: { adblock: { youtubeSkip: false } } }, mode: 'no-send', extra: true },
   nosession: { label: '(no protocol session on the tab)', settings: { appearance: { webTheme: 'system' }, privacy: { adblock: { youtubeSkip: false } } }, extra: true },
   trivial: { label: '(one hook that does nothing)', settings: { privacy: { adblock: { youtubeSkip: false } } }, mode: 'trivial', extra: true },
+  dark: { label: 'dark mode for websites on', settings: { webStyles: { dark: true } } },
+  recolor: { label: 'Catppuccin for every site on', settings: { webStyles: { recolor: true } } },
+  both: { label: 'both on', settings: { webStyles: { dark: true, recolor: true } } },
   bare: { label: 'nothing of Bifrost’s on requests', settings: { privacy: { adblock: { enabled: false, youtubeSkip: false } } }, mode: 'bare' },
 };
 const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
@@ -65,13 +69,14 @@ function run(key) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-bench-'));
   fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(Object.assign({ onboarding: { done: true } }, m.settings)));
   return new Promise((resolve, reject) => {
-    const p = spawn(ELECTRON, ['-r', path.join(HERE, 'pageload-main.js'), ROOT, '--profile=' + dir, url + 'first'], { env: { ...process.env, BENCH_URL: url, BENCH_RUNS: String(runs), BENCH_MODE: m.mode || '', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' } });
+    const p = spawn(ELECTRON, ['-r', process.env.BENCH_MAIN || path.join(HERE, 'pageload-main.js'), ROOT, '--profile=' + dir, url + 'first'], { env: { ...process.env, BENCH_URL: url, BENCH_RUNS: String(runs), BENCH_MODE: m.mode || '', ELECTRON_DISABLE_SECURITY_WARNINGS: '1' } });
     let out = '';
     const t = setTimeout(() => { p.kill('SIGKILL'); reject(new Error(key + ' timed out\n' + out.slice(-1500))); }, 180000);
     p.stdout.on('data', (d) => { out += d; }); p.stderr.on('data', (d) => { out += d; });
     p.on('exit', () => {
       clearTimeout(t);
       fs.rmSync(dir, { recursive: true, force: true });
+      if (process.env.BENCH_MAIN) { console.log(out.split('\n').filter((l) => /^\[prof\]|^ +[\d.]+ ms/.test(l)).join('\n')); return resolve([{ load: 0, dcl: 0, first: 0 }]); }
       const r = /\[bench\] (\[.*\])/.exec(out);
       if (!r) return reject(new Error(key + ': no result\n' + out.slice(-1500)));
       resolve(JSON.parse(r[1]));
@@ -82,6 +87,6 @@ console.log(`${runs} loads each (median, ms)`);
 for (const key of Object.keys(MODES)) {
   if (only.length ? !only.includes(key) : MODES[key].extra) continue;
   const r = await run(key);
-  console.log('  ' + MODES[key].label.padEnd(36) + ' load ' + String(Math.round(median(r.map((x) => x.load)))).padStart(5) + '   DOM ready ' + String(Math.round(median(r.map((x) => x.dcl)))).padStart(5) + '   first byte ' + String(Math.round(median(r.map((x) => x.first)))).padStart(4) + '   (' + median(r.map((x) => x.resources)) + ' requests, ' + median(r.map((x) => x.frames)) + ' frames)');
+  console.log('  ' + MODES[key].label.padEnd(36) + ' load ' + String(Math.round(median(r.map((x) => x.load)))).padStart(5) + '   first paint ' + String(Math.round(median(r.map((x) => x.fcp || 0)))).padStart(5) + '   DOM ready ' + String(Math.round(median(r.map((x) => x.dcl)))).padStart(5) + (process.env.BENCH_MORE ? '   parsed ' + Math.round(median(r.map((x) => x.interactive))) + '   CSS in ' + Math.round(median(r.map((x) => x.cssEnd))) + '   scripts in ' + Math.round(median(r.map((x) => x.jsEnd))) : '') + '   first byte ' + String(Math.round(median(r.map((x) => x.first)))).padStart(4) + '   (' + median(r.map((x) => x.resources)) + ' requests, ' + median(r.map((x) => x.frames)) + ' frames)');
 }
 for (const s of servers) s.close();

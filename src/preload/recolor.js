@@ -961,6 +961,9 @@ function startEngine() {
     // another site's stylesheet: what the main process has read already (at once), or read now
     cssNow: (url) => { try { return ipcRenderer.sendSync('recolor:css-now', url); } catch { return null; } },
     css: (url) => ipcRenderer.invoke('recolor:css', url).catch(() => null),
+    // what was read of a big stylesheet on an earlier page of this site (irOf's nodes), and keeping it for the next
+    irGet: (key) => { try { return ipcRenderer.sendSync('recolor:ir-get', key); } catch { return null; } },
+    irPut: (key, nodes) => { try { ipcRenderer.send('recolor:ir-put', key, nodes); } catch { /* too big to send */ } },
     // a picture that may be an icon: it in text's colors (a data: address), or null
     icon: (url) => ipcRenderer.invoke('recolor:icon', url).catch(() => null),
     pageWorld: (func) => contextBridge.executeInMainWorld({ func }),
@@ -1462,7 +1465,7 @@ function makeEngine(core, win, env) {
     if (rules) kids = irOf(rules, at, 0, depth + 1);
     else {
       const x = xoGet(at);
-      if (x.state !== 'done') { if (S.reading) x.waiters.add(S.reading); return null; }
+      if (x.state !== 'done') { S.partial = true; if (S.reading) x.waiters.add(S.reading); return null; }
       kids = xoIr(x, at, depth);
     }
     if (!kids || !kids.length) return null;
@@ -1508,7 +1511,7 @@ function makeEngine(core, win, env) {
       try { abs = new URL(im.url, url).href; } catch { continue; }
       if (depth > 3) continue;
       const y = xoGet(abs);
-      if (y.state === 'wait') { complete = false; if (S.reading) y.waiters.add(S.reading); continue; }
+      if (y.state === 'wait') { complete = false; S.partial = true; if (S.reading) y.waiters.add(S.reading); continue; }
       if (y.state !== 'done') continue;
       const kids = xoIr(y, abs, depth + 1);
       if (!kids.length) continue;
@@ -1521,10 +1524,71 @@ function makeEngine(core, win, env) {
       if (rest.trim()) node = { head: '@media ' + rest.trim(), kids: [node] };
       nodes.push(node);
     }
-    const sheet = new CSSStyleSheet();
-    try { sheet.replaceSync(text); } catch { return nodes; }
-    for (const n of irOf(sheet.cssRules, url)) nodes.push(n);
+    // (another site's: the text is what it is, so its length and a hash of it say which)
+    const parse = () => {
+      const sheet = new CSSStyleSheet();
+      try { sheet.replaceSync(text); } catch { return []; }
+      return irOf(sheet.cssRules, url);
+    };
+    const got = text.length > 20000 && complete ? irCached('x|' + url + '|' + hashOf(text), parse) : parse();
+    for (const n of got) nodes.push(n);
     if (complete) x.ir = nodes;
+    return nodes;
+  }
+
+  // ---------------------------------------------------------------- what was read before
+  // Reading a big stylesheet's rules is most of what Catppuccin for every site costs a page (Bootstrap's 5,000:
+  // 50 ms or more, every page that has it). What's read of one (irOf's nodes: the same in any colors) is kept by
+  // the main process for the site's next pages (only this site's pages see what its pages kept), found by what the
+  // stylesheet is: one in the page, or from another site, by a hash of all of its text; one of the site's own files
+  // by its address, its size and how many rules it has and what three of them say, and only when the browser had
+  // it already (its own cache: the same file as before), not when it was just downloaded (it may have changed: a
+  // site being worked on), when what's read is kept for next time instead. Only big ones: a small one is read
+  // sooner than asked for.
+  const IR_MIN = 300;
+  function hashOf(text) {
+    let h = 2166136261, g = 5381;
+    for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); h = Math.imul(h ^ c, 16777619); g = (Math.imul(g, 33) + c) | 0; }
+    return (h >>> 0).toString(36) + (g >>> 0).toString(36) + ':' + text.length;
+  }
+  // (the file's size, and whether it came from the browser's cache: transferred nothing)
+  function fileOf(href) {
+    try {
+      const all = performance.getEntriesByName(href, 'resource');
+      const e = all[all.length - 1];
+      return e && e.decodedBodySize > 0 ? { size: e.decodedBodySize, cached: e.transferSize === 0 } : null;
+    } catch { return null; }
+  }
+  // (a rule around others, @media, @layer, by how many it has and its first: its own text would be all of theirs)
+  function ruleKey(rules, n) {
+    const t = (r, d = 0) => {
+      try {
+        if (r.cssRules && d < 3) return 'g' + r.cssRules.length + (r.cssRules.length ? t(r.cssRules[0], d + 1) : '');
+        const c = r.cssText;
+        return c.length + c.slice(0, 80);
+      } catch { return '?'; }
+    };
+    return n + '|' + t(rules[0]) + '|' + t(rules[n >> 1]) + '|' + t(rules[n - 1]);
+  }
+  // (how many rules, near enough: those at the top and those just inside them; Bootstrap's 5,000 are in 92)
+  function sizeOf(rules, n) {
+    let k = 0;
+    for (let i = 0; i < n; i++) { const r = rules[i]; let c = 1; try { if (r.cssRules) c += r.cssRules.length; } catch { /* fine */ } k += c; }
+    return k;
+  }
+  // (nodes read while a stylesheet they import was still on its way aren't all of it: not kept; fresh: read now,
+  // whatever was kept, and kept instead)
+  function irCached(key, make, fresh = false) {
+    if (!env.irGet || !key) return make();
+    const had = fresh ? null : env.irGet(key);
+    if (Array.isArray(had)) { S.stats.cached = (S.stats.cached || 0) + 1; return had; }
+    const was = S.partial;
+    S.partial = false;
+    let nodes;
+    try { nodes = make(); } finally {
+      if (!S.partial && env.irPut) env.irPut(key, nodes);
+      S.partial = was || S.partial;
+    }
     return nodes;
   }
 
@@ -1564,7 +1628,14 @@ function makeEngine(core, win, env) {
         src.added = irOf(rules, src.base, src.count);
         for (const node of src.added) src.ir.push(node);
       } else {
-        src.ir = irOf(rules, src.base, 0);
+        let key = '', fresh = false;
+        if (n && sizeOf(rules, n) >= IR_MIN) {
+          if (sh.href) {
+            const f = fileOf(sh.href);
+            if (f) { key = 'h|' + sh.href + '|' + f.size + '|' + ruleKey(rules, n); fresh = !f.cached; }
+          } else { const node = sh.ownerNode; const text = node && node.localName === 'style' ? node.textContent : ''; if (text.length > 20000) key = 's|' + hashOf(text) + '|' + n; }
+        }
+        src.ir = key ? irCached(key, () => irOf(rules, src.base, 0), fresh).slice() : irOf(rules, src.base, 0);
         src.added = null;
       }
       src.count = n;
@@ -2277,7 +2348,7 @@ function makeEngine(core, win, env) {
     if (had) { try { had.engine.setConfig(null); } catch { /* its document went */ } kidOf.delete(f); }
     if (!w) return;
     let engine;
-    try { engine = makeEngine(core, w, { main: false, cssNow: env.cssNow, css: env.css, icon: env.icon, pageWorld: null }); } catch { return; }
+    try { engine = makeEngine(core, w, { main: false, cssNow: env.cssNow, css: env.css, irGet: env.irGet, irPut: env.irPut, icon: env.icon, pageWorld: null }); } catch { return; }
     kidOf.set(f, { win: w, engine });
     S.kids.push(new WeakRef(f));
     try { engine.setConfig(S.cfg); } catch { /* its document went */ }

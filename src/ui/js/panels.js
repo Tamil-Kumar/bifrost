@@ -493,7 +493,7 @@ function wireWeb(rec) {
   const { el } = rec;
   const shown = () => view === 'web:' + rec.id;
   // (its page is told whether it's on screen: views.js)
-  el.addEventListener('did-attach', () => V.reportShown());
+  el.addEventListener('did-attach', () => { V.reportShown(); V.backdropOn(el); });
   el.addEventListener('dom-ready', () => V.reportShown());
   const nav = () => {
     try { rec.back = el.canGoBack(); rec.url = el.getURL() || rec.url; } catch { /* not attached yet */ }

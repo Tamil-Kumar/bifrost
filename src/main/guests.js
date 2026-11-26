@@ -154,6 +154,13 @@ function init() {
     event.returnValue = text;
   });
   ipcMain.handle('recolor:css', (event, url) => (ctx.webStyles ? ctx.webStyles.cssFetch(event, String(url || '')) : null));
+  // …what it read of a big stylesheet on an earlier page of the site, and keeping that (web-styles.js irGet/irPut).
+  ipcMain.on('recolor:ir-get', (event, key) => {
+    let v = null;
+    try { v = ctx.webStyles ? ctx.webStyles.irGet(event, key) : null; } catch { v = null; }
+    event.returnValue = v;
+  });
+  ipcMain.on('recolor:ir-put', (event, key, nodes) => { try { if (ctx.webStyles) ctx.webStyles.irPut(event, key, nodes); } catch { /* kept nothing */ } });
   // …and a picture it shows that may be an icon: given back in text's colors if it is one (web-styles.js).
   ipcMain.handle('recolor:icon', (event, url) => (ctx.webStyles ? ctx.webStyles.iconFetch(event, String(url || '')) : null));
   ipcMain.handle('recolor:look', (event, arg) => (ctx.webStyles ? ctx.webStyles.lookAt(event, arg) : null));
@@ -415,7 +422,7 @@ if (process.env.BIFROST_TEST === '1') {
   global.__swipeState = (id) => { const s = swipes.get(id); return s ? { lifted: s.lifted, tracked: s.tracked, ended: !!s.ended } : null; };
 }
 
-function setup(guest, ctl) {
+function setup(guest, ctl, src) {
   const isPrivate = ctl.isPrivate;
   // (how long the first page took, from Bifrost starting: timing.js)
   if (timing.once('tab')) {
@@ -433,7 +440,7 @@ function setup(guest, ctl) {
   if (!isPrivate && ctx.extensions) ctx.extensions.addTab(guest, ctl.win);
 
   guest.setWindowOpenHandler((details) => onWindowOpen(guest, details));
-  require('./web-theme').attach(guest);
+  require('./web-theme').attach(guest, src);
 
   // A page with unsaved changes asks before you leave it (a link, reload, back): left alone, Electron would
   // just cancel the navigation without a word. The question has to be answered right here, so it's the
@@ -586,6 +593,8 @@ function setupPanel(guest, ctl, panel) {
     guest.on('did-start-navigation', (e) => { if (e.isMainFrame && !e.isSameDocument) ua.applyForUrl(guest, e.url); });
     guest.on('will-frame-navigate', (e) => { if (!e.isMainFrame && protocol.isInternal(e.url)) e.preventDefault(); });
     ua.applyForUrl(guest, panel.url);
+    // (dark mode and the scheme for websites, as in a tab: a website in the side panel stayed light in dark mode)
+    require('./web-theme').attach(guest, panel.url);
   } else {
     guest.setWindowOpenHandler(({ url, disposition }) => {
       if (/^(https?|ftp|chrome-extension):/i.test(url)) ctl.send('open-url', { url, background: disposition === 'background-tab', newWindow: disposition === 'new-window' });

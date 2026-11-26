@@ -158,6 +158,10 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
     // A tab coming back with its back/forward history starts with no page at all, because history
     // can only be restored into a webContents that has never loaded anything (the UI restores it next).
     if (/^about:blank#wb-restore$/.test(params.src || '')) params.src = '';
+    // (the address it starts with, for when it's attached: told its colors before its first page, web-theme.js)
+    if (!ctl.attachSrc) ctl.attachSrc = new Map();
+    ctl.attachSrc.set(params.instanceId, params.src || '');
+    if (ctl.attachSrc.size > 50) ctl.attachSrc.delete(ctl.attachSrc.keys().next().value);
     // nodeIntegrationInSubFrames only makes preloads run in iframes too (the ad blocker's hiding rules and
     // page scripts, extensions' content); tabs are sandboxed, so no Node.js is exposed anywhere.
     Object.assign(webPreferences, {
@@ -180,8 +184,10 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
     if (i < 0) { let url = ''; try { url = guest.getURL(); } catch { /* gone */ } i = list.findIndex((a) => a.url === url); }
     const panel = i >= 0 ? list.splice(i, 1)[0].panel : null;
     guests.watchVisibility(guest);
+    const src = ctl.attachSrc ? ctl.attachSrc.get(guest.viewInstanceId) : undefined;
+    if (ctl.attachSrc) ctl.attachSrc.delete(guest.viewInstanceId);
     if (panel) guests.setupPanel(guest, ctl, panel);
-    else guests.setup(guest, ctl);
+    else guests.setup(guest, ctl, src);
   });
 
   // Extension shortcuts work while the browser UI has focus too.

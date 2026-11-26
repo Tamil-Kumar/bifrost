@@ -245,9 +245,31 @@ function tellFrames(wc, dark) {
 // …and a page asks as it starts (guests.js 'tab:start').
 function darkModeOn(wc) { const st = wc && state.get(wc); return !!(st && st.dark); }
 
+// What's behind a page in its window (views.js): what shows before the page has drawn anything, and wherever it
+// draws nothing of its own. The browser's white, but for a page Chromium's dark mode is on for (its dark gray,
+// #121212, what it turns white into) or one in Catppuccin's colors (their base): a page with no background of its
+// own had light text in dark mode over that white, unreadable, and every new tab flashed white before its page.
+const backdrops = new WeakMap();   // webContents -> the color its window was last told ('' for the white)
+function backdropFor(wc, url, want) {
+  let color = '';
+  if (!isOwnPage(url) && /^(https?|file):/i.test(String(url || ''))) {
+    const turned = ctx.webStyles ? ctx.webStyles.recolorFor(url) : null;
+    if (turned && turned.palette) color = turned.palette.base;
+    else if (want.dark) color = '#121212';
+  }
+  if (backdrops.get(wc) === color) return;
+  backdrops.set(wc, color);
+  try {
+    const ctl = require('./guests').ownerOf(wc);
+    if (ctl) ctl.send('tab-backdrop', { wcId: wc.id, color });
+  } catch { /* no window */ }
+}
+
 async function emulate(wc, url) {
   if (!wc || wc.isDestroyed()) return;
-  const want = perTab(url == null ? wc.getURL() : url, wc);
+  const u = url == null ? wc.getURL() : url;
+  const want = perTab(u, wc);
+  backdropFor(wc, u, want);
   const was = state.get(wc) || NONE;
   if (was.scheme === want.scheme && was.dark === want.dark) return;
   state.set(wc, want);
@@ -287,8 +309,9 @@ function apply() {
 
 // Every tab: told from its first page on, and again whenever it moves to another site (dark mode can be on
 // for one and off for the next) or between Bifrost's pages and the web.
-function attach(guest) {
-  emulate(guest);
+// src: the address it's about to load, when it's a new tab (its own address is nothing yet): told for that.
+function attach(guest, src) {
+  emulate(guest, src && !guest.getURL() ? src : undefined);
   guest.on('did-start-navigation', (details) => {
     if (!details || !details.isMainFrame || details.isSameDocument) return;
     checks.set(guest, (checks.get(guest) || 0) + 1);

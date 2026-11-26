@@ -29,7 +29,7 @@ import { createRequire } from 'node:module';
 import { launch, reporter, assert, sleep, xinput } from './lib.mjs';
 
 const R = reporter('webstyles');
-const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test', 'gsite.test', 'gstatic.test', 'gframe.test', 'classroom.google.test'];
+const HOSTS = ['light.test', 'sub.light.test', 'owndark.test', 'halfdark.test', 'styled.test', 'other.test', 'csp.test', 'ctp.test', 'stylus2.test', 'paint.test', 'cdn.test', 'gsite.test', 'gstatic.test', 'gframe.test', 'classroom.google.test', 'plain.test', 'slow.test', 'big.test'];
 const CORE = createRequire(import.meta.url)('../../src/preload/recolor.js');
 const CAT = createRequire(import.meta.url)('../../src/shared/catppuccin.js');
 const THEMES = createRequire(import.meta.url)('../../src/shared/themes.js');
@@ -238,6 +238,10 @@ setTimeout(() => {
   [['Name', 'Lab 1', 'Lab 2', 'Late?'], ['Ana', '92', '88', 'no'], ['Ben', '75', '81', 'yes'], ['Chloe', '98', '95', 'no']].forEach((row, r) => row.forEach((v, i) => s.fillText(v, i * 100 + 6, 36 + r * 20)));
 }, 1800);
 </script></body></html>`;
+// A site with big stylesheets (400 rules and more): one the browser keeps (it may), one it's sent anew each time,
+// with one of its colors changed each time (the same size).
+const BIGRULES = Array.from({ length: 420 }, (_, i) => `.c${i} { color: #${(0x203040 + i * 97).toString(16).slice(-6)}; background: #${(0xf0f4f8 - i * 13).toString(16).slice(-6)}; margin: ${i % 7}px; }`).join('\n');
+let liveN = 0;
 const server = http.createServer((req, res) => {
   const host = String(req.headers.host || '').replace(/:\d+$/, '');
   const send = (type, body, headers = {}) => { res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', ...headers }); res.end(body); };
@@ -259,6 +263,11 @@ const server = http.createServer((req, res) => {
   if (PICS[req.url.split('?')[0]]) return send('image/png', PICS[req.url.split('?')[0]], { 'access-control-allow-origin': '*' });
   if (host === 'gsite.test') return send('text/html', GSITE);
   if (host === 'classroom.google.test') return send('text/html', CROOM);
+  if (host === 'plain.test') return send('text/html', '<!doctype html><title>Plain</title><h1 id=h style="font-size:56px;margin:20px">A plain page</h1><p style="font-size:28px;margin:20px">No styles of its own at all.</p>');
+  if (host === 'slow.test') { setTimeout(() => send('text/html', '<!doctype html><title>Slow</title><p>At last.</p>'), 3000); return; }
+  if (host === 'big.test' && req.url.startsWith('/big.css')) return send('text/css', BIGRULES + '\n.target { background-color: #fff3cd; color: #664d03; }', { 'cache-control': 'max-age=600' });
+  if (host === 'big.test' && req.url.startsWith('/live.css')) return send('text/css', BIGRULES + `\n.live { color: ${liveN++ % 2 ? '#00aa00' : '#aa0000'}; }`);
+  if (host === 'big.test') return send('text/html', '<!doctype html><title>Big</title><link rel=stylesheet href="/big.css"><link rel=stylesheet href="/live.css"><body style="background:#fff;color:#222"><p class=target id=t>Target</p><p class=live id=l>Live</p></body>');
   if (host === 'gframe.test') return send('text/html', '<!doctype html><style>body{margin:0;background:#ffffff;color:#1f1f1f;font:14px sans-serif}</style><body><p style="padding:8px">student@purdue.edu</p></body>');
   send('text/html', page(host));
 });
@@ -298,6 +307,17 @@ const pixel = (id) => t.main(async ({ webContents }, id) => {
   const b = img.toBitmap();
   return [b[2], b[1], b[0]];
 }, id);
+// The window's own pixels (what you see: the page and what's behind it) in the middle of the page shown, and the
+// lightest in a strip across its top part.
+const onScreen = () => t.main(async ({ BrowserWindow }) => {
+  const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().startsWith('bifrost://ui'));
+  const r = await w.webContents.executeJavaScript("(() => { const v = [...document.querySelectorAll('#views webview')].find((e) => e.getBoundingClientRect().width > 50 && getComputedStyle(e).visibility !== 'hidden'); const b = v.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; })()");
+  const img = await w.webContents.capturePage({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.w), height: Math.round(r.h) });
+  const s = img.getSize(), b = img.toBitmap(), at = (x, y) => { const i = (y * s.width + x) * 4; return [b[i + 2], b[i + 1], b[i]]; };
+  let top = 0;
+  for (let y = 10; y < Math.min(s.height, 160); y += 2) for (let x = 10; x < Math.min(s.width, 700); x += 2) top = Math.max(top, at(x, y)[1]);
+  return { mid: at(Math.round(s.width * 0.6), Math.round(s.height * 0.7)), top };
+});
 const dark = (c) => c[0] < 60 && c[1] < 60 && c[2] < 70;
 const white = (c) => c[0] > 240 && c[1] > 240 && c[2] > 240;
 const front = (id) => t.main((_, id) => global.__bifrost.registry.list().find((c) => !c.isPrivate).send('focus-wc', id), id);
@@ -339,6 +359,70 @@ try {
     const o = await until(async () => { const c = await pixel(own); return c[0] === 0x20 && c[1] === 0x20 && c[2] === 0x30 ? c : null; }, 5000, 'its own dark theme');
     assert(dark(c) && o, JSON.stringify({ c, o }));
     await t.shot('webstyles-dark');
+  });
+
+  await R.step('what’s behind a page: a page with no background of its own is dark in dark mode with light letters (it was the window’s white behind light letters); a new tab is dark while its page loads, in dark mode and in Catppuccin’s colors (it flashed white)', async () => {
+    const was = { dark: await get('webStyles.dark'), recolor: await get('webStyles.recolor'), sites: await get('webStyles.darkSites') };
+    await set('webStyles.darkSites', {});
+    await set('webStyles.recolor', false);
+    await set('webStyles.dark', true);
+    const p = await open('http://plain.test/');
+    await front(p);
+    await sleep(600);
+    const s = await onScreen();
+    assert(dark(s.mid) && s.top > 180, 'a plain page in dark mode: ' + JSON.stringify(s));
+    // A new tab whose page takes 3 s: what shows meanwhile.
+    for (const mode of ['dark', 'catppuccin']) {
+      if (mode === 'catppuccin') { await set('webStyles.recolor', true); await sleep(400); }
+      await t.main((_, url) => global.__bifrost.registry.list().find((c) => !c.isPrivate).send('open-url', { url }), 'http://slow.test/?' + mode);
+      await sleep(1200);
+      const m = await onScreen();
+      const want = mode === 'dark' ? [18, 18, 18] : [0x1e, 0x1e, 0x2e];
+      assert(m.mid.every((v, i) => Math.abs(v - want[i]) <= 2), mode + ': while the page loads: ' + JSON.stringify(m.mid));
+      await sleep(2500);
+    }
+    await set('webStyles.dark', was.dark);
+    await set('webStyles.recolor', was.recolor);
+    await set('webStyles.darkSites', was.sites);
+    await t.main(({ webContents }) => { for (const w of webContents.getAllWebContents()) if (w.getType() === 'webview' && /plain\.test|slow\.test/.test(w.getURL())) w.close(); });
+    await sleep(400);
+  });
+
+  await R.step('a website in the side panel is dark too: in dark mode (with light letters) and in Catppuccin’s colors, and back to how it’s drawn when both are off', async () => {
+    const was = { dark: await get('webStyles.dark'), recolor: await get('webStyles.recolor'), sites: await get('webStyles.darkSites') };
+    await set('webStyles.darkSites', {});
+    await set('webStyles.recolor', false);
+    await set('webStyles.dark', true);
+    const panelWc = () => t.main(({ webContents }) => { const w = webContents.getAllWebContents().find((w) => !w.isDestroyed() && w.__wbPanel && /plain\.test/.test(w.getURL())); return w ? w.id : null; });
+    // What the panel's page looks like: its middle and its letters, from the window.
+    const panelLook = () => t.main(async ({ BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w.isVisible());
+      const r = await win.webContents.executeJavaScript(`(() => { const e = [...document.querySelectorAll('.panel-webview')].find((v) => getComputedStyle(v).visibility !== 'hidden'); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height), bg: e.style.getPropertyValue('--backdrop') }; })()`);
+      if (!r || r.w < 50) return r;
+      const img = await win.webContents.capturePage({ x: r.x, y: r.y, width: r.w, height: r.h });
+      const s = img.getSize(); const buf = img.toBitmap(); const k = s.width / r.w;
+      const at = (x, y) => { const i = (Math.round(y * k) * s.width + Math.round(x * k)) * 4; return [buf[i + 2], buf[i + 1], buf[i]]; };
+      let top = 0; for (let y = 6; y < 40; y++) for (let x = 6; x < Math.min(r.w - 6, 260); x++) { const p = at(x, y); top = Math.max(top, Math.min(...p)); }
+      return { ...r, mid: at(r.w / 2, r.h - 30), top };
+    });
+    try {
+      await t.ui(async (u) => { const st = await import('./js/state.js'); st.emit('panel-add-web', { url: u, title: 'Plain' }); }, 'http://plain.test/?panel');
+      await until(panelWc, 8000, 'the side panel’s website');
+      const d = await until(async () => { const l = await panelLook(); return l && dark(l.mid) && l.top > 180 ? l : null; }, 6000, 'dark in the side panel').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await panelLook())); });
+      assert(d.bg === '#121212', 'its backdrop: ' + d.bg);
+      await set('webStyles.recolor', true);
+      await until(async () => { const l = await panelLook(); return l && l.bg === '#1e1e2e' && l.mid.every((v, i) => Math.abs(v - [0x1e, 0x1e, 0x2e][i]) <= 3) && l.top > 150 ? l : null; }, 6000, 'Catppuccin in the side panel, its letters light').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await panelLook())); });
+      await set('webStyles.recolor', false);
+      await set('webStyles.dark', false);
+      await until(async () => { const l = await panelLook(); return l && !l.bg && white(l.mid) ? l : null; }, 6000, 'as drawn in the side panel').catch(async (e) => { throw new Error(e.message + ' ' + JSON.stringify(await panelLook())); });
+    } finally {
+      await set('panels.web', ((await get('panels.web')) || []).filter((w) => !/plain\.test/.test(w.url)));
+      await sleep(500);
+      await set('webStyles.dark', was.dark);
+      await set('webStyles.recolor', was.recolor);
+      await set('webStyles.darkSites', was.sites);
+      await sleep(400);
+    }
   });
 
   await R.step('per site: Alt+Shift+A for the site you’re on (and its subdomains), the info popover’s switch, Settings’ list; Alt+Shift+D for every site', async () => {
@@ -759,6 +843,28 @@ try {
     await sleep(300);
     await t.shot('webstyles-recolor');
     await t.main(({ webContents }, id) => webContents.fromId(id).close(), again);
+  });
+
+  await R.step('Catppuccin for every site: a big stylesheet the site’s next page has from the browser’s cache isn’t read again (what was read of it is kept, for that site), and the page is the same; one sent anew is read again (its changed color shows)', async () => {
+    const was = { dark: await get('webStyles.dark'), recolor: await get('webStyles.recolor') };
+    await set('webStyles.dark', false);
+    await set('webStyles.recolor', true);
+    const stats = (id) => t.main(async ({ webContents }, id) => JSON.parse(await webContents.fromId(id).executeJavaScriptInIsolatedWorld(999, [{ code: 'JSON.stringify(globalThis.__bifrostRecolor)' }])), id);
+    const look = (id) => inTab(id, "[getComputedStyle(document.getElementById('t')).color, getComputedStyle(document.getElementById('t')).backgroundColor, getComputedStyle(document.getElementById('l')).color]");
+    const a = await open('http://big.test/');
+    const want = await until(async () => { const l = await look(a); return l[0] === turned(MOCHA, '#664d03', 't') && l[2] === turned(MOCHA, '#aa0000', 't') ? l : null; }, 8000, 'the first page turned');
+    const s1 = await stats(a);
+    assert(!s1.cached, 'the first page read nothing kept: ' + JSON.stringify(s1));
+    await sleep(800);
+    const b = await open('http://big.test/');
+    const got = await until(async () => { const l = await look(b); return l[2] === turned(MOCHA, '#00aa00', 't') ? l : null; }, 8000, 'the next page, its new color turned');
+    const s2 = await stats(b);
+    assert(s2.cached >= 1, 'the next page read the kept stylesheet again: ' + JSON.stringify(s2));
+    assert(got[0] === want[0] && got[1] === want[1], 'the kept one’s colors differ: ' + JSON.stringify({ want, got }));
+    await t.main(({ webContents }) => { for (const w of webContents.getAllWebContents()) if (w.getType() === 'webview' && /big\.test/.test(w.getURL())) w.close(); });
+    await set('webStyles.dark', was.dark);
+    await set('webStyles.recolor', was.recolor);
+    await sleep(400);
   });
 
   await R.step('Catppuccin for every site on a page built as Google builds theirs: icons drawn as pictures from another site (a sprite, an <img>, an SVG) in text’s colors; a logo and a photo kept; icons drawn as masks in text’s color; Google’s four colors in an SVG kept; white on a one-color icon base; the banner’s white letters kept; pages drawn on a canvas turned around; white on a strong blue still reads; in Latte, a black icon left as it is', async () => {

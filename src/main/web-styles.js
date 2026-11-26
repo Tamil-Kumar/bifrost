@@ -87,6 +87,8 @@ class WebStyles extends EventEmitter {
     this.palettes = new Map();     // what a page gets for Catppuccin for every site, by what it's made from
     this.icons = new Map();        // palette key + a picture's address -> { data (it as an icon in text's colors, or null), wait }
     this.iconBytes = 0;
+    this.irs = new Map();          // a site's origin + what a stylesheet is -> { nodes, size }: irGet/irPut
+    this.irBytes = 0;
     this.looks = new Map();        // a tab's id -> { url, count }: pictures looked at on the screen for its page (lookAt)
     this.iconPalettes = new Map(); // palette key -> recolor.js's prepared palette
   }
@@ -360,6 +362,44 @@ class WebStyles extends EventEmitter {
     if (!event || !event.sender || event.sender.getType() !== 'webview') return null;
     const page = this.framePage(event.senderFrame, event.sender.getURL());
     return this.recolorFor(page, event.sender.getURL()) ? page : null;
+  }
+
+  // What a page's engine read of a big stylesheet (preload/recolor.js irCached: its nodes, the same in any
+  // colors), kept for the site's next pages. Kept under the asking frame's site, which the frame can't choose: a
+  // page can only find what its own site's pages kept. 400 at most, 40 MB (by their text's length), the oldest
+  // going first; in memory only.
+  irKey(event, key) {
+    if (typeof key !== 'string' || key.length > 4000 || !event || !event.senderFrame) return '';
+    let origin = '';
+    try { origin = new URL(event.senderFrame.url).origin; } catch { return ''; }
+    if (!/^https?:/.test(origin)) return '';
+    return origin + '\n' + key;
+  }
+
+  irGet(event, key) {
+    const k = this.irKey(event, key);
+    const e = k && this.irs.get(k);
+    if (!e) return null;
+    // (used: the newest again)
+    this.irs.delete(k); this.irs.set(k, e);
+    return e.nodes;
+  }
+
+  irPut(event, key, nodes) {
+    const k = this.irKey(event, key);
+    if (!k || !Array.isArray(nodes)) return;
+    let size = 0;
+    try { size = JSON.stringify(nodes).length; } catch { return; }
+    if (size > 8e6) return;
+    // (read again: what was kept before is replaced)
+    const was = this.irs.get(k);
+    if (was) { this.irs.delete(k); this.irBytes -= was.size; }
+    this.irs.set(k, { nodes, size });
+    this.irBytes += size;
+    for (const [key2, v] of this.irs) {
+      if (this.irs.size <= 400 && this.irBytes <= 40e6) break;
+      this.irs.delete(key2); this.irBytes -= v.size;
+    }
   }
 
   // What's been read already (at once: the page waits for it), or null.

@@ -5,7 +5,7 @@ const { app, webContents } = require('electron');
 const URL_ = process.env.BENCH_URL, RUNS = Number(process.env.BENCH_RUNS || 15), MODE = process.env.BENCH_MODE || '';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PAGE = `new Promise((resolve) => {
-  const done = () => setTimeout(() => { const n = performance.getEntriesByType('navigation')[0]; resolve({ load: n.loadEventEnd, dcl: n.domContentLoadedEventEnd, first: n.responseStart, resources: performance.getEntriesByType('resource').length, frames: window.__frames || 0 }); }, 0);
+  const done = () => setTimeout(() => { const n = performance.getEntriesByType('navigation')[0]; const fcp = performance.getEntriesByName('first-contentful-paint')[0]; const res = performance.getEntriesByType('resource'); const end = (t) => Math.max(0, ...res.filter((e) => e.initiatorType === t).map((e) => e.responseEnd)); resolve({ cssEnd: end('link'), jsEnd: end('script'), interactive: n.domInteractive, load: n.loadEventEnd, fcp: fcp ? fcp.startTime : 0, dcl: n.domContentLoadedEventEnd, first: n.responseStart, resources: performance.getEntriesByType('resource').length, frames: window.__frames || 0 }); }, 0);
   if (document.readyState === 'complete') done(); else addEventListener('load', done);
 })`;
 app.whenReady().then(async () => {

@@ -929,6 +929,70 @@ if (isTop && /^(https?|file):$/.test(location.protocol)) {
   try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => soon(150)); } catch { /* old */ }
 }
 
+// ------------------------------------------------------------ the pointer over a page in full screen
+// A video's player hides the pointer when its controls go (cursor: none; YouTube's, a few seconds after it goes
+// into full screen with the mouse still). On Windows the pointer stayed on screen till the mouse moved. Chromium
+// shows the pointer of the page it last saw the mouse over and only looks again when the mouse moves, and a window
+// going into full screen can leave that the window's own page (Bifrost's) with this page told the mouse has
+// left, so this page doesn't even say it wants no pointer; or the change can come while the window is still
+// changing, and go nowhere. So while a page is in full screen it says, whenever that changes, whether it wants no
+// pointer where the pointer is: the window hides it over the tab too ('wb-pointer-hidden': ui/js/views.js). And
+// the first time in a few seconds after going into full screen, the page's pointer is told again: for a moment a
+// see-through picture (invisible too), then the page's own, two changes, which do get through. Nothing shows,
+// either way. (Linux's never lost it: the window isn't moved there.) In a frame too: a video from another site,
+// played in full screen from where it's shown, says it from its own frame.
+if (isWeb) {
+  const BLANK = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYGBgAAAABQABeqhXUAAAAABJRU5ErkJggg==';
+  let px = -1, py = -1, sheet = null, until = 0, timer = 0, told = false, telling = false, said = false;
+  addEventListener('mousemove', (e) => { if (e.isTrusted) { px = e.clientX; py = e.clientY; } }, { capture: true, passive: true });
+  // (where the pointer is, as far as the page knows; the middle of the screen when it hasn't moved over it)
+  const wants = () => {
+    const x = px >= 0 ? Math.min(px, innerWidth - 1) : innerWidth / 2, y = py >= 0 ? Math.min(py, innerHeight - 1) : innerHeight / 2;
+    let el = document.elementFromPoint(x, y);
+    while (el && el.shadowRoot) { const inner = el.shadowRoot.elementFromPoint(x, y); if (!inner || inner === el) break; el = inner; }
+    return el ? getComputedStyle(el).cursor : '';
+  };
+  const say = (hidden) => {
+    if (hidden === said) return;
+    said = hidden;
+    try { ipcRenderer.sendToHost('wb-pointer-hidden', hidden); } catch { /* host gone */ }
+  };
+  // (this page's own full screen, not a frame's in it: that frame's page says)
+  const ours = () => { const f = document.fullscreenElement; return !!f && f.localName !== 'iframe' && f.localName !== 'frame'; };
+  const tellAgain = async () => {
+    if (!sheet) { sheet = new CSSStyleSheet(); sheet.replaceSync(`*,*::before,*::after{cursor:url("${BLANK}") 0 0,none!important}`); }
+    telling = true;
+    try {
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      // (time for a frame and for Chromium's own update of the pointer, 50 ms after a change)
+      await new Promise((r) => setTimeout(r, 150));
+    } finally {
+      try { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((x) => x !== sheet); } catch { /* page gone */ }
+      telling = false;
+    }
+  };
+  const watch = () => {
+    timer = 0;
+    if (!ours()) { say(false); return; }
+    if (!telling) {
+      let hidden = false;
+      try { hidden = wants() === 'none'; } catch { /* not laid out */ }
+      say(hidden);
+      // (once: later on, the window's settled, and what the page says gets through)
+      if (hidden && !told && Date.now() < until) { told = true; tellAgain().catch(() => {}); }
+    }
+    timer = setTimeout(watch, 250);
+  };
+  document.addEventListener('fullscreenchange', () => {
+    clearTimeout(timer); timer = 0;
+    if (!ours()) { say(false); return; }
+    // (the picture in the page's memory before it's needed, so the first change is the picture, not its stand-in)
+    try { new Image().src = BLANK; } catch { /* fine */ }
+    until = Date.now() + 5000; told = false;
+    timer = setTimeout(watch, 400);
+  });
+}
+
 // ------------------------------------------------------------ YouTube Shorts
 // Space plays and pauses the Short on screen, as it does a video on YouTube's other pages. Shorts only hear it
 // while their player has the keyboard (K works from anywhere): otherwise Space lands on the page, which can't

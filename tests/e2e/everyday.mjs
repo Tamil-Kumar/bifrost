@@ -7,6 +7,10 @@ const html = (body, title = 'Test') => (req, res) => { res.writeHead(200, { 'con
 const site = await startSite(undefined, { routes: {
   '/video.html': html('<video id=v src="/media/clip.webm" autoplay muted loop width=320></video><video id=m src="/media/clip.mp4" autoplay muted loop width=320></video>', 'Video'),
   '/fs.html': html('<button id=b style="font-size:30px;padding:30px" onclick="document.documentElement.requestFullscreen()">Full screen</button>', 'Fullscreen'),
+  // A video player as YouTube's: in full screen, it hides the pointer at once when you've been still (and again
+  // 1.5 s after the mouse last moved).
+  '/nopointer.html': html('<button id=b style="font-size:30px;padding:30px">Watch</button><div id=d style="width:320px;height:180px;background:#334"></div><script>document.getElementById("b").onclick = () => document.getElementById("d").requestFullscreen();</script>', 'No pointer'),
+  '/fsvideo.html': html('<button id=b style="font-size:30px;padding:30px">Watch</button><div id=p style="width:320px;height:180px;background:#000"></div><script>const p = document.getElementById("p"); let t = 0; const hide = () => { p.style.cursor = "none"; }; document.getElementById("b").onclick = () => p.requestFullscreen(); document.addEventListener("fullscreenchange", () => { p.style.cursor = document.fullscreenElement ? "default" : ""; if (document.fullscreenElement) setTimeout(hide, 60); }); p.addEventListener("mousemove", () => { p.style.cursor = "default"; clearTimeout(t); t = setTimeout(hide, 1500); });</script>', 'Player'),
   '/popup.html': html('<button id=b style="font-size:30px;padding:30px" onclick="window.open(\'/b.html?clicked\')">Open</button><script>setTimeout(() => window.open(\'/a.html?spam\'), 300)</script>', 'Popups'),
   '/unload.html': html('<input id=i value="unsaved"><script>window.onbeforeunload = (e) => { e.preventDefault(); e.returnValue = ""; };</script>', 'Unsaved'),
   '/geo.html': html('<button id=b style="font-size:30px;padding:30px" onclick="navigator.geolocation.getCurrentPosition(() => document.title = \'geo ok\', (e) => document.title = \'geo \' + e.code)">Where am I</button>', 'Geo'),
@@ -66,6 +70,64 @@ try {
     assert(!(await t.guest('/fs.html', '!!document.fullscreenElement')), 'the page still thinks it’s full screen');
     await until(async () => { const v = await view(); return v.x > 100 && v.y > 30; }, 4000, 'the window’s layout to come back');
     await sleep(500);
+  });
+
+  await R.step('a video that hides the pointer as it goes full screen: Bifrost tells Chromium again once the window is in full screen (the page’s pointer a see-through one for a moment, then its own), and the pointer stays hidden; not outside full screen', async () => {
+    await open(site.url + '/fsvideo.html'); await sleep(900);
+    // (what the page tells Chromium about its pointer, as it does)
+    await t.main(({ webContents }) => { const w = webContents.getAllWebContents().find((x) => x.getType() === 'webview' && x.getURL().includes('/fsvideo.html')); global.__cursors = []; w.on('cursor-changed', (_e, type) => global.__cursors.push(type)); });
+    await clickIn('/fsvideo.html', '#b');
+    await until(() => t.guest('/fsvideo.html', '!!document.fullscreenElement'), 4000, 'full screen');
+    await sleep(1500);
+    const seen = await t.main(() => global.__cursors.slice());
+    const i = seen.lastIndexOf('custom');
+    assert(seen.includes('none') && i >= 0 && seen.slice(i).includes('none') && seen[seen.length - 1] === 'none', 'the pointer told again (none, then a see-through picture, then none): ' + seen.join(' '));
+    assert((await x.cursor()) === 0, 'the pointer shows: ' + (await x.cursor()) + ' of its pixels');
+    // (moving shows it; still again, hidden by the page alone: Bifrost's not in it any more)
+    await t.main(() => { global.__cursors.length = 0; });
+    const [mx, my] = await x.pos();
+    await x.move(mx + 20, my + 20); await sleep(200);
+    assert((await x.cursor()) > 0, 'moving the mouse didn’t show the pointer');
+    await sleep(2000);
+    assert((await x.cursor()) === 0, 'still again, the pointer shows');
+    assert(!(await t.main(() => global.__cursors.includes('custom'))), 'told again after the first time: ' + (await t.main(() => global.__cursors.join(' '))));
+    await x.key('Escape');
+    await until(() => t.guest('/fsvideo.html', '!document.fullscreenElement'), 4000, 'out of full screen');
+    await sleep(800);
+  });
+
+  await R.step('a page in full screen hiding the pointer while Chromium last saw the mouse over Bifrost’s own window, the page told it had left (a window going into full screen can leave it so on Windows): hidden all the same, back when the page shows it, and not after full screen', async () => {
+    await open(site.url + '/nopointer.html'); await sleep(900);
+    const wvCursor = () => t.ui(() => [...document.querySelectorAll('webview.view')].map((e) => e.style.cursor).join(''));
+    // (the mouse over the page; then something of Bifrost's over it as the mouse moves: Chromium takes the window's
+    // pointer and tells the page the mouse has left; then that's gone and the page goes into full screen, the mouse
+    // still)
+    const p = await t.ui(() => { const v = [...document.querySelectorAll('webview.view')].find((e) => !e.classList.contains('hidden') && e.getBoundingClientRect().width); const b = v.getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2) }; });
+    await x.move(p.x - 20, p.y - 20); await sleep(150); await x.move(p.x, p.y); await sleep(300);
+    await t.ui(() => { const o = document.createElement('div'); o.id = 'pointer-cover'; o.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:transparent'; document.body.appendChild(o); });
+    await sleep(200);
+    await x.move(p.x + 15, p.y + 15); await sleep(300);
+    await t.ui(() => document.getElementById('pointer-cover').remove());
+    await sleep(300);
+    await t.guest('/nopointer.html', 'document.getElementById("d").requestFullscreen().then(() => 1)');
+    await until(() => t.guest('/nopointer.html', '!!document.fullscreenElement'), 4000, 'full screen');
+    await sleep(800);
+    assert((await x.cursor()) > 0, 'no pointer to start with');
+    await t.guest('/nopointer.html', 'document.getElementById("d").style.cursor = "none"; 1');
+    await sleep(800);
+    assert((await x.cursor()) === 0, 'the pointer shows: ' + (await x.cursor()) + ' of its pixels');
+    await t.guest('/nopointer.html', 'document.getElementById("d").style.cursor = ""; 1');
+    await sleep(800);
+    assert((await x.cursor()) > 0, 'the pointer didn’t come back');
+    assert(!(await wvCursor()), 'the window still hides it over the page: ' + (await wvCursor()));
+    await t.guest('/nopointer.html', 'document.getElementById("d").style.cursor = "none"; 1');
+    await sleep(800);
+    assert((await wvCursor()) === 'none', 'hidden again: ' + (await wvCursor()));
+    await x.key('Escape');
+    await until(() => t.guest('/nopointer.html', '!document.fullscreenElement'), 4000, 'out of full screen');
+    await sleep(600);
+    assert(!(await wvCursor()), 'after full screen, the window still hides it over the page: ' + (await wvCursor()));
+    await closeTabs('/nopointer.html');
   });
 
   await R.step('over a page in full screen: the Esc hint shows; its right-click menu is the system’s; an alert, Ctrl+F and Ctrl+1 bring the page back and work', async () => {
