@@ -1,0 +1,38 @@
+# What can only be seen on Windows itself (tests/win), on a branch checks/… or by hand. Nothing is released.
+name: Checks
+
+on:
+  push:
+    branches: ['checks/**']
+  workflow_dispatch:
+
+jobs:
+  pointer:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Electron runtime (cached)
+        uses: actions/cache@v4
+        with:
+          path: ~/cache
+          key: electron-${{ hashFiles('package.json') }}
+          restore-keys: electron-
+
+      # (a screen more like a laptop's than 1024×768)
+      - name: Screen
+        continue-on-error: true
+        shell: pwsh
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+
+      - name: Playwright
+        run: npm install --no-save --no-package-lock playwright-core@1.63.0
+
+      # A video's player that hides the pointer in full screen, the mouse still: does the pointer go?
+      - name: The pointer in full screen
+        run: node tests/win/cursor-check.mjs --cases=stale:1:no-repoint,stale:1:as-is,stale:2:as-is,ytlike:1:as-is,ytlike:2:as-is,simple:1:as-is,ytlike:2:view,ytlike:2:guestmove

@@ -252,8 +252,11 @@ checks that protected video plays (on the first start, which installs Widevine, 
 wait for it: it prints how long that start took), `tools/notify-check.mjs` that the portable build's notifications reach
 Windows (it says what it found in the log; it doesn't hold up a release), `tools/open-check.mjs` that a PDF, a
 page and a link opened with Bifrost open in it, running or not (Windows asked as Explorer asks it, for a path
-with spaces), and the release is published with
-RELEASE_NOTES.md. Bifrost's updater
+with spaces), `tests/win/cursor-check.mjs` that a video in full screen hiding the pointer, the mouse still since
+it clicked the full screen button, has it gone (real input with SendInput, the pointer as Windows shows it, from
+tests/win/input.ps1; it doesn't hold up a release), and the release is published with
+RELEASE_NOTES.md. `.github/workflows/checks.yml` runs the same check with more cases (`--cases=page:scale:way`) on
+a branch `checks/…`, for what only Windows shows, without releasing anything. Bifrost's updater
 (src/main/updater.js) reads the newest release's latest.json: when only Bifrost's own files changed it
 downloads just those, otherwise the installer or the portable builds, and the helpers in tools/win swap
 them in when Bifrost restarts.
