@@ -217,7 +217,7 @@ function create({ isPrivate = false, urls = [], key = null, restoreState = null,
   win.on('leave-full-screen', () => ctl.send('fullscreen', false));
   win.on('maximize', () => ctl.send('maximized', true));
   win.on('unmaximize', () => ctl.send('maximized', false));
-  win.on('enter-html-full-screen', () => { ctl.send('html-fullscreen', true); require('./pointer').afterFullscreen(win); });
+  win.on('enter-html-full-screen', () => ctl.send('html-fullscreen', true));
   win.on('leave-html-full-screen', () => ctl.send('html-fullscreen', false));
   // The mouse's back and forward buttons (and the Back/Forward keys some keyboards have), as in any browser.
   win.on('app-command', (e, command) => {

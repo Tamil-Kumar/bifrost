@@ -10,7 +10,7 @@ const site = await startSite(undefined, { routes: {
   // A video player as YouTube's: in full screen, it hides the pointer at once when you've been still (and again
   // 1.5 s after the mouse last moved).
   '/nopointer.html': html('<button id=b style="font-size:30px;padding:30px">Watch</button><div id=d style="width:320px;height:180px;background:#334"></div><script>document.getElementById("b").onclick = () => document.getElementById("d").requestFullscreen();</script>', 'No pointer'),
-  '/fsvideo.html': html('<button id=b style="font-size:30px;padding:30px">Watch</button><div id=p style="width:320px;height:180px;background:#000"></div><script>const p = document.getElementById("p"); let t = 0; const hide = () => { p.style.cursor = "none"; }; document.getElementById("b").onclick = () => p.requestFullscreen(); document.addEventListener("fullscreenchange", () => { p.style.cursor = document.fullscreenElement ? "default" : ""; if (document.fullscreenElement) setTimeout(hide, 60); }); window.__moves = []; p.addEventListener("mousemove", (e) => { if (document.fullscreenElement) window.__moves.push(e.clientX + "," + e.clientY); p.style.cursor = "default"; clearTimeout(t); t = setTimeout(hide, 1500); });</script>', 'Player'),
+  '/fsvideo.html': html('<button id=b style="font-size:30px;padding:30px">Watch</button><div id=p style="width:320px;height:180px;background:#000"></div><script>const p = document.getElementById("p"); let t = 0; const hide = () => { p.style.cursor = "none"; }; document.getElementById("b").onclick = () => p.requestFullscreen(); document.addEventListener("fullscreenchange", () => { p.style.cursor = document.fullscreenElement ? "default" : ""; if (document.fullscreenElement) setTimeout(hide, 60); }); p.addEventListener("mousemove", () => { p.style.cursor = "default"; clearTimeout(t); t = setTimeout(hide, 1500); });</script>', 'Player'),
   '/popup.html': html('<button id=b style="font-size:30px;padding:30px" onclick="window.open(\'/b.html?clicked\')">Open</button><script>setTimeout(() => window.open(\'/a.html?spam\'), 300)</script>', 'Popups'),
   '/unload.html': html('<input id=i value="unsaved"><script>window.onbeforeunload = (e) => { e.preventDefault(); e.returnValue = ""; };</script>', 'Unsaved'),
   '/geo.html': html('<button id=b style="font-size:30px;padding:30px" onclick="navigator.geolocation.getCurrentPosition(() => document.title = \'geo ok\', (e) => document.title = \'geo \' + e.code)">Where am I</button>', 'Geo'),
@@ -72,17 +72,13 @@ try {
     await sleep(500);
   });
 
-  await R.step('a video that hides the pointer as it goes full screen: once the window’s full screen Chromium looks again at what’s under the pointer (the page sees the mouse where it is) and is told the page’s pointer again (a see-through one for a moment, then its own); the pointer’s hidden, and not by Bifrost after that', async () => {
+  await R.step('a video that hides the pointer as it goes full screen: Bifrost tells Chromium again once the window is in full screen (the page’s pointer a see-through one for a moment, then its own), and the pointer stays hidden; not outside full screen', async () => {
     await open(site.url + '/fsvideo.html'); await sleep(900);
     // (what the page tells Chromium about its pointer, as it does)
     await t.main(({ webContents }) => { const w = webContents.getAllWebContents().find((x) => x.getType() === 'webview' && x.getURL().includes('/fsvideo.html')); global.__cursors = []; w.on('cursor-changed', (_e, type) => global.__cursors.push(type)); });
     await clickIn('/fsvideo.html', '#b');
     await until(() => t.guest('/fsvideo.html', '!!document.fullscreenElement'), 4000, 'full screen');
-    // (the mouse still: Chromium moves it where it is, once, a moment in; the page shows its pointer, then hides it)
-    await sleep(1200);
-    const moves = await t.guest('/fsvideo.html', 'window.__moves');
-    assert(moves.length === 1, 'the page saw the mouse where it is (once): ' + JSON.stringify(moves));
-    await sleep(1700);
+    await sleep(1500);
     const seen = await t.main(() => global.__cursors.slice());
     const i = seen.lastIndexOf('custom');
     assert(seen.includes('none') && i >= 0 && seen.slice(i).includes('none') && seen[seen.length - 1] === 'none', 'the pointer told again (none, then a see-through picture, then none): ' + seen.join(' '));

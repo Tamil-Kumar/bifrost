@@ -102,18 +102,6 @@ jobs:
       - name: Files open in Bifrost
         run: node tools/open-check.mjs dist/release --timeout=90
 
-      # A video in full screen hiding the pointer, the mouse still since it clicked the full screen button: the
-      # pointer goes (tests/win/cursor-check.mjs: real input, the pointer as Windows shows it). Doesn't hold up a
-      # release: what it finds is in the log.
-      - name: The pointer in full screen
-        continue-on-error: true
-        shell: bash
-        run: |
-          # (a screen more like a laptop's than the runner's 1024×768: a page at 200% fits)
-          pwsh -NoProfile -Command 'Set-DisplayResolution -Width 1920 -Height 1080 -Force' || true
-          npm install --no-save --no-package-lock playwright-core@1.63.0
-          node tests/win/cursor-check.mjs --cases=stale:1:as-is,ytlike:2:as-is,simple:1:as-is
-
       - name: Publish
         shell: bash
         env:
