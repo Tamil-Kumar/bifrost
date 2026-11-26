@@ -275,11 +275,14 @@ async function run({ page: pageName, scale, way }) {
       await win.evaluate(() => document.getElementById('pointer-cover').remove());
       await sleep(400);
       out.overButton = await io.cursor();
+      if (WIN && !/^Chrome_/.test(out.overButton.under || '')) throw new Error(`can't run here: the pointer over ${out.overButton.under}, not Bifrost (screen ${out.overButton.screen})`);
       t0 = Date.now();
       await guestOf(app, page.match, 'document.getElementById("player").requestFullscreen().then(() => 1)');
     } else {
       await io.move(fsb.x, fsb.y); await sleep(600);
       out.overButton = await io.cursor();
+      // (not Bifrost under the pointer, the button off the screen, say: this case can't run here)
+      if (WIN && (!/^Chrome_/.test(out.overButton.under || '') || Math.abs(out.overButton.x - fsb.x) > 2 || Math.abs(out.overButton.y - fsb.y) > 2)) throw new Error(`can't run here: the button at ${fsb.x},${fsb.y} but the pointer at ${out.overButton.x},${out.overButton.y} over ${out.overButton.under} (screen ${out.overButton.screen})`);
       t0 = Date.now();
       await io.click();
     }
