@@ -27,7 +27,9 @@ import (
 
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun/netstack"
+	"golang.zx2c4.com/wireguard/tun"
+
+	"bifrost/vpn/netstack"
 )
 
 var version = "dev"
@@ -141,7 +143,7 @@ func run(text string, in *bufio.Reader, ln net.Listener) {
 			fail(err)
 		}
 	}
-	tun, tnet, err := netstack.CreateNetTUN(c.localAddrs(), c.dns, c.mtu)
+	tdev, tnet, err := createTUN(c.localAddrs(), c.dns, c.mtu)
 	if err != nil {
 		fail(fmt.Errorf("the tunnel: %w", err))
 	}
@@ -153,7 +155,7 @@ func run(text string, in *bufio.Reader, ln net.Listener) {
 	if os.Getenv("BIFROST_VPN_DEBUG") != "" {
 		logger.Verbosef = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "wireguard: "+f+"\n", a...) }
 	}
-	dev := device.NewDevice(tun, conn.NewDefaultBind(), logger)
+	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
 	if err := dev.IpcSet(c.uapi(resolved)); err != nil {
 		fail(fmt.Errorf("the tunnel's settings: %w", err))
 	}
@@ -185,6 +187,11 @@ func run(text string, in *bufio.Reader, ln net.Listener) {
 		}
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// The tunnel's network stack (tuning.go says how it's set up), and what the proxy's connections are made with.
+var createTUN = func(addrs, dns []netip.Addr, mtu int) (tun.Device, dialer, error) {
+	return netstack.CreateNetTUN(addrs, dns, mtu, stackOptions)
 }
 
 // The tunnel, once it's up; until then, connections wait for it (20 s at most).

@@ -8,31 +8,31 @@ on:
   workflow_dispatch:
 
 jobs:
-  modules:
+  tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: tools/vpn/go.mod
           cache: false
-      - name: Go modules
+      - name: Go tests
         working-directory: tools/vpn
         run: |
-          go mod download
-          go build -mod=readonly -o /dev/null . && go vet ./... && go test ./...
-          tar -C "$(go env GOMODCACHE)" -czf "$RUNNER_TEMP/gomod.tgz" cache/download
-          ls -la "$RUNNER_TEMP/gomod.tgz"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: gomod
-          path: ${{ runner.temp }}/gomod.tgz
-          retention-days: 3
+          go build -mod=readonly -o /dev/null . && go vet ./...
+          go test -mod=readonly -v -count=1 ./... 2>&1 | grep -v '^=== RUN' | tail -40
+          go test -mod=readonly -count=1 ./... > /dev/null
+      - name: Go tests with the race detector
+        working-directory: tools/vpn
+        run: go test -mod=readonly -race -count=1 ./netstack
+      - name: Through the stack, how fast
+        working-directory: tools/vpn
+        run: go test -mod=readonly -run XXX -bench . -benchtime 3x ./netstack
 
   bench:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,6 +47,17 @@ jobs:
         working-directory: tools/vpn
         run: |
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=bench" -o ../../assets/bin/bifrost-vpn-x64.exe .
+      - name: Where the processor goes
+        shell: bash
+        run: |
+          X=assets/bin/bifrost-vpn-x64.exe
+          node tools/vpn/bench.mjs profile 16 stock=$X:BIFROST_VPN_EXP=stock all=$X:BIFROST_VPN_EXP=batch+copy+gc+buf8+norack+dns+happy+q4096
+          for v in stock all; do
+            echo "==== $v: top"; go tool pprof -top -nodecount=30 "$RUNNER_TEMP/../bifrost-vpn-$v.prof" 2>/dev/null || go tool pprof -top -nodecount=30 "$TEMP/bifrost-vpn-$v.prof"
+            echo "==== $v: cumulative"; go tool pprof -top -cum -nodecount=45 "$TEMP/bifrost-vpn-$v.prof"
+          done
       - name: Speed through Cloudflare WARP
         shell: bash
-        run: node tools/vpn/bench.mjs 2 now=assets/bin/bifrost-vpn-x64.exe
+        run: |
+          X=assets/bin/bifrost-vpn-x64.exe
+          node tools/vpn/bench.mjs 2 stock=$X:BIFROST_VPN_EXP=stock base=$X batch=$X:BIFROST_VPN_EXP=batch copy=$X:BIFROST_VPN_EXP=copy gc=$X:BIFROST_VPN_EXP=gc tcp=$X:BIFROST_VPN_EXP=buf8+norack mtu1420=$X:BIFROST_VPN_EXP=mtu=1420 all=$X:BIFROST_VPN_EXP=batch+copy+gc+buf8+norack+dns+happy+q4096

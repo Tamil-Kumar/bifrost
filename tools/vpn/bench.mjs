@@ -4,6 +4,8 @@
 // straight, without the VPN. Variants take turns, round by round, so a network that gets slower or faster for a
 // while doesn't favour one. Needs curl.
 //   node tools/vpn/bench.mjs <rounds> name=<exe>[:ENV=value,ENV=value] ...
+//   node tools/vpn/bench.mjs profile <seconds> name=<exe> ...   (downloads only, each helper writing its processor
+//                                                               profile to <temp>/bifrost-vpn-<name>.prof)
 import { spawn, execFileSync, execFile } from 'node:child_process';
 import readline from 'node:readline';
 import fs from 'node:fs';
@@ -13,8 +15,10 @@ import path from 'node:path';
 const log = (m) => console.log('[vpn-bench] ' + m);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NUL = process.platform === 'win32' ? 'NUL' : '/dev/null';
-const rounds = Number(process.argv[2]) || 1;
-const variants = process.argv.slice(3).map((a) => {
+const profiling = process.argv[2] === 'profile';
+const profileSecs = profiling ? Number(process.argv[3]) : 0;
+const rounds = profiling ? 1 : Number(process.argv[2]) || 1;
+const variants = process.argv.slice(profiling ? 4 : 3).map((a) => {
   const [name, rest] = a.split(/=(.*)/s);
   const [exe, envs] = rest.split(/:(?=[A-Z_]+=)/);
   const env = {};
@@ -23,12 +27,18 @@ const variants = process.argv.slice(3).map((a) => {
 });
 // (a,b,c in one variant's environment: BIFROST_VPN_EXP=a+b+c)
 for (const v of variants) for (const k of Object.keys(v.env)) v.env[k] = v.env[k].replaceAll('+', ',');
+if (profiling) {
+  for (const v of variants) {
+    v.env.BIFROST_VPN_PROFILE = path.join(os.tmpdir(), `bifrost-vpn-${v.name}.prof`);
+    v.env.BIFROST_VPN_PROFILE_SECS = String(profileSecs);
+  }
+}
 
 const HOSTS = ['www.google.com', 'en.wikipedia.org', 'github.com', 'www.amazon.com', 'www.microsoft.com', 'www.apple.com',
   'www.bbc.co.uk', 'www.reddit.com', 'www.nytimes.com', 'www.yahoo.com', 'stackoverflow.com', 'www.ebay.com',
   'www.cnn.com', 'www.twitch.tv', 'www.spotify.com', 'www.adobe.com'];
 const DOWN = [
-  ['Cloudflare, 100 MB', 'https://speed.cloudflare.com/__down?bytes=100000000', 40],
+  ['Cloudflare, 50 MB', 'https://speed.cloudflare.com/__down?bytes=50000000', 40],
   ['near (Ashburn), 100 MB', 'https://ash-speed.hetzner.com/100MB.bin', 40],
   ['far (Germany), 100 MB', 'https://fsn1-speed.hetzner.com/100MB.bin', 30],
   ['farther (Singapore), 100 MB', 'https://sin-speed.hetzner.com/100MB.bin', 30],
@@ -83,7 +93,7 @@ function cpuSeconds(pid) {
 // One set of measurements, through this proxy (or straight): { name: number }.
 async function measure(proxy) {
   const r = {};
-  for (const pass of ['first', 'again']) {
+  for (const pass of profiling ? [] : ['first', 'again']) {
     const ttfb = [], conn = [];
     for (const h of HOSTS) {
       const x = await curl([...curlArgs(proxy), '-w', '%{time_connect} %{time_appconnect} %{time_starttransfer}', `https://${h}/`], 15);
@@ -94,7 +104,7 @@ async function measure(proxy) {
     r[`sites answer (median ms, names looked up ${pass === 'first' ? 'first time' : 'again'})`] = median(ttfb);
     r[`connected + TLS (median ms, ${pass})`] = median(conn);
   }
-  for (const [name, url, t] of DOWN) {
+  for (const [name, url, t] of profiling ? DOWN.slice(0, 2) : DOWN) {
     const x = await curl([...curlArgs(proxy), '-w', '%{speed_download}', url], t);
     const bps = Number(x.out);
     r[`down ${name} (Mbit/s)`] = bps > 0 ? (bps * 8) / 1e6 : NaN;
@@ -106,7 +116,7 @@ async function measure(proxy) {
     const bytes = xs.reduce((s, x) => s + (Number(x.out) || 0), 0);
     r['down Cloudflare, 4 at once × 50 MB (Mbit/s)'] = (bytes * 8) / 1e6 / ((Date.now() - t0) / 1000);
   }
-  {
+  if (!profiling) {
     const x = await curl([...curlArgs(proxy), '-w', '%{speed_upload}', '--data-binary', '@' + UP, 'https://speed.cloudflare.com/__up'], 40);
     r['up Cloudflare, 25 MB (Mbit/s)'] = Number(x.out) > 0 ? (Number(x.out) * 8) / 1e6 : NaN;
     if (!x.ok) log(`  (upload: ${x.err})`);
@@ -132,16 +142,22 @@ await sleep(1500);
 const results = {}; // variant name → [result per round]
 const add = (name, r) => (results[name] ||= []).push(r);
 for (let round = 0; round < rounds; round++) {
-  const order = [{ name: 'straight' }, ...variants];
+  const order = profiling ? variants : [{ name: 'straight' }, ...variants];
   const shift = round % order.length;
   for (const v of [...order.slice(shift), ...order.slice(0, shift)]) {
     if (v.name === 'straight') { log(`round ${round + 1}: straight`); add('straight', await measure(null)); continue; }
     const t = await tunnel(v, conf, 15000);
     if (!t.hs) { log(`round ${round + 1}: ${v.name}: ✗ no handshake ${JSON.stringify(t.lines.slice(-2))}`); t.stop(); continue; }
     log(`round ${round + 1}: ${v.name} (${JSON.stringify(v.env)}), handshake in ${t.hs.toFixed(1)} s`);
+    const started = Date.now();
     const cpu0 = cpuSeconds(t.proc.pid);
     const r = await measure(t.socks);
     const cpu1 = cpuSeconds(t.proc.pid);
+    if (profiling) {
+      const left = profileSecs * 1000 + 1500 - (Date.now() - started);
+      if (left < 2000) log(`  (the downloads took longer than the profile: ${((Date.now() - started) / 1000).toFixed(0)} s)`);
+      await sleep(Math.max(left, 0));
+    }
     await sleep(2200);
     const last = t.lines.filter((o) => o.rx !== undefined).slice(-1)[0] || {};
     const gb = ((last.rx || 0) + (last.tx || 0)) / 1e9;

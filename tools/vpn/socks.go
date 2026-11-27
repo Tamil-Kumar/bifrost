@@ -151,7 +151,10 @@ func pipe(a, b net.Conn) {
 	wg.Add(2)
 	half := func(dst, src net.Conn) {
 		defer wg.Done()
-		io.Copy(dst, src)
+		// (bigger pieces than io.Copy's 32 KB: fewer trips through the network stack; the types hidden, so
+		// neither side's ReadFrom or WriteTo takes over with its own 32 KB)
+		buf := make([]byte, copyBuffer)
+		io.CopyBuffer(struct{ io.Writer }{dst}, struct{ io.Reader }{src}, buf)
 		if cw, ok := dst.(closeWriter); ok {
 			cw.CloseWrite()
 		} else {
