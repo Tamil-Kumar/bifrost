@@ -1,0 +1,52 @@
+# Scratch checks (this branch only, not for main): the VPN helper's speed against Cloudflare WARP, and the Go
+# modules it's built from, for building it elsewhere.
+name: Checks
+
+on:
+  push:
+    branches: ['checks/**']
+  workflow_dispatch:
+
+jobs:
+  modules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/vpn/go.mod
+          cache: false
+      - name: Go modules
+        working-directory: tools/vpn
+        run: |
+          go mod download
+          go build -mod=readonly -o /dev/null . && go vet ./... && go test ./...
+          tar -C "$(go env GOMODCACHE)" -czf "$RUNNER_TEMP/gomod.tgz" cache/download
+          ls -la "$RUNNER_TEMP/gomod.tgz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gomod
+          path: ${{ runner.temp }}/gomod.tgz
+          retention-days: 3
+
+  bench:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/vpn/go.mod
+          cache: false
+      - name: VPN helper
+        shell: bash
+        working-directory: tools/vpn
+        run: |
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=bench" -o ../../assets/bin/bifrost-vpn-x64.exe .
+      - name: Speed through Cloudflare WARP
+        shell: bash
+        run: node tools/vpn/bench.mjs 2 now=assets/bin/bifrost-vpn-x64.exe
