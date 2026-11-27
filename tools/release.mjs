@@ -85,6 +85,9 @@ function assembleAll(runtimes) {
     A.assemble({ runtime: runtimes[arch], app: ROOT, out: stage, layout: 'installed', uninstaller: null, log: () => {}, keepFuses: true });
     dropOldSig(stage);
     stages[arch] = stage;
+    // (each build with its own VPN helper only: the other's 11 MB left out)
+    const other = `bifrost-vpn-${arch === 'x64' ? 'arm64' : 'x64'}.exe`;
+    for (const dir of [stage, path.join(portable, 'App', 'Bifrost-' + arch)]) fs.rmSync(path.join(dir, 'resources', 'app', 'assets', 'bin', other), { force: true });
   }
   return { portable, stages };
 }
@@ -146,6 +149,9 @@ function packageAll({ portable, stages }, signed) {
   log('portable zip');
   latest.portable = describe(zipFolder(path.dirname(portable), path.join(OUT, `BifrostPortable-${VERSION}.zip`)));
   log('app zip');
+  // (it's both builds' update: both VPN helpers in it, each build uses its own; the installers are made already)
+  const arm = path.join(ROOT, 'assets', 'bin', 'bifrost-vpn-arm64.exe');
+  if (fs.existsSync(arm)) fs.copyFileSync(arm, path.join(stages.x64, 'resources', 'app', 'assets', 'bin', 'bifrost-vpn-arm64.exe'));
   latest.app = describe(zipFolder(path.join(stages.x64, 'resources', 'app'), path.join(OUT, `Bifrost-${VERSION}-app.zip`)));
   fs.writeFileSync(path.join(OUT, 'latest.json'), JSON.stringify(latest, null, 2) + '\n');
   const sums = fs.readdirSync(OUT).filter((f) => f !== 'SHA256SUMS.txt').sort().map((f) => `${sha256(path.join(OUT, f))}  ${f}`).join('\n') + '\n';

@@ -50,6 +50,7 @@ const ITEMS = {
   home: () => tbButton('home', 'home', tip('Home', 'home'), () => emit('command', 'home')),
   newtab: () => tbButton('newtab', 'plus', tip('New tab', 'newTab'), () => emit('command', 'newTab', { source: 'button' })),
   split: () => tbButton('split', 'split', tip('Split view', 'splitWithNext'), (e, b) => splitMenu(b)),
+  vpn: () => tbButton('vpn', 'vpnOff', 'VPN', (e, el) => emit('vpn-popover', el)),
   adblock: () => {
     const b = tbButton('adblock', 'shieldCheck', 'Ad and tracker blocking', (e, el) => emit('adblock-popover', el));
     b.append(h('span.tb-badge'));

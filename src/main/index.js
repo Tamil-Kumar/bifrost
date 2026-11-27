@@ -111,6 +111,10 @@ function start() {
     ctx.extensions = new Extensions();
     const sessions = require('./sessions');
     ctx.setupBrowsingSession = (ses, opts) => sessions.setup(ses, opts);
+    // The VPN (main/vpn.js): on before any page asks for anything, if it was on.
+    const { Vpn } = require('./vpn');
+    ctx.vpn = new Vpn();
+    try { ctx.vpn.init(); } catch (e) { console.error('[vpn] couldn’t start', e); }
     // The browser UI runs in the default session; pages run in persist:main (or private sessions).
     protocol.attach(session.defaultSession);
     protocol.setWallpaperGetter(() => settings.get('appearance.newTab.image'));
@@ -169,6 +173,8 @@ function start() {
     // (Automated tests run offline: they don't wait, unless they ask to.)
     const drmIn = await drm.waitBriefly(process.env.BIFROST_TEST === '1' ? Number(process.env.BIFROST_DRM_WAIT_MS || 0) : 4000);
     timing.mark(drmIn === 'installed' ? 'drm-installed' : 'drm');
+    // (the VPN's proxy there before the first pages go through it)
+    await ctx.vpn.whenListening(3000);
     // (automated tests: a start that takes this much longer, to look at the window meanwhile)
     if (process.env.BIFROST_TEST === '1' && process.env.BIFROST_START_HOLD_MS) await new Promise((resolve) => setTimeout(resolve, Number(process.env.BIFROST_START_HOLD_MS) || 0));
     timing.mark('started');

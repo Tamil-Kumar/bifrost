@@ -1095,6 +1095,33 @@ webview.js-dialog-hide { visibility: hidden !important; }
 .perm-asked.blocked .si-row { background: color-mix(in srgb, var(--peach) 12%, transparent); }
 .perm-asked .si-ico { background: var(--base); }
 .ab { width: 300px; }
+/* The VPN: its button (green when it's on, the icon breathing while it connects, peach when it isn't connected)
+   and its popover. */
+.tb-btn[data-vpn="on"] { color: var(--green); }
+.tb-btn[data-vpn="error"] { color: var(--peach); }
+.tb-btn[data-vpn="connecting"] svg.i { animation: vpn-breathe 1.4s ease-in-out infinite; }
+@keyframes vpn-breathe { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .tb-btn[data-vpn="connecting"] svg.i { animation: none; opacity: .6; } }
+.vpn { width: 330px; display: flex; flex-direction: column; gap: 10px; }
+.vpn-head { display: flex; align-items: center; gap: 10px; }
+.vpn-head > div { flex: 1; min-width: 0; }
+.vpn-head small { display: block; color: var(--overlay); line-height: 1.35; }
+.vpn-badge { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 11px; background: var(--s0); color: var(--overlay); }
+.vpn-badge.on { background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }
+.vpn-badge.connecting { background: color-mix(in srgb, var(--yellow) 16%, transparent); color: var(--yellow); }
+.vpn-badge.error { background: color-mix(in srgb, var(--peach) 14%, transparent); color: var(--peach); }
+.vpn-err { padding: 8px 10px; border-radius: 9px; background: color-mix(in srgb, var(--peach) 12%, transparent); font-size: .86rem; line-height: 1.4; }
+.vpn-err small { display: block; color: var(--subtext); margin-top: 2px; }
+.vpn-stats { color: var(--subtext); font-size: .84rem; font-variant-numeric: tabular-nums; }
+.vpn-choices { display: flex; flex-direction: column; gap: 6px; }
+.vpn-choice { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border: 1px solid var(--s0); border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.vpn-choice:hover { background: var(--mantle); }
+.vpn-choice.sel { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--accent-soft); }
+.vpn-choice-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.vpn-choice-text small { color: var(--overlay); font-size: .82rem; margin-top: 1px; }
+.vpn-choice .link-btn { align-self: flex-start; margin: 4px 0 0 -6px; }
+.vpn-terms { margin: 0; color: var(--subtext); font-size: .82rem; line-height: 1.4; }
+.vpn-terms a { color: var(--accent); }
 .ab-head { display: flex; align-items: center; gap: 10px; }
 .ab-head small { display: block; color: var(--overlay); }
 .ab-shield { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }

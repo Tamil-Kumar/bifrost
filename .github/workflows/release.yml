@@ -63,6 +63,12 @@ jobs:
         with:
           python-version: '3.12'
 
+      # (the VPN helper: Go, at the version tools/vpn/go.mod names)
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/vpn/go.mod
+          cache: false
+
       - name: Version
         shell: bash
         run: |
@@ -83,6 +89,18 @@ jobs:
         if: env.EVS_ACCOUNT_NAME != '' && env.EVS_PASSWD != ''
         run: python -m pip install --upgrade castlabs-evs
 
+      # Bifrost's VPN helper (tools/vpn: WireGuard in user space, and a SOCKS5 proxy into it), for each build, from
+      # exactly the libraries go.sum names; into assets/bin, where the build takes it from.
+      - name: VPN helper
+        shell: bash
+        working-directory: tools/vpn
+        run: |
+          go vet ./... && go test ./...
+          for a in amd64:x64 arm64:arm64; do
+            GOOS=windows GOARCH=${a%%:*} CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=$VERSION" -o ../../assets/bin/bifrost-vpn-${a##*:}.exe .
+          done
+          ls -la ../../assets/bin
+
       - name: Build
         shell: bash
         run: node tools/release.mjs --out=dist/release --notes=RELEASE_NOTES.md --notes-out=dist/notes.md ${EVS_ACCOUNT_NAME:+${EVS_PASSWD:+--sign}}
@@ -101,6 +119,24 @@ jobs:
       # it's running or not: Windows' own way in (ShellExecuteEx, Bifrost's command), a path with spaces.
       - name: Files open in Bifrost
         run: node tools/open-check.mjs dist/release --timeout=90
+
+      # The VPN helper against the real Cloudflare WARP: signs up, connects, Cloudflare's trace page says warp=on
+      # through it, and a download through it and straight (tools/vpn/check.mjs). Doesn't hold up a release:
+      # Cloudflare may turn sign-ups from GitHub's machines away now and then.
+      - name: VPN through Cloudflare WARP
+        continue-on-error: true
+        shell: bash
+        run: node tools/vpn/check.mjs assets/bin/bifrost-vpn-x64.exe
+
+      # The same in Bifrost itself: turned on, a tab's page through WARP, WebRTC only through it, off again
+      # (tools/vpn/bifrost-check.mjs). And the builds have their helpers: each installer's own, the update both.
+      - name: The VPN in Bifrost
+        continue-on-error: true
+        shell: bash
+        run: |
+          npm install --no-save --no-package-lock playwright-core@1.63.0
+          node tools/vpn/bifrost-check.mjs
+          node -e "const b = require('fs').readFileSync(process.argv[1]).toString('latin1'); const ok = ['x64', 'arm64'].every((a) => new RegExp('assets[\\\\/]bin[\\\\/]bifrost-vpn-' + a + '\\\\.exe').test(b)); console.log('[vpn-in-bifrost] ' + (ok ? '✓ the update has both helpers' : '✗ the update lacks a helper')); process.exit(ok ? 0 : 1)" "dist/release/Bifrost-$VERSION-app.zip"
 
       - name: Publish
         shell: bash

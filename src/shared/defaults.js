@@ -73,7 +73,7 @@
       showWorkspaceStrip: true,
       compactToolbar: false,
       // What sits where. Items come from LAYOUT_ITEMS below; "spacer" and "divider" may repeat.
-      toolbar: ['back', 'forward', 'reload', 'address', 'adblock', 'extensions', 'downloads', 'menu'],
+      toolbar: ['back', 'forward', 'reload', 'address', 'vpn', 'adblock', 'extensions', 'downloads', 'menu'],
       sidebarTop: ['workspace', 'spacer', 'sidebar'],
       sidebarBottom: ['spaces', 'bookmarks', 'history', 'settings'],
       // Corner rounding per kind of element, in px. -1 follows "radius" above.
@@ -363,6 +363,10 @@
     // New versions from Bifrost's releases on GitHub (main/updater.js): downloaded by themselves (auto), and put
     // in the next time Bifrost starts.
     updates: { auto: true },
+    // Bifrost's VPN (main/vpn.js): its browsing through Cloudflare WARP (free; Bifrost signs up for you once you've
+    // agreed to Cloudflare's terms) or a WireGuard file of yours (source: warp | file). Stays on this computer
+    // (sync leaves it out): a sign-up and a file are each computer's.
+    vpn: { on: false, source: 'warp', warpTerms: false, fileName: '' },
     onboarding: { done: false },
     settingsVersion: 3,            // which one-time upgrades of saved settings have run (main/settings.js)
   };
@@ -457,6 +461,7 @@
     { id: 'tabLayout', label: 'Switch tab layout', icon: 'layout', cmd: 'toggleTabLayout' },
     { id: 'theme', label: 'Next theme', icon: 'moon', cmd: 'cycleTheme' },
     { id: 'vim', label: 'Vim keys', icon: 'vim', cmd: 'toggleVim' },
+    { id: 'vpn', label: 'VPN', icon: 'vpn' },
     { id: 'adblock', label: 'Ad blocker', icon: 'shield' },
     { id: 'extensions', label: 'Extensions', icon: 'puzzle', only: 'toolbar' },
     { id: 'settings', label: 'Settings', icon: 'sliders', cmd: 'openSettings' },
@@ -588,6 +593,7 @@
     ['taskManager', 'Task manager', 'Tools', ['Shift+Escape']],
     ['clearData', 'Clear browsing data', 'Tools', ['Ctrl+Shift+Delete']],
     ['importData', 'Import from another browser', 'Tools', []],
+    ['toggleVpn', 'Turn the VPN on or off', 'Tools', []],
     ['toggleVim', 'Turn Vim keys on or off', 'Tools', []],
     ['toggleWebDark', 'Dark mode for websites', 'Tools', ['Alt+Shift+D']],
     ['toggleRecolor', 'Catppuccin for every site', 'Tools', []],

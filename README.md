@@ -5,7 +5,7 @@ for bookmarks, history, websites and extensions (with a side bar, as in Firefox)
 that searches bookmarks, tabs, history and the web, a built-in ad blocker (EasyList, EasyPrivacy, uBlock
 Origin's lists and HaGeZi's DNS blocklists), dark mode for websites and userstyles (as Dark Reader and Stylus
 do, styles written in LESS too; Catppuccin's styles in Bifrost's theme, and Catppuccin's colors on every site
-that has no style of its own), warnings for dangerous sites, your choice of which Google account Google's sites open with, page translation, Chrome extensions (Manifest V2 and V3), sync between
+that has no style of its own), a VPN (Cloudflare WARP, free, or a WireGuard file of yours), warnings for dangerous sites, your choice of which Google account Google's sites open with, page translation, Chrome extensions (Manifest V2 and V3), sync between
 your computers through a cloud folder, and a lot of settings — every animation can be turned off.
 
 ## Layout
@@ -24,8 +24,9 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 Catppuccin's in your theme, which pages get Catppuccin's colors and the other sites' stylesheets
                 read for them; less-builder.js: userstyles written in LESS, built in a worker, less-worker.js, and
                 the files they import; web-theme.js: their color scheme, and Chromium's dark mode, per tab, and the
-                sites whose own dark theme is partly white), timing.js (when each part of starting up happened, for
-                tests/bench)
+                sites whose own dark theme is partly white), the VPN (vpn.js: its helper, WARP's sign-up, every
+                browsing session through it; vpn-conf.js: WireGuard files checked), timing.js (when each part of
+                starting up happened, for tests/bench)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
                 adblock.js (cosmetic filtering, scriptlets, YouTube's ads), recolor.js (Catppuccin for every
@@ -43,10 +44,12 @@ src/shared      defaults.js (every setting and command), themes.js (the themes, 
                 Catppuccin's colors, and the filters that turn icons those colors)
 src/vendor      electron-chrome-extensions, electron-chrome-web-store, Ghostery's adblocker, Readability
 assets          icons, bundled filter lists (adblock/: domains.txt.gz is HaGeZi's, domains-keep.txt Bifrost's
-                exceptions to it), bin/ (the touchpad watcher for Windows, x64 and ARM64), userstyles/catppuccin
+                exceptions to it), bin/ (the touchpad watcher for Windows, x64 and ARM64, and the VPN helper, built
+                by the release workflow), userstyles/catppuccin
                 (Catppuccin's userstyle libraries, for building their styles offline)
 tools           packaging: package.mjs, assemble.cjs, setup/ (the Windows setup), win/ (launcher and
-                installer stubs, and the touchpad watcher, touchpad.c; built with llvm-mingw)
+                installer stubs, and the touchpad watcher, touchpad.c; built with llvm-mingw), vpn/ (the VPN
+                helper, in Go: see "The VPN")
 tests           e2e/ (Playwright + Electron under Xvfb, real pointer and keys through XTest), setup/,
                 unit/, site/ (local test pages), fixtures/, bench/ (how long starting up and loading a
                 page take)
@@ -133,7 +136,9 @@ writes itself), your style for the site over it, a page one of your styles is fo
 its info popover, your theme's colors, Latte for light websites, nothing read from your own network, off again;
 a big stylesheet's work kept for the next load, a changed one read again; a page with no background of its own dark
 in dark mode, a new tab dark while its page loads, a side panel's website dark too),
-`sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
+`vpn` (the VPN with a stand-in helper: its button and popover, WARP's terms, pages through it, nothing around it
+when its helper stops, off again, your WireGuard file, WARP's next port and starting on it next time, started
+with it on, Settings and the command palette), `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
 and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
 side panel's website; a page's own notifications, and the ones a site shows through its service worker, from
@@ -198,6 +203,38 @@ keeps itself (src/main/timing.js; `BIFROST_TIMING=1` prints them on any start). 
 of about 200 requests over five origins in a tab, as Bifrost comes, with the ad blocker off, and with nothing
 of Bifrost's on the requests (the floor). `--root` measures another checkout (an older version) the same way.
 
+### The VPN
+
+Bifrost's browsing (tabs, private windows, the side panel's websites, the icons it fetches) through a
+WireGuard tunnel, only Bifrost's, not the rest of the computer: Cloudflare WARP's (free, no account; Bifrost
+signs this computer up with Cloudflare once you've agreed to its terms, by turning it on with WARP chosen), or
+one from a WireGuard file of yours (Proton VPN's free plan gives them out, Mullvad and others too). The toolbar's
+VPN button and its popover turn it on and off and choose; Settings → Privacy & security → VPN too, and the
+command palette's "Turn the VPN on or off".
+
+The tunnel is tools/vpn's helper, `bifrost-vpn` (Go: wireguard-go with gVisor's network stack, in user space,
+so no driver and no administrator rights), which gives Bifrost a SOCKS5 proxy on 127.0.0.1; every browsing
+session's proxy is pointed at it (src/main/vpn.js, sessions.js). Nothing goes around it while it's on: the
+sessions point at the proxy's port from the moment it's on (Bifrost picks the port and the helper listens on it
+before its tunnel is up, so connections wait for it); if the helper stops, connections are refused until it's
+back, never sent straight; names are looked up inside the tunnel (SOCKS5: Chromium sends the name, the helper
+asks the tunnel's DNS); WebRTC only uses the proxy (disable_non_proxied_udp); connections already open are
+closed when it's turned on or off. This computer's own network (a router's page, a printer: private addresses,
+`.local`, `.lan`, names with no dot) is reached directly.
+
+WARP's sign-up is the one Cloudflare's Android app makes, as wgcf makes it (https://github.com/ViRb3/wgcf,
+MIT): Cloudflare turns sign-ups away (429) whose TLS ClientHello isn't that app's, so the helper sends its
+(uTLS). If WARP's port (2408) gets no answer in 7 s, the next of 500, 1701 and 4500 is tried, and the one that
+answered is started on next time. The sign-up (its key) and your file are kept in the profile's vpn.json,
+encrypted with Windows' DPAPI (safeStorage); the settings (`vpn.*`) stay on each computer, not synced.
+
+The helper is built by the release workflow, for x64 and ARM64, from the exact libraries tools/vpn/go.sum
+names (each build packages only its own); `tools/vpn/check.mjs` then signs up, connects and fetches
+Cloudflare's trace page through it (warp=on), and `tools/vpn/bifrost-check.mjs` does the same in Bifrost
+itself. `go test` in tools/vpn checks its WireGuard files and its proxy. The e2e suite (tests/e2e/vpn.mjs) uses
+a stand-in helper, tests/e2e/tools/fake-vpn.mjs (the same commands, a real SOCKS5 proxy, no tunnel).
+`BIFROST_VPN_DEBUG=1` makes the helper say everything WireGuard does.
+
 ### Catppuccin for every site
 
 Settings → Website styles → Catppuccin for every site. Catppuccin's own styles (their import.json) cover the sites
@@ -252,8 +289,9 @@ checks that protected video plays (on the first start, which installs Widevine, 
 wait for it: it prints how long that start took), `tools/notify-check.mjs` that the portable build's notifications reach
 Windows (it says what it found in the log; it doesn't hold up a release), `tools/open-check.mjs` that a PDF, a
 page and a link opened with Bifrost open in it, running or not (Windows asked as Explorer asks it, for a path
-with spaces), and the release is published with
-RELEASE_NOTES.md. Bifrost's updater
+with spaces), the VPN helper (built there: see "The VPN") against Cloudflare WARP, on its own and in Bifrost
+(neither holds up a release: Cloudflare may turn GitHub's machines away now and then), and the release is
+published with RELEASE_NOTES.md. Bifrost's updater
 (src/main/updater.js) reads the newest release's latest.json: when only Bifrost's own files changed it
 downloads just those, otherwise the installer or the portable builds, and the helpers in tools/win swap
 them in when Bifrost restarts.

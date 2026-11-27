@@ -12,6 +12,7 @@ module.exports = {
   webStyles: null,   // WebStyles (dark mode for websites, your userstyles)
   sync: null,        // Sync (main/sync)
   updater: null,     // Updater (main/updater.js)
+  vpn: null,         // Vpn (main/vpn.js)
   extensions: null,  // Extensions
   downloads: null,   // Downloads
   permissions: null, // Permissions

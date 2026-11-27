@@ -190,6 +190,19 @@ function duplicateNav(id, args) {
   return false;
 }
 
+// The VPN on or off (the first time with WARP, or with a file still to choose: its popover, where that's done).
+async function toggleVpn() {
+  const vpn = await wb.invoke('vpn:status').catch(() => null);
+  const btn = document.querySelector('[data-tb="vpn"]');
+  if (!vpn || !vpn.available) { toast({ text: 'The VPN isn’t in this build of Bifrost', iconName: 'warn', timeout: 2500 }); return; }
+  if (!vpn.on && ((vpn.source === 'warp' && !vpn.warpTerms) || (vpn.source === 'file' && !vpn.file))) {
+    if (btn) emit('vpn-popover', btn); else emit('command', 'openSettings', { section: 'privacy', anchor: 'vpn' });
+    return;
+  }
+  set('vpn.on', !vpn.on);
+  toast({ text: !vpn.on ? 'VPN on' : 'VPN off', iconName: !vpn.on ? 'vpn' : 'vpnOff', timeout: 1600 });
+}
+
 export function run(id, args = {}) {
   const t = activeTab();
   if (duplicateNav(id, args)) return;
@@ -328,6 +341,7 @@ export function run(id, args = {}) {
       toast({ text: on ? 'Vim keys are on. Press ? on a page for help.' : 'Vim keys are off', iconName: 'vim', timeout: 2200 });
       return;
     }
+    case 'toggleVpn': toggleVpn(); return;
     case 'toggleAnimations': {
       const on = !setting('animations.enabled');
       set('animations.enabled', on);

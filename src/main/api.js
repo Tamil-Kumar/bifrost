@@ -350,6 +350,19 @@ function register() {
   });
 
   // ------------------------------------------------------------------ adblock
+  // The VPN (main/vpn.js): how it is, a WireGuard file of yours, forgetting WARP's sign-up or your file. On and
+  // off, which one, the terms: settings (vpn.*).
+  ipc.handle('vpn:status', 'internal', () => ctx.vpn.status());
+  ipc.handle('vpn:import', 'internal', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender.hostWebContents || event.sender);
+    const r = await dialog.showOpenDialog(win, { title: 'A WireGuard file for the VPN', properties: ['openFile'], filters: [{ name: 'WireGuard', extensions: ['conf'] }, { name: 'All files', extensions: ['*'] }] });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const file = r.filePaths[0];
+    if (fs.statSync(file).size > 64 * 1024) throw new Error('That file is too big to be a WireGuard file');
+    ctx.vpn.importFile(fs.readFileSync(file, 'utf8'), path.basename(file).replace(/\.conf$/i, ''));
+    return ctx.vpn.status();
+  });
+  ipc.handle('vpn:forget', 'internal', (event, what) => ctx.vpn.forget(what === 'file' ? 'file' : 'warp'));
   ipc.handle('adblock:status', 'internal', () => Object.assign(ctx.adblock ? ctx.adblock.status() : { enabled: false }, { youtube: ctx.youtubeRules ? ctx.youtubeRules.info() : null }));
   ipc.handle('adblock:set-site', 'internal', (event, host, allowed) => { ctx.adblock.setAllowed(String(host), !!allowed); return true; });
   // A dangerous site you chose to visit anyway (until Bifrost quits); the warnings' lists.
@@ -584,6 +597,7 @@ function register() {
   ipc.handle('google:reorder-done', ['settings'], () => ctx.googleAccounts.endReorder());
   if (ctx.googleAccounts) ctx.googleAccounts.on('changed', (s) => broadcastToPages('google-accounts-changed', s, 'settings'));
   require('./icons').onChange((e) => broadcastAll('site-icon', e));
+  if (ctx.vpn) ctx.vpn.on('changed', (st) => broadcastAll('vpn-state', st));
   nativeTheme.on('updated', () => broadcastAll('system-theme', { dark: nativeTheme.shouldUseDarkColors }));
 }
 

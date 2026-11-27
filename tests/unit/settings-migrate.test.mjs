@@ -101,5 +101,15 @@ check('0.33.0’s “Tint my theme” becomes “Stay dark”; the other choices
   assert(was('soft') === 'soft' && was('exact') === 'exact', 'soft → ' + was('soft') + ', exact → ' + was('exact'));
   assert(DEFAULTS.appearance.blendTone === 'soft', 'the default: ' + DEFAULTS.appearance.blendTone);
 });
+check('0.41.0’s VPN button goes on a toolbar of your own, before the ad blocker’s (or the menu), once; not if it’s somewhere already', () => {
+  const tb = (list, extra = {}) => { const o = clone(DEFAULTS); o.settingsVersion = 5; o.appearance.toolbar = list; Object.assign(o.appearance, extra); return load(o).appearance.toolbar.join(','); };
+  assert(tb(['back', 'address', 'adblock', 'menu']) === 'back,address,vpn,adblock,menu', tb(['back', 'address', 'adblock', 'menu']));
+  assert(tb(['back', 'address', 'menu']) === 'back,address,vpn,menu', tb(['back', 'address', 'menu']));
+  assert(tb(['address', 'vpn', 'menu']) === 'address,vpn,menu', 'twice');
+  assert(tb(['address', 'menu'], { sidebarBottom: ['vpn', 'settings'] }) === 'address,menu', 'it was in the sidebar');
+  const o = clone(DEFAULTS); o.settingsVersion = 6; o.appearance.toolbar = ['address', 'menu'];
+  assert(load(o).appearance.toolbar.join(',') === 'address,menu', 'taken off by you after 0.41.0: stays off');
+  assert(DEFAULTS.appearance.toolbar.includes('vpn'), 'the default toolbar');
+});
 console.log(`\nsettings: ${pass}/${pass + fail} passed`);
 process.exit(fail ? 1 : 0);

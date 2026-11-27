@@ -20,6 +20,7 @@ import * as EXT from './extensions.js';
 import * as Find from './findbar.js';
 import * as Panels from './panels.js';
 import * as Site from './siteinfo.js';
+import * as Vpn from './vpn.js';
 import * as AppMenu from './appmenu.js';
 import { showPageMenu } from './contextmenu.js';
 import { menuOpen } from './menus.js';
@@ -286,7 +287,7 @@ async function start() {
   if (!(init.restore && restore(init.restore))) normalize();
 
   V.init(); T.init(); Prompts.init(); Strip.init(); WS.init(); TB.init(); Omni.init(); Launcher.init();
-  Cmd.init(); BM.init(); DL.init(); EXT.init(); Find.init(); Panels.init(); Site.init(); AppMenu.init();
+  Cmd.init(); BM.init(); DL.init(); EXT.init(); Find.init(); Panels.init(); Site.init(); Vpn.init(); AppMenu.init();
   listen();
   setupSidebar();
   setupTitlebarArea();

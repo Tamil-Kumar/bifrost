@@ -1,5 +1,9 @@
-## Bifrost 0.40.2
+## Bifrost 0.41.0
 
-- **Back to 0.40.0:** 0.40.1's change to the pointer in full screen is taken out. Bifrost is as it was in 0.40.0.
+- **A VPN, built in:** the new button next to the address bar (a tunnel's mouth) turns it on. It's free and fast: on Windows test machines a 25 MB download through it ran at 220–420 Mbit/s, and pages loaded as quickly as without it. Only Bifrost's browsing goes through it (tabs, private windows, the side panel), not your other apps, and it needs no administrator rights or driver.
+- **Cloudflare WARP, or your own VPN:** WARP is the default and needs no account. Bifrost signs this computer up with Cloudflare the first time you turn it on, which means agreeing to Cloudflare's terms (the popover links them). WARP hides what you browse from the network you're on (a school's or a café's Wi-Fi, your internet provider), but sites still see you near where you are. To appear somewhere else, choose a WireGuard file from your own VPN instead. Proton VPN's free plan gives them out: sign in at account.protonvpn.com, then Downloads → WireGuard configuration, pick a free server and download its file.
+- **Nothing goes around it:** while it's on, if the connection drops, pages wait for it instead of loading without it. Website addresses are looked up through the VPN too, and WebRTC can't reveal your real address. Your home network's own pages, like a router's, are still reached directly.
+- **On networks that block it:** if WARP's usual port gets no answer, Bifrost tries its other ports by itself after a few seconds, and starts on the one that worked next time.
+- **Where it is:** the toolbar button, Settings → Privacy & security → VPN, and "Turn the VPN on or off" in the command palette. A toolbar you've arranged yourself gets the button too; right-click it to move or remove it.
 
-**Install:** `Bifrost-Setup-0.40.2-x64.exe` for most PCs, `Bifrost-Setup-0.40.2-arm64.exe` for ARM laptops (Snapdragon). It installs for you only, no administrator rights needed, and keeps your profile. **Portable:** `BifrostPortable-0.40.2.zip`: unzip it over your BifrostPortable folder (its Data folder stays). Bifrost 0.24.0 and later update themselves.
+**Install:** `Bifrost-Setup-0.41.0-x64.exe` for most PCs, `Bifrost-Setup-0.41.0-arm64.exe` for ARM laptops (Snapdragon). It installs for you only, no administrator rights needed, and keeps your profile. **Portable:** `BifrostPortable-0.41.0.zip`: unzip it over your BifrostPortable folder (its Data folder stays). Bifrost 0.24.0 and later update themselves.

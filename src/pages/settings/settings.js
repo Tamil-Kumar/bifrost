@@ -815,6 +815,69 @@ function launcherBackup() {
 }
 
 // ------------------------------------------------------------ privacy
+// The VPN (main/vpn.js): on or off, through Cloudflare WARP or a WireGuard file of yours, how it is; WARP's
+// sign-up and your file forgotten here. On and off, which one and Cloudflare's terms are settings (vpn.*).
+let vpnState = null;
+const vpnListeners = new Set();
+wb.on('vpn-state', (s) => { vpnState = s; for (const f of vpnListeners) f(); });
+const VPN_TERMS = 'https://www.cloudflare.com/application/terms/';
+function vpnWidget() {
+  const el = h('div.vpn-set');
+  const plain = (e) => String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  const choose = async () => {
+    try {
+      const s = await wb.invoke('vpn:import');
+      if (s) { vpnState = s; draw(); toast({ text: `${s.file ? s.file.name : 'Your file'} is the VPN’s now`, iconName: 'vpn' }); }
+    } catch (e) { toast({ text: 'That isn’t a WireGuard file you can use: ' + plain(e), iconName: 'warn', timeout: 6000 }); }
+  };
+  const status = (s) => {
+    if (!s.on) return 'Off: Bifrost goes straight to sites.';
+    const where = s.source === 'file' ? (s.file ? s.file.name : 'your WireGuard file') : 'Cloudflare WARP';
+    if (s.state === 'connected') return `On, through ${where}${s.endpoint ? ' (' + s.endpoint + ')' : ''} · ${fmtBytes(s.rx)} in, ${fmtBytes(s.tx)} out.`;
+    if (s.state === 'signing-up') return 'Signing up with Cloudflare…';
+    if (s.state === 'error') return `Not connected: ${s.error}${s.note ? '. ' + s.note : ''}. Pages wait for it; nothing goes around it.`;
+    return (s.note || `Connecting to ${where}…`);
+  };
+  const draw = () => {
+    const s = vpnState;
+    if (!s) return;
+    if (!s.available) { el.replaceChildren(h('p.status-line', null, 'The VPN isn’t in this build of Bifrost. It comes with Bifrost for Windows.')); return; }
+    const turn = (on) => {
+      if (on && s.source === 'file' && !s.file) { choose(); draw(); return; }
+      // (WARP: turning it on, with Cloudflare's terms shown right there, is agreeing to them)
+      if (on && s.source === 'warp' && !s.warpTerms) set('vpn.warpTerms', true);
+      set('vpn.on', on);
+    };
+    el.replaceChildren(
+      h('div.vpn-set-row', null, h('div.vpn-set-main', null, h('b', null, 'Use the VPN'), h('p.status-line', null, status(s))), switchEl(s.on, turn, { label: 'Use the VPN' })),
+      h('div.vpn-set-row', null, h('span.vpn-set-label', null, 'Through'),
+        segmented([['warp', 'Cloudflare WARP', icon('globe')], ['file', s.file ? s.file.name : 'My WireGuard file', icon('file')]], s.source, (v) => {
+          if (v === 'file' && !s.file) { choose(); draw(); return; }
+          set('vpn.source', v);
+        })),
+      s.source === 'warp'
+        ? h('p.hint', null, 'Free and fast, no account. It hides what you browse from the network you’re on (a school’s or a café’s Wi-Fi, your internet provider); sites see a Cloudflare address near where you are, so it doesn’t make you look like you’re somewhere else. ',
+          s.warpTerms ? null : h('span', null, 'WARP is Cloudflare’s: turning it on signs this computer up with Cloudflare and means you agree to ',
+            h('a', { href: VPN_TERMS, onclick: (e) => { e.preventDefault(); openUrl(VPN_TERMS); } }, 'Cloudflare’s terms'), '.'))
+        : h('p.hint', null, s.file ? `Through ${s.file.endpoint}. ` : '',
+          'A WireGuard file from your VPN: from Proton VPN’s free plan, sign in at account.protonvpn.com, then Downloads → WireGuard configuration, pick a free server and download its file. Mullvad and most other VPNs give them out too.'),
+      h('div.btn-row', null,
+        h('button.btn.small', { type: 'button', onclick: choose }, icon('folder'), s.file ? 'Use another WireGuard file…' : 'Choose a WireGuard file…'),
+        s.file ? h('button.btn.small', { type: 'button', onclick: async () => {
+          if (!(await confirmDialog(`Forget ${s.file.name}?`, { detail: 'Bifrost keeps its own copy of the file; this deletes that copy. The VPN turns off if it was using it.', ok: 'Forget' }))) return;
+          vpnState = await wb.invoke('vpn:forget', 'file'); draw();
+        } }, icon('trash'), 'Forget my file') : null,
+        s.warp ? h('button.btn.small', { type: 'button', onclick: async () => {
+          if (!(await confirmDialog('Forget WARP’s sign-up?', { detail: 'This computer is taken off Cloudflare’s list. Turning WARP on again signs it up afresh.', ok: 'Forget' }))) return;
+          vpnState = await wb.invoke('vpn:forget', 'warp'); draw();
+        } }, icon('trash'), 'Forget WARP’s sign-up') : null),
+      h('p.hint', null, 'Only Bifrost’s browsing goes through it (tabs, private windows, the side panel), not other apps. Your home network’s own addresses, like a router’s page, are reached directly.'));
+  };
+  vpnListeners.add(draw);
+  wb.invoke('vpn:status').then((s) => { vpnState = s; draw(); }).catch(() => {});
+  return { el, update: draw };
+}
+
 function adblockStatus() {
   const line = h('span.status-line');
   const btn = h('button.btn.small', { type: 'button' }, icon('reload'), 'Update filter lists now');
@@ -2158,6 +2221,9 @@ function sections() {
     { id: 'privacy', title: 'Privacy & security', icon: 'shield', desc: 'Ad blocking, tracking protection and your data.', groups: () => [
       { title: 'Dangerous sites', items: [
         I.toggle('privacy.dangerousSites', 'Warn me about dangerous sites', 'Pages known for phishing, malware or scams are stopped before they load, with a warning (and a way through if you’re sure); downloads from them are blocked. Uses the Phishing URL and Malicious URL blocklists and uBlock Origin’s “Badware risks”, updated twice a day. Works even with ad blocking off.', { keywords: 'safe browsing phishing malware scam security deceptive' }),
+      ] },
+      { title: 'VPN', id: 'vpn', items: [
+        I.custom('Browse through a VPN', 'Cloudflare WARP, free and built in, or a WireGuard file from your own VPN.', vpnWidget, { stack: true, keywords: 'vpn warp cloudflare wireguard proton mullvad tunnel proxy ip location hide privacy' }),
       ] },
       { title: 'Ad and tracker blocking', id: 'adblock', items: [
         I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy, uBlock Origin’s lists and HaGeZi’s DNS blocklists.', { keywords: 'adblock ublock hagezi' }),

@@ -83,13 +83,26 @@ function applySpellcheck(ses) {
   } catch (e) { console.warn('[spellcheck]', e.message); }
 }
 
-function applyProxy(ses) {
+// The proxy: the VPN's while it's on (main/vpn.js), otherwise the one in Settings. close: the connections
+// already open closed too (the VPN turned on or off: none stay outside it, or in it).
+function applyProxy(ses, { close = false } = {}) {
   const p = ctx.settings.get('advanced.proxy');
-  const cfg = p.mode === 'direct' ? { mode: 'direct' }
-    : p.mode === 'fixed' && p.rules ? { mode: 'fixed_servers', proxyRules: p.rules, proxyBypassRules: p.bypass || '' }
-      : p.mode === 'pac' && p.rules ? { mode: 'pac_script', pacScript: p.rules }
-        : { mode: 'system' };
-  ses.setProxy(cfg).catch((e) => console.warn('[proxy]', e.message));
+  const vpn = ctx.vpn ? ctx.vpn.proxyConfig() : null;
+  const cfg = vpn ? vpn
+    : p.mode === 'direct' ? { mode: 'direct' }
+      : p.mode === 'fixed' && p.rules ? { mode: 'fixed_servers', proxyRules: p.rules, proxyBypassRules: p.bypass || '' }
+        : p.mode === 'pac' && p.rules ? { mode: 'pac_script', pacScript: p.rules }
+          : { mode: 'system' };
+  return ses.setProxy(cfg)
+    .then(() => (close ? ses.closeAllConnections() : null))
+    .catch((e) => console.warn('[proxy]', e.message));
+}
+
+// Every browsing session's proxy (the VPN turned on or off, or its port picked).
+function refreshProxies({ close = false } = {}) {
+  const list = [ctx.mainSession, ...(ctx.registry ? ctx.registry.list().filter((c) => c.isPrivate).map((c) => c.ses) : [])].filter((s) => s && configured.has(s));
+  try { list.push(session.fromPartition('bifrost-icons')); } catch { /* not ready */ }
+  return Promise.all(list.map((ses) => applyProxy(ses, { close })));
 }
 
 // Re-applies settings that live on sessions after they change.
@@ -108,4 +121,4 @@ function refreshAll(changedPath) {
   }
 }
 
-module.exports = { setup, refreshAll, applyProxy };
+module.exports = { setup, refreshAll, applyProxy, refreshProxies };

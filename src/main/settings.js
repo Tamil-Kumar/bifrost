@@ -6,7 +6,7 @@ const { EventEmitter } = require('node:events');
 const { DEFAULTS, deepMerge, setPath, getPath, clone } = require('../shared/defaults');
 
 // One-time changes to settings saved by older versions. settingsVersion records which have run.
-const SETTINGS_VERSION = 5;
+const SETTINGS_VERSION = 6;
 function migrate(raw) {
   const v = Number(raw.settingsVersion) || 1;
   if (v < 2) {
@@ -41,6 +41,16 @@ function migrate(raw) {
     // 0.33.0's "Tint my theme" (the bars in the theme's shade next to every page) is what "Stay dark" now
     // does next to bright pages; dark pages give the bars their own color.
     raw.appearance.blendTone = 'soft';
+  }
+  if (v < 6 && raw.appearance && Array.isArray(raw.appearance.toolbar)) {
+    // 0.41.0's VPN: its button on a toolbar of your own too (before the ad blocker's, or the menu), unless it's
+    // somewhere already.
+    const ap = raw.appearance;
+    const lists = [ap.toolbar, ap.sidebarTop, ap.sidebarBottom].filter(Array.isArray);
+    if (!lists.some((l) => l.includes('vpn'))) {
+      const at = ap.toolbar.indexOf('adblock') >= 0 ? ap.toolbar.indexOf('adblock') : ap.toolbar.indexOf('menu');
+      if (at >= 0) ap.toolbar.splice(at, 0, 'vpn'); else ap.toolbar.push('vpn');
+    }
   }
   raw.settingsVersion = SETTINGS_VERSION;
   return raw;
