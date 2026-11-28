@@ -16,8 +16,10 @@ const log = (m) => console.log('[vpn-bench] ' + m);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const NUL = process.platform === 'win32' ? 'NUL' : '/dev/null';
 const profiling = process.argv[2] === 'profile';
+// (pair: is it one tunnel that's limited? two sign-ups, two tunnels, downloads through one and then both at once)
+const pairing = process.argv[2] === 'pair';
 const profileSecs = profiling ? Number(process.argv[3]) : 0;
-const rounds = profiling ? 1 : Number(process.argv[2]) || 1;
+const rounds = profiling || pairing ? 1 : Number(process.argv[2]) || 1;
 const variants = process.argv.slice(profiling ? 4 : 3).map((a) => {
   const [name, rest] = a.split(/=(.*)/s);
   const [exe, envs] = rest.split(/:(?=[A-Z_]+=)/);
@@ -156,6 +158,27 @@ for (const port of [2408, 500, 1701, 4500]) {
 }
 if (!conf) { log('✗ no port answered'); process.exit(1); }
 await sleep(1500);
+
+if (pairing) {
+  const reg2 = await once(first.exe, ['register']);
+  const conf2 = reg2.conf.replace(/^(Endpoint = [^:]+):\d+/m, '$1:' + /^Endpoint = [^:]+:(\d+)/m.exec(conf)[1]);
+  const a = await tunnel(first, conf, 15000), b = await tunnel(first, conf2, 15000);
+  const trace = async (proxy) => (await new Promise((res) => execFile('curl', ['-sS', '--max-time', '15', ...curlArgs(proxy), 'https://www.cloudflare.com/cdn-cgi/trace'], { encoding: 'utf8' }, (e, out) => res(out || ''))));
+  const ip = (t) => (/^ip=(.*)$/m.exec(t) || [])[1];
+  log(`tunnel A: ${ip(await trace(a.socks))}; tunnel B: ${ip(await trace(b.socks))}`);
+  const many = async (proxies) => {
+    const t0 = Date.now();
+    const xs = await Promise.all(proxies.map((p) => curl([...curlArgs(p), '-w', '%{size_download}', 'https://speed.cloudflare.com/__down?bytes=50000000'], 40)));
+    return ((xs.reduce((s, x) => s + (Number(x.out) || 0), 0) * 8) / 1e6 / ((Date.now() - t0) / 1000)).toFixed(0);
+  };
+  for (let i = 0; i < 3; i++) {
+    log(`4 × 50 MB through A: ${await many([a.socks, a.socks, a.socks, a.socks])} Mbit/s; through B: ${await many([b.socks, b.socks, b.socks, b.socks])} Mbit/s; 2 through each at once: ${await many([a.socks, a.socks, b.socks, b.socks])} Mbit/s; 4 straight: ${await many([null, null, null, null])} Mbit/s`);
+  }
+  a.stop(); b.stop();
+  await sleep(1000);
+  for (const r of [reg, reg2]) await once(first.exe, ['unregister'], { id: r.id, token: r.token }).catch(() => {});
+  process.exit(0);
+}
 
 const results = {}; // variant name → [result per round]
 const add = (name, r) => (results[name] ||= []).push(r);

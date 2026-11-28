@@ -43,6 +43,8 @@ func init() {
 			stackOptions.NoRACK = true
 		case k == "buf8":
 			stackOptions.RecvMax, stackOptions.SendMax = 8<<20, 6<<20
+		case k == "recv8":
+			stackOptions.RecvMax = 8 << 20
 		case k == "buf16":
 			stackOptions.RecvMax, stackOptions.SendMax = 16<<20, 8<<20
 		case k == "batch":

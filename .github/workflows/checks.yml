@@ -47,17 +47,12 @@ jobs:
         working-directory: tools/vpn
         run: |
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=bench" -o ../../assets/bin/bifrost-vpn-x64.exe .
-      - name: Where the processor goes
+      - name: One tunnel, or two
         shell: bash
-        run: |
-          X=assets/bin/bifrost-vpn-x64.exe
-          node tools/vpn/bench.mjs profile 16 stock=$X:BIFROST_VPN_EXP=stock rbfast=$X:BIFROST_VPN_EXP=riobatch+batch+copy+dns+happy
-          for v in stock rbfast; do
-            echo "==== $v: working (not waiting)"; go tool pprof -top -nodecount=40 -ignore='GetQueuedCompletionStatus|syscall.readFile|runtime.netpoll' "$TEMP/bifrost-vpn-$v.prof"
-          done
+        run: node tools/vpn/bench.mjs pair final=assets/bin/bifrost-vpn-x64.exe:BIFROST_VPN_EXP=batch+dns+happy+norack
       - name: Speed through Cloudflare WARP
         shell: bash
         run: |
           X=assets/bin/bifrost-vpn-x64.exe
-          F=riobatch+batch+copy+dns+happy
-          node tools/vpn/bench.mjs 3 stock=$X:BIFROST_VPN_EXP=stock std=$X:BIFROST_VPN_EXP=stock+std riobatch=$X:BIFROST_VPN_EXP=stock+riobatch rx1024=$X:BIFROST_VPN_EXP=stock+riobatch+rx=1024+sockbuf=0 rbfast=$X:BIFROST_VPN_EXP=$F rbup=$X:BIFROST_VPN_EXP=$F+norack rball=$X:BIFROST_VPN_EXP=$F+norack+buf8
+          F=batch+dns+happy+norack
+          node tools/vpn/bench.mjs 3 stock=$X:BIFROST_VPN_EXP=stock final=$X:BIFROST_VPN_EXP=$F final8=$X:BIFROST_VPN_EXP=$F+recv8
