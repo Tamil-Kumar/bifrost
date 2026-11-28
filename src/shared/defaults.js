@@ -364,9 +364,10 @@
     // in the next time Bifrost starts.
     updates: { auto: true },
     // Bifrost's VPN (main/vpn.js): its browsing through Cloudflare WARP (free; Bifrost signs up for you once you've
-    // agreed to Cloudflare's terms) or a WireGuard file of yours (source: warp | file). Stays on this computer
-    // (sync leaves it out): a sign-up and a file are each computer's.
-    vpn: { on: false, source: 'warp', warpTerms: false, fileName: '' },
+    // agreed to Cloudflare's terms) or one of your locations, WireGuard files (source: warp | file; file: which,
+    // its id, '' the first). bypass: sites that skip it (host names, their subdomains too); scope: all windows,
+    // or only private ones. Stays on this computer (sync leaves it out): a sign-up and files are each computer's.
+    vpn: { on: false, source: 'warp', file: '', warpTerms: false, bypass: [], scope: 'all' },
     onboarding: { done: false },
     settingsVersion: 3,            // which one-time upgrades of saved settings have run (main/settings.js)
   };

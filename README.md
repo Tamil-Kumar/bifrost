@@ -24,8 +24,9 @@ src/main        main process: windows, tabs (guests.js), settings, history/bookm
                 Catppuccin's in your theme, which pages get Catppuccin's colors and the other sites' stylesheets
                 read for them; less-builder.js: userstyles written in LESS, built in a worker, less-worker.js, and
                 the files they import; web-theme.js: their color scheme, and Chromium's dark mode, per tab, and the
-                sites whose own dark theme is partly white), the VPN (vpn.js: its helper, WARP's sign-up, every
-                browsing session through it; vpn-conf.js: WireGuard files checked), timing.js (when each part of
+                sites whose own dark theme is partly white), the VPN (vpn.js: its helper, WARP's sign-up, your
+                locations, every browsing session through it; vpn-conf.js: WireGuard files checked, their
+                countries guessed, sites that skip it), timing.js (when each part of
                 starting up happened, for tests/bench)
 src/preload     tab.js (every web page: shortcuts, Vim keys, swipes, dialogs, pop-up blocker, site styles),
                 sw.js (websites' service workers: their notifications), ui.js (the browser window),
@@ -136,9 +137,10 @@ writes itself), your style for the site over it, a page one of your styles is fo
 its info popover, your theme's colors, Latte for light websites, nothing read from your own network, off again;
 a big stylesheet's work kept for the next load, a changed one read again; a page with no background of its own dark
 in dark mode, a new tab dark while its page loads, a side panel's website dark too),
-`vpn` (the VPN with a stand-in helper: its button and popover, WARP's terms, pages through it, nothing around it
-when its helper stops, off again, your WireGuard file, WARP's next port and starting on it next time, started
-with it on, Settings and the command palette), `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
+`vpn` (the VPN with a stand-in helper: its button and popover, WARP's terms, pages through it and where sites see
+you, nothing around it when its helper stops, off again, your WireGuard files as locations: their countries, tried
+on their own, picked in the popover, one downloaded in Bifrost offered; a site that skips it, private windows
+only, WARP's next port and starting on it next time, started with it on, Settings and the command palette), `sync` (two Bifrosts sharing a folder), `updates` (the updater against a local release feed: checks,
 downloads, checksums, restarting into the update), `notifications` (tabs behind others hidden to their pages
 and without the focus, as in Chrome: opened behind, after going to another page, with the window hidden, the
 side panel's website; a page's own notifications, and the ones a site shows through its service worker, from
@@ -207,10 +209,27 @@ of Bifrost's on the requests (the floor). `--root` measures another checkout (an
 
 Bifrost's browsing (tabs, private windows, the side panel's websites, the icons it fetches) through a
 WireGuard tunnel, only Bifrost's, not the rest of the computer: Cloudflare WARP's (free, no account; Bifrost
-signs this computer up with Cloudflare once you've agreed to its terms, by turning it on with WARP chosen), or
-one from a WireGuard file of yours (Proton VPN's free plan gives them out, Mullvad and others too). The toolbar's
-VPN button and its popover turn it on and off and choose; Settings → Privacy & security → VPN too, and the
-command palette's "Turn the VPN on or off".
+signs this computer up with Cloudflare once you've agreed to its terms, by turning it on with WARP chosen),
+which keeps you near where you are, or one of your locations, WireGuard files from a VPN, to appear somewhere
+else. Proton VPN's free plan has servers in 10 countries and gives out a file for each (account.protonvpn.com →
+Downloads → WireGuard configuration); its own free app picks the server for you, Bifrost lets you pick. Mullvad
+and others' files work too. The toolbar's VPN button and its popover turn it on and off, show where sites see
+you, and pick where you appear; Settings → Privacy & security → VPN too, and the command palette's "Turn the VPN
+on or off".
+
+Your locations: files added several at once (Add locations…), or offered as they're downloaded in Bifrost (a
+`.conf` that's a WireGuard file, not already one of them). Each is named by its country, guessed from its
+server's name (Proton's "JP-FREE#3", "US-NY#12", "CH-US#1" through Secure Core; Mullvad's "jp-tyo-wg-001"),
+then as seen through it: once it's connected the helper fetches Cloudflare's trace page through the tunnel
+(`ip`, `loc`), which the popover shows ("Sites see you in Japan") and each location keeps. A file just added is
+tried on its own first (`bifrost-vpn probe`: its handshake's time, where it puts you; or that it didn't answer),
+unless one of your files is in use: a free plan has one connection. The same file again (the same key, server
+and endpoint) replaces its copy rather than adding a second.
+
+Sites that skip it (`vpn.bypass`: a bank or a school's site that turns VPNs away) go straight, their subdomains
+too, with WebRTC as usual on them: the popover's switch for the site you're on, or Settings. `vpn.scope`
+`private` puts only private windows through it; the others go straight (each session's proxy, its WebRTC
+policy by its session).
 
 The tunnel is tools/vpn's helper, `bifrost-vpn` (Go: wireguard-go with gVisor's network stack, in user space,
 so no driver and no administrator rights), which gives Bifrost a SOCKS5 proxy on 127.0.0.1; every browsing
@@ -225,27 +244,29 @@ closed when it's turned on or off. This computer's own network (a router's page,
 WARP's sign-up is the one Cloudflare's Android app makes, as wgcf makes it (https://github.com/ViRb3/wgcf,
 MIT): Cloudflare turns sign-ups away (429) whose TLS ClientHello isn't that app's, so the helper sends its
 (uTLS). If WARP's port (2408) gets no answer in 7 s, the next of 500, 1701 and 4500 is tried, and the one that
-answered is started on next time. The sign-up (its key) and your file are kept in the profile's vpn.json,
+answered is started on next time. The sign-up (its key) and your files are kept in the profile's vpn.json,
 encrypted with Windows' DPAPI (safeStorage); the settings (`vpn.*`) stay on each computer, not synced.
 
 The helper's network stack is wireguard-go's (tools/vpn/netstack, its tun/netstack copied, MIT), set up for speed
-in tools/vpn/tuning.go: TCP's RACK loss detection off (gVisor's resends needlessly; uploads through WARP went from
-27 to 380 Mbit/s), receive buffers that grow to 8 MB (downloads up to 70% faster, for less processor time); a
+in tools/vpn/tuning.go: TCP's RACK loss detection off (gVisor's resends needlessly; uploads through WARP 3 to 14
+times faster), receive buffers that grow to 8 MB (downloads 15-70% faster, for less processor time); a
 name looked up once for all the connections a page opens to it and kept for its TTL (15 s to 5 min), the next DNS
 server asked when one hasn't answered in half a second (not after 5 s), and a site's IPv4 address tried too when
 IPv6 hasn't connected in 0.3 s. `node tools/vpn/bench.mjs <rounds> name=<helper>[:ENV=value] ...` measures builds
 of it against each other and straight, through the real WARP: how soon sites answer, downloads near and far, one
 connection and four, an upload, dropped UDP packets, the helper's processor time per GB. What made no difference
-there isn't in it: packets handed to WireGuard in batches, a batching Windows UDP bind, bigger copies, an MTU of
+there isn't used: packets handed to WireGuard in batches, a batching Windows UDP bind, bigger copies, an MTU of
 1420, the garbage collector run less.
 
 The helper is built by the release workflow, for x64 and ARM64, from the exact libraries tools/vpn/go.sum
 names (each build packages only its own); `tools/vpn/check.mjs` then signs up, connects and fetches
-Cloudflare's trace page through it (warp=on), and `tools/vpn/bifrost-check.mjs` does the same in Bifrost
-itself. `go test` in tools/vpn checks its WireGuard files, its proxy and its network stack (two of them wired to
+Cloudflare's trace page through it (warp=on), checks where the helper says sites see you against it, and tries
+`probe`; `tools/vpn/bifrost-check.mjs` does the same in Bifrost itself, the popover's country against a tab's
+trace page. `go test` in tools/vpn checks its WireGuard files, its proxy and its network stack (two of them wired to
 each other: downloads, an echo, names kept, a DNS server that loses questions, IPv6 that doesn't get through;
-`-bench .` for how fast, near and up to 50 ms away). The e2e suite (tests/e2e/vpn.mjs) uses a stand-in helper,
-tests/e2e/tools/fake-vpn.mjs (the same commands, a real SOCKS5 proxy, no tunnel).
+`-bench .` for how fast, near and up to 50 ms away) and the trace page read. The e2e suite (tests/e2e/vpn.mjs)
+uses a stand-in helper, tests/e2e/tools/fake-vpn.mjs (the same commands, a real SOCKS5 proxy, no tunnel, where
+each endpoint "puts you" from its control file).
 `BIFROST_VPN_DEBUG=1` makes the helper say everything WireGuard does.
 
 ### Catppuccin for every site

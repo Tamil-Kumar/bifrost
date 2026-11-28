@@ -350,19 +350,25 @@ function register() {
   });
 
   // ------------------------------------------------------------------ adblock
-  // The VPN (main/vpn.js): how it is, a WireGuard file of yours, forgetting WARP's sign-up or your file. On and
-  // off, which one, the terms: settings (vpn.*).
+  // The VPN (main/vpn.js): how it is, your locations (WireGuard files: added, tried, forgotten), sites that skip
+  // it, forgetting WARP's sign-up. On and off, which location, the terms: settings (vpn.*).
   ipc.handle('vpn:status', 'internal', () => ctx.vpn.status());
-  ipc.handle('vpn:import', 'internal', async (event) => {
+  // WireGuard files chosen (several at once) for your locations; use: the first is the VPN's now.
+  ipc.handle('vpn:import', 'internal', async (event, opts) => {
     const win = BrowserWindow.fromWebContents(event.sender.hostWebContents || event.sender);
-    const r = await dialog.showOpenDialog(win, { title: 'A WireGuard file for the VPN', properties: ['openFile'], filters: [{ name: 'WireGuard', extensions: ['conf'] }, { name: 'All files', extensions: ['*'] }] });
-    if (r.canceled || !r.filePaths[0]) return null;
-    const file = r.filePaths[0];
-    if (fs.statSync(file).size > 64 * 1024) throw new Error('That file is too big to be a WireGuard file');
-    ctx.vpn.importFile(fs.readFileSync(file, 'utf8'), path.basename(file).replace(/\.conf$/i, ''));
-    return ctx.vpn.status();
+    const r = await dialog.showOpenDialog(win, { title: 'WireGuard files for the VPN’s locations', properties: ['openFile', 'multiSelections'], filters: [{ name: 'WireGuard', extensions: ['conf'] }, { name: 'All files', extensions: ['*'] }] });
+    if (r.canceled || !r.filePaths.length) return null;
+    const items = r.filePaths.slice(0, 60).map((file) => {
+      try { return fs.statSync(file).size > 64 * 1024 ? { name: path.basename(file), error: 'it’s too big to be a WireGuard file' } : { name: path.basename(file), text: fs.readFileSync(file, 'utf8') }; }
+      catch (e) { return { name: path.basename(file), error: e.message }; }
+    });
+    return ctx.vpn.importFiles(items, { use: !!(opts && opts.use) });
   });
-  ipc.handle('vpn:forget', 'internal', (event, what) => ctx.vpn.forget(what === 'file' ? 'file' : 'warp'));
+  // A WireGuard file downloaded in Bifrost that it offered to add (vpn-offer).
+  ipc.handle('vpn:add-downloaded', 'internal', (event, file, use) => ctx.vpn.addDownloaded(String(file), !!use));
+  ipc.handle('vpn:probe', 'internal', (event, id) => ctx.vpn.probe(String(id)));
+  ipc.handle('vpn:skip-site', 'internal', (event, site, skip) => ctx.vpn.setSkipped(String(site), !!skip));
+  ipc.handle('vpn:forget', 'internal', (event, what, id) => ctx.vpn.forget(what === 'file' ? 'file' : 'warp', id ? String(id) : ''));
   ipc.handle('adblock:status', 'internal', () => Object.assign(ctx.adblock ? ctx.adblock.status() : { enabled: false }, { youtube: ctx.youtubeRules ? ctx.youtubeRules.info() : null }));
   ipc.handle('adblock:set-site', 'internal', (event, host, allowed) => { ctx.adblock.setAllowed(String(host), !!allowed); return true; });
   // A dangerous site you chose to visit anyway (until Bifrost quits); the warnings' lists.

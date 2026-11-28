@@ -9,6 +9,7 @@ const permissions = require('./permissions');
 const downloads = require('./downloads');
 
 const configured = new WeakSet();
+const privateOnes = new WeakSet(); // (private windows' sessions)
 const LOCAL = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[^.]+)$/i;
 
 // (the privacy settings, for every request: looked up again only after the settings have changed)
@@ -22,6 +23,7 @@ function privacy() {
 function setup(ses, { isPrivate = false } = {}) {
   if (configured.has(ses)) return ses;
   configured.add(ses);
+  if (isPrivate) privateOnes.add(ses);
   protocol.attach(ses);
   ses.setUserAgent(ua.defaultUA());
   const hub = hubFor(ses);
@@ -83,11 +85,15 @@ function applySpellcheck(ses) {
   } catch (e) { console.warn('[spellcheck]', e.message); }
 }
 
-// The proxy: the VPN's while it's on (main/vpn.js), otherwise the one in Settings. close: the connections
-// already open closed too (the VPN turned on or off: none stay outside it, or in it).
+// Whether a session is a private window's.
+function isPrivate(ses) { return !!ses && privateOnes.has(ses); }
+
+// The proxy: the VPN's while it's on for this session (main/vpn.js: every session, or private windows' only),
+// otherwise the one in Settings. close: the connections already open closed too (the VPN turned on or off: none
+// stay outside it, or in it).
 function applyProxy(ses, { close = false } = {}) {
   const p = ctx.settings.get('advanced.proxy');
-  const vpn = ctx.vpn ? ctx.vpn.proxyConfig() : null;
+  const vpn = ctx.vpn ? ctx.vpn.proxyConfig({ isPrivate: isPrivate(ses) }) : null;
   const cfg = vpn ? vpn
     : p.mode === 'direct' ? { mode: 'direct' }
       : p.mode === 'fixed' && p.rules ? { mode: 'fixed_servers', proxyRules: p.rules, proxyBypassRules: p.bypass || '' }
@@ -121,4 +127,4 @@ function refreshAll(changedPath) {
   }
 }
 
-module.exports = { setup, refreshAll, applyProxy, refreshProxies };
+module.exports = { setup, refreshAll, applyProxy, refreshProxies, isPrivate };

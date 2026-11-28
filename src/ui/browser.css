@@ -1102,7 +1102,7 @@ webview.js-dialog-hide { visibility: hidden !important; }
 .tb-btn[data-vpn="connecting"] svg.i { animation: vpn-breathe 1.4s ease-in-out infinite; }
 @keyframes vpn-breathe { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .tb-btn[data-vpn="connecting"] svg.i { animation: none; opacity: .6; } }
-.vpn { width: 330px; display: flex; flex-direction: column; gap: 10px; }
+.vpn { width: 340px; display: flex; flex-direction: column; gap: 10px; }
 .vpn-head { display: flex; align-items: center; gap: 10px; }
 .vpn-head > div { flex: 1; min-width: 0; }
 .vpn-head small { display: block; color: var(--overlay); line-height: 1.35; }
@@ -1112,16 +1112,48 @@ webview.js-dialog-hide { visibility: hidden !important; }
 .vpn-badge.error { background: color-mix(in srgb, var(--peach) 14%, transparent); color: var(--peach); }
 .vpn-err { padding: 8px 10px; border-radius: 9px; background: color-mix(in srgb, var(--peach) 12%, transparent); font-size: .86rem; line-height: 1.4; }
 .vpn-err small { display: block; color: var(--subtext); margin-top: 2px; }
-.vpn-stats { color: var(--subtext); font-size: .84rem; font-variant-numeric: tabular-nums; }
-.vpn-choices { display: flex; flex-direction: column; gap: 6px; }
-.vpn-choice { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border: 1px solid var(--s0); border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.vpn-choice:hover { background: var(--mantle); }
-.vpn-choice.sel { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--accent-soft); }
-.vpn-choice-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
-.vpn-choice-text small { color: var(--overlay); font-size: .82rem; margin-top: 1px; }
-.vpn-choice .link-btn { align-self: flex-start; margin: 4px 0 0 -6px; }
+/* A country's code in a tile (flags don't show on Windows); a guess (from a file's server name) until seen; WARP's
+   a pin. The big one: where sites see you now. */
+.vpn-cc { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--mantle); color: var(--text);
+  font-size: .74rem; font-weight: 800; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.vpn-cc.guess { background: none; box-shadow: inset 0 0 0 1px var(--s1); color: var(--subtext); }
+.vpn-cc.pin { color: var(--accent); }
+.vpn-cc.pin svg.i { width: 15px; height: 15px; }
+.vpn-cc.big { width: 44px; height: 44px; border-radius: 12px; font-size: 1.02rem; background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); box-shadow: none; }
+.vpn-cc.big.pin svg.i { width: 20px; height: 20px; }
+.vpn-where { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--green) 7%, var(--mantle)); }
+.vpn-where > div { min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.vpn-where b { font-size: 1rem; }
+.vpn-where small { color: var(--subtext); font-size: .82rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.vpn-sec { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 2px 0 -6px; color: var(--overlay); font-size: .84rem; }
+.vpn-sec .link-btn { margin-right: -6px; }
+.vpn-locs { display: flex; flex-direction: column; gap: 2px; max-height: 268px; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+.vpn-loc { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.vpn-loc:hover { background: var(--hover); }
+.vpn-loc.sel { background: var(--accent-soft); }
+.vpn-loc.live .vpn-cc { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); box-shadow: none; }
+.vpn-loc-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.vpn-loc-text b, .vpn-loc-text small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vpn-loc-text small { color: var(--overlay); font-size: .8rem; }
+.vpn-meta { flex: none; color: var(--overlay); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.vpn-meta.bad { color: var(--peach); display: grid; }
+.vpn-meta.bad svg.i { width: 15px; height: 15px; }
+.vpn-loc-check { flex: none; display: grid; color: var(--accent); }
+.vpn-loc-check svg.i { width: 15px; height: 15px; }
+.vpn-more { align-self: flex-start; margin: -4px 0 0 -6px; }
+.vpn-guide { padding: 10px 12px; border-radius: 10px; background: var(--mantle); font-size: .84rem; line-height: 1.45; color: var(--subtext); }
+.vpn-guide p { margin: 0 0 6px; color: var(--text); }
+.vpn-guide ol { margin: 0 0 10px; padding-left: 18px; }
+.vpn-guide li { margin: 2px 0; }
+.vpn-site { display: flex; align-items: center; gap: 10px; padding-top: 10px; border-top: 1px solid var(--s0); }
+.vpn-site > div { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.vpn-site b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vpn-site small { color: var(--overlay); font-size: .82rem; }
 .vpn-terms { margin: 0; color: var(--subtext); font-size: .82rem; line-height: 1.4; }
 .vpn-terms a { color: var(--accent); }
+.vpn-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid var(--s0); }
+.vpn-foot small { color: var(--overlay); font-size: .8rem; line-height: 1.35; }
+.vpn-foot .link-btn { flex: none; margin-right: -6px; }
 .ab-head { display: flex; align-items: center; gap: 10px; }
 .ab-head small { display: block; color: var(--overlay); }
 .ab-shield { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; background: color-mix(in srgb, var(--green) 16%, transparent); color: var(--green); }

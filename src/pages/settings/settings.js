@@ -821,57 +821,100 @@ let vpnState = null;
 const vpnListeners = new Set();
 wb.on('vpn-state', (s) => { vpnState = s; for (const f of vpnListeners) f(); });
 const VPN_TERMS = 'https://www.cloudflare.com/application/terms/';
+const VPN_PROTON = 'https://account.protonvpn.com/downloads#wireguard-configuration';
+let vpnRegions = null;
+const vpnCountry = (code) => { if (!code) return ''; try { vpnRegions = vpnRegions || new Intl.DisplayNames([navigator.language, 'en'], { type: 'region' }); return vpnRegions.of(code) || code; } catch { return code; } };
+const vpnPlace = (f) => (f ? vpnCountry(f.country) || f.name : '');
+
 function vpnWidget() {
   const el = h('div.vpn-set');
   const plain = (e) => String(e && e.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
-  const choose = async () => {
-    try {
-      const s = await wb.invoke('vpn:import');
-      if (s) { vpnState = s; draw(); toast({ text: `${s.file ? s.file.name : 'Your file'} is the VPN’s now`, iconName: 'vpn' }); }
-    } catch (e) { toast({ text: 'That isn’t a WireGuard file you can use: ' + plain(e), iconName: 'warn', timeout: 6000 }); }
+  const report = (r) => {
+    if (!r) return;
+    if (r.added.length) toast({ text: r.added.length === 1 ? `${vpnPlace(r.added[0])} is one of your VPN’s locations` : `${r.added.length} locations added: ${r.added.map(vpnPlace).join(', ')}`, iconName: 'vpn', timeout: 5000 });
+    for (const e of r.errors.slice(0, 3)) toast({ text: `${e.name} isn’t a WireGuard file you can use: ${e.error}`, iconName: 'warn', timeout: 7000 });
+    vpnState = r.status; draw();
   };
+  const add = async (use) => { try { report(await wb.invoke('vpn:import', { use })); } catch (e) { toast({ text: plain(e), iconName: 'warn', timeout: 6000 }); } };
   const status = (s) => {
     if (!s.on) return 'Off: Bifrost goes straight to sites.';
-    const where = s.source === 'file' ? (s.file ? s.file.name : 'your WireGuard file') : 'Cloudflare WARP';
-    if (s.state === 'connected') return `On, through ${where}${s.endpoint ? ' (' + s.endpoint + ')' : ''} · ${fmtBytes(s.rx)} in, ${fmtBytes(s.tx)} out.`;
+    const where = s.location === 'warp' ? 'Cloudflare WARP' : s.file ? vpnPlace(s.file) : 'your WireGuard file';
+    const seen = s.seen ? ` Sites see you in ${vpnCountry(s.seen.loc)} (${s.seen.ip}).` : '';
+    if (s.state === 'connected') return `On, through ${where} · ${fmtBytes(s.rx)} in, ${fmtBytes(s.tx)} out.${seen}`;
     if (s.state === 'signing-up') return 'Signing up with Cloudflare…';
     if (s.state === 'error') return `Not connected: ${s.error}${s.note ? '. ' + s.note : ''}. Pages wait for it; nothing goes around it.`;
     return (s.note || `Connecting to ${where}…`);
+  };
+  // To a location: WARP, or one of your files (turned on, if it's off: picking one is asking for it).
+  const go = async (s, id) => {
+    if (id === 'warp') { if (!s.warpTerms) await set('vpn.warpTerms', true); await set('vpn.source', 'warp'); }
+    else { await set('vpn.file', id); await set('vpn.source', 'file'); }
+    if (!s.on) await set('vpn.on', true);
+  };
+  const cc = (code, cls = '') => (code ? h('span.vpn-cc' + cls, { 'aria-hidden': 'true' }, code) : h('span.vpn-cc.pin' + cls, { 'aria-hidden': 'true' }, icon('location')));
+  const locRow = (s, f) => {
+    const id = f ? f.id : 'warp';
+    const sel = s.location === id;
+    const live = sel && s.on && s.state === 'connected';
+    const title = f ? vpnPlace(f) : 'Near you: Cloudflare WARP';
+    const sub = f
+      ? [f.server && f.server !== title ? f.server : f.name, f.endpoint, f.problem ? 'didn’t answer when it was tried' : f.probing ? 'checking where it puts you…' : f.ms ? `answered in ${f.ms} ms` : '', f.guessed ? 'country from its server’s name until it’s used' : ''].filter(Boolean).join(' · ')
+      : [s.warpSeen && s.warpSeen.loc ? `Sites see you in ${vpnCountry(s.warpSeen.loc)}, near where you are` : 'Free, no account', 'hides what you browse from your network, not your country'].join(' · ');
+    const pick = h('button.vpn-loc-main', { type: 'button', role: 'radio', 'aria-checked': String(sel), title: sel ? 'Where the VPN goes' : 'Go there', onclick: () => { if (!sel || !s.on) go(s, id); } },
+      cc(f ? f.country : '', (f && f.guessed ? '.guess' : '') + (live ? '.live' : '')), h('span.vpn-loc-text', null, h('b', null, title, sel ? h('span.vpn-badge-sel', null, live ? 'In use' : 'Chosen') : null), h('small', null, sub)));
+    return h('div.vpn-loc' + (sel ? '.sel' : ''), { dataset: { loc: id }, title: f && f.problem ? f.problem : null }, pick,
+      f ? h('button.icon-btn', { type: 'button', title: 'Try it again: does it answer, where does it put you', disabled: f.probing || (s.running && s.running.startsWith('file:')), onclick: async () => { try { await wb.invoke('vpn:probe', f.id); } catch (e) { toast({ text: plain(e), iconName: 'warn' }); } } }, icon('reload')) : null,
+      f ? h('button.icon-btn', { type: 'button', title: 'Forget this location', onclick: async () => {
+        if (!(await confirmDialog(`Forget ${vpnPlace(f)}?`, { detail: `Bifrost keeps its own copy of ${f.name}.conf; this deletes that copy.${sel && s.on ? ' The VPN turns off: it was using it.' : ''}`, ok: 'Forget' }))) return;
+        vpnState = await wb.invoke('vpn:forget', 'file', f.id); draw();
+      } }, icon('trash')) : null);
+  };
+  const sites = (s) => {
+    const input = h('input.field', { type: 'text', placeholder: 'example.com', 'aria-label': 'A site that skips the VPN', spellcheck: false });
+    const addSite = async () => {
+      if (!input.value.trim()) return;
+      try { vpnState = await wb.invoke('vpn:skip-site', input.value, true); draw(); } catch (e) { toast({ text: plain(e), iconName: 'warn' }); }
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addSite(); });
+    return h('div.vpn-sites', null,
+      s.bypass.length ? h('ul.vpn-site-list', null, s.bypass.map((host) => h('li', null, h('span', null, host),
+        h('button.icon-btn', { type: 'button', title: `${host} goes through the VPN again`, onclick: async () => { vpnState = await wb.invoke('vpn:skip-site', host, false); draw(); } }, icon('close'))))) : null,
+      h('div.btn-row', null, input, h('button.btn.small', { type: 'button', onclick: addSite }, icon('plus'), 'Add')));
   };
   const draw = () => {
     const s = vpnState;
     if (!s) return;
     if (!s.available) { el.replaceChildren(h('p.status-line', null, 'The VPN isn’t in this build of Bifrost. It comes with Bifrost for Windows.')); return; }
     const turn = (on) => {
-      if (on && s.source === 'file' && !s.file) { choose(); draw(); return; }
+      if (on && s.source === 'file' && !s.files.length) { add(true); draw(); return; }
       // (WARP: turning it on, with Cloudflare's terms shown right there, is agreeing to them)
       if (on && s.source === 'warp' && !s.warpTerms) set('vpn.warpTerms', true);
       set('vpn.on', on);
     };
     el.replaceChildren(
       h('div.vpn-set-row', null, h('div.vpn-set-main', null, h('b', null, 'Use the VPN'), h('p.status-line', null, status(s))), switchEl(s.on, turn, { label: 'Use the VPN' })),
-      h('div.vpn-set-row', null, h('span.vpn-set-label', null, 'Through'),
-        segmented([['warp', 'Cloudflare WARP', icon('globe')], ['file', s.file ? s.file.name : 'My WireGuard file', icon('file')]], s.source, (v) => {
-          if (v === 'file' && !s.file) { choose(); draw(); return; }
-          set('vpn.source', v);
-        })),
-      s.source === 'warp'
-        ? h('p.hint', null, 'Free and fast, no account. It hides what you browse from the network you’re on (a school’s or a café’s Wi-Fi, your internet provider); sites see a Cloudflare address near where you are, so it doesn’t make you look like you’re somewhere else. ',
-          s.warpTerms ? null : h('span', null, 'WARP is Cloudflare’s: turning it on signs this computer up with Cloudflare and means you agree to ',
-            h('a', { href: VPN_TERMS, onclick: (e) => { e.preventDefault(); openUrl(VPN_TERMS); } }, 'Cloudflare’s terms'), '.'))
-        : h('p.hint', null, s.file ? `Through ${s.file.endpoint}. ` : '',
-          'A WireGuard file from your VPN: from Proton VPN’s free plan, sign in at account.protonvpn.com, then Downloads → WireGuard configuration, pick a free server and download its file. Mullvad and most other VPNs give them out too.'),
-      h('div.btn-row', null,
-        h('button.btn.small', { type: 'button', onclick: choose }, icon('folder'), s.file ? 'Use another WireGuard file…' : 'Choose a WireGuard file…'),
-        s.file ? h('button.btn.small', { type: 'button', onclick: async () => {
-          if (!(await confirmDialog(`Forget ${s.file.name}?`, { detail: 'Bifrost keeps its own copy of the file; this deletes that copy. The VPN turns off if it was using it.', ok: 'Forget' }))) return;
-          vpnState = await wb.invoke('vpn:forget', 'file'); draw();
-        } }, icon('trash'), 'Forget my file') : null,
-        s.warp ? h('button.btn.small', { type: 'button', onclick: async () => {
-          if (!(await confirmDialog('Forget WARP’s sign-up?', { detail: 'This computer is taken off Cloudflare’s list. Turning WARP on again signs it up afresh.', ok: 'Forget' }))) return;
-          vpnState = await wb.invoke('vpn:forget', 'warp'); draw();
-        } }, icon('trash'), 'Forget WARP’s sign-up') : null),
-      h('p.hint', null, 'Only Bifrost’s browsing goes through it (tabs, private windows, the side panel), not other apps. Your home network’s own addresses, like a router’s page, are reached directly.'));
+      h('div.vpn-set-block', null,
+        h('b', null, 'Where you appear'),
+        h('p.hint', null, 'Cloudflare WARP keeps you near where you are. To appear in another country, add WireGuard files from a VPN: Proton VPN’s free plan has servers in 10 countries (the Netherlands, Japan, the United States, Canada, Mexico, Norway, Poland, Romania, Switzerland, Singapore). Sign in at Proton VPN, go to Downloads → WireGuard configuration, pick a free server for each country, Create, then Download. Bifrost offers to add each file as it downloads.'),
+        h('div.vpn-locs', { role: 'radiogroup', 'aria-label': 'Where you appear' }, locRow(s, null), ...s.files.map((f) => locRow(s, f))),
+        h('div.btn-row', null,
+          h('button.btn.small', { type: 'button', onclick: () => add(!s.files.length && s.source === 'file') }, icon('folder'), 'Add WireGuard files…'),
+          h('button.btn.small', { type: 'button', onclick: () => openUrl(VPN_PROTON) }, icon('external'), 'Proton VPN’s downloads'),
+          s.warp ? h('button.btn.small', { type: 'button', onclick: async () => {
+            if (!(await confirmDialog('Forget WARP’s sign-up?', { detail: 'This computer is taken off Cloudflare’s list. Going to WARP again signs it up afresh.', ok: 'Forget' }))) return;
+            vpnState = await wb.invoke('vpn:forget', 'warp'); draw();
+          } }, icon('trash'), 'Forget WARP’s sign-up') : null),
+        s.warpTerms ? null : h('p.hint', null, 'WARP is Cloudflare’s: going there signs this computer up with Cloudflare and means you agree to ',
+          h('a', { href: VPN_TERMS, onclick: (e) => { e.preventDefault(); openUrl(VPN_TERMS); } }, 'Cloudflare’s terms'), '.')),
+      h('div.vpn-set-block', null,
+        h('b', null, 'Which windows'),
+        h('div.vpn-set-row', null, segmented([['all', 'Every window', icon('window')], ['private', 'Only private windows', icon('mask')]], s.scope, (v) => set('vpn.scope', v))),
+        h('p.hint', null, s.scope === 'private' ? 'Your other windows go straight to sites; private windows go through the VPN.' : 'Every window goes through it, private ones too.')),
+      h('div.vpn-set-block', null,
+        h('b', null, 'Sites that skip the VPN'),
+        h('p.hint', null, 'For a site that turns VPNs away (some banks, school or streaming sites): it’s reached straight, with your own address, and its subdomains too. The VPN’s popover can do this for the site you’re on.'),
+        sites(s)),
+      h('p.hint', null, 'Only Bifrost’s browsing goes through it (tabs, private windows, the side panel), not other apps. Your home network’s own addresses, like a router’s page, are reached directly. Where sites see you is found out by asking Cloudflare’s trace page through the VPN once it’s connected.'));
   };
   vpnListeners.add(draw);
   wb.invoke('vpn:status').then((s) => { vpnState = s; draw(); }).catch(() => {});
@@ -2223,7 +2266,7 @@ function sections() {
         I.toggle('privacy.dangerousSites', 'Warn me about dangerous sites', 'Pages known for phishing, malware or scams are stopped before they load, with a warning (and a way through if you’re sure); downloads from them are blocked. Uses the Phishing URL and Malicious URL blocklists and uBlock Origin’s “Badware risks”, updated twice a day. Works even with ad blocking off.', { keywords: 'safe browsing phishing malware scam security deceptive' }),
       ] },
       { title: 'VPN', id: 'vpn', items: [
-        I.custom('Browse through a VPN', 'Cloudflare WARP, free and built in, or a WireGuard file from your own VPN.', vpnWidget, { stack: true, keywords: 'vpn warp cloudflare wireguard proton mullvad tunnel proxy ip location hide privacy' }),
+        I.custom('Browse through a VPN', 'Cloudflare WARP, free and built in, or locations of your own: WireGuard files from a VPN (Proton VPN’s free plan has 10 countries) to appear somewhere else.', vpnWidget, { stack: true, keywords: 'vpn warp cloudflare wireguard proton mullvad tunnel proxy ip location country region change location appear hide privacy bypass exceptions private windows' }),
       ] },
       { title: 'Ad and tracker blocking', id: 'adblock', items: [
         I.toggle('privacy.adblock.enabled', 'Block ads and trackers', 'Uses EasyList, EasyPrivacy, uBlock Origin’s lists and HaGeZi’s DNS blocklists.', { keywords: 'adblock ublock hagezi' }),
