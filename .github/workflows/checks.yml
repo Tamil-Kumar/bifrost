@@ -51,9 +51,9 @@ jobs:
           for a in amd64:x64 arm64:arm64; do
             GOOS=windows GOARCH=${a%%:*} CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=check" -o ../../assets/bin/bifrost-vpn-${a##*:}.exe .
           done
-          git fetch -q --depth 1 origin main && mkdir -p "$RUNNER_TEMP/old" && git -C ../.. archive FETCH_HEAD tools/vpn | tar -x -C "$RUNNER_TEMP/old"
-          (cd "$RUNNER_TEMP/old/tools/vpn" && CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=main" -o "$RUNNER_TEMP/old.exe" .)
-          ls -la ../../assets/bin "$RUNNER_TEMP/old.exe"
+          git fetch -q --depth 1 origin main && mkdir -p ../../old && git -C ../.. archive FETCH_HEAD tools/vpn | tar -x -C ../../old
+          (cd ../../old/tools/vpn && CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=main" -o ../../../old.exe .)
+          ls -la ../../assets/bin ../../old.exe
       - name: VPN through Cloudflare WARP
         shell: bash
         run: node tools/vpn/check.mjs assets/bin/bifrost-vpn-x64.exe
@@ -66,4 +66,4 @@ jobs:
       - name: Speed through Cloudflare WARP, main's helper and this one
         if: always()
         shell: bash
-        run: node tools/vpn/bench.mjs 3 main="$RUNNER_TEMP/old.exe" new=assets/bin/bifrost-vpn-x64.exe
+        run: node tools/vpn/bench.mjs 3 main=old.exe new=assets/bin/bifrost-vpn-x64.exe
