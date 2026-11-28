@@ -102,6 +102,7 @@ function cpuSeconds(pid) {
 // One set of measurements, through this proxy (or straight): { name: number }.
 async function measure(proxy) {
   const r = {};
+  let bytes = 0; // (moved, for the processor time per GB)
   for (const pass of ['first', 'again']) {
     const ttfb = [], conn = [];
     for (const h of HOSTS) {
@@ -114,22 +115,27 @@ async function measure(proxy) {
     r[`connected + TLS (median ms, ${pass})`] = median(conn);
   }
   for (const [name, url, t] of DOWN) {
-    const x = await curl([...curlArgs(proxy), '-w', '%{speed_download}', url], t);
-    const bps = Number(x.out);
+    const x = await curl([...curlArgs(proxy), '-w', '%{speed_download} %{size_download}', url], t);
+    const [bps, size] = x.out.split(' ').map(Number);
+    bytes += size || 0;
     r[`down ${name} (Mbit/s)`] = bps > 0 ? (bps * 8) / 1e6 : NaN;
     if (!x.ok) log(`  (${name}: ${x.err})`);
   }
   {
     const t0 = Date.now();
     const xs = await Promise.all([0, 1, 2, 3].map(() => curl([...curlArgs(proxy), '-w', '%{size_download}', 'https://speed.cloudflare.com/__down?bytes=50000000'], 40)));
-    const bytes = xs.reduce((s, x) => s + (Number(x.out) || 0), 0);
-    r['down Cloudflare, 4 at once × 50 MB (Mbit/s)'] = (bytes * 8) / 1e6 / ((Date.now() - t0) / 1000);
+    const got = xs.reduce((s, x) => s + (Number(x.out) || 0), 0);
+    bytes += got;
+    r['down Cloudflare, 4 at once × 50 MB (Mbit/s)'] = (got * 8) / 1e6 / ((Date.now() - t0) / 1000);
   }
   {
-    const x = await curl([...curlArgs(proxy), '-w', '%{speed_upload}', '--data-binary', '@' + UP, 'https://speed.cloudflare.com/__up'], 40);
-    r['up Cloudflare, 25 MB (Mbit/s)'] = Number(x.out) > 0 ? (Number(x.out) * 8) / 1e6 : NaN;
+    const x = await curl([...curlArgs(proxy), '-w', '%{speed_upload} %{size_upload}', '--data-binary', '@' + UP, 'https://speed.cloudflare.com/__up'], 40);
+    const [bps, size] = x.out.split(' ').map(Number);
+    bytes += size || 0;
+    r['up Cloudflare, 25 MB (Mbit/s)'] = bps > 0 ? (bps * 8) / 1e6 : NaN;
     if (!x.ok) log(`  (upload: ${x.err})`);
   }
+  Object.defineProperty(r, 'bytes', { value: bytes });
   return r;
 }
 
@@ -170,9 +176,7 @@ for (let round = 0; round < rounds; round++) {
     const r = await measure(t.socks);
     r['UDP datagrams dropped'] = udpErrors() - u0;
     const cpu1 = cpuSeconds(t.proc.pid);
-    await sleep(2200);
-    const last = t.lines.filter((o) => o.rx !== undefined).slice(-1)[0] || {};
-    const gb = ((last.rx || 0) + (last.tx || 0)) / 1e9;
+    const gb = r.bytes / 1e9;
     r['helper processor seconds per GB'] = gb > 0 ? (cpu1 - cpu0) / gb : NaN;
     t.stop();
     add(v.name, r);

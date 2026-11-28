@@ -368,11 +368,11 @@ func BenchmarkDownload(b *testing.B) {
 	}{
 		{"as-wireguard-go", Options{}},
 		{"norack", Options{NoRACK: true}},
-		{"recv8", Options{RecvMax: 8 << 20}},
-		{"batch", Options{Batch: 32}},
+		{"norack+recv8", Options{NoRACK: true, RecvMax: 8 << 20}},
+		{"norack+batch", Options{NoRACK: true, Batch: 32}},
 		{"tuned", tuned},
 	}
-	for _, delay := range []time.Duration{0, 25 * time.Millisecond} {
+	for _, delay := range []time.Duration{0, 2 * time.Millisecond, 10 * time.Millisecond, 25 * time.Millisecond} {
 		for _, v := range variants {
 			b.Run(v.name+"/"+delay.String(), func(b *testing.B) {
 				p := newPair(b, v.o, delay)

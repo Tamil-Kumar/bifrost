@@ -10,7 +10,7 @@ import (
 // Windows through Cloudflare WARP with tools/vpn/bench.mjs, against wireguard-go's: what's here made a difference,
 // or is there for networks and servers that need it; what made none there (bigger copies, a batching Windows UDP
 // bind, a bigger MTU, the garbage collector run less) isn't. (Downloads through WARP topped out at 300-500 Mbit/s
-// with all of them alike, the helper never busy and no packet dropped: that limit isn't the helper's.)
+// with all of them alike, the helper mostly waiting for packets and none dropped: that limit isn't the helper's.)
 var stackOptions = netstack.Options{
 	// Uploads several times faster: gVisor's RACK loss detection resends and slows down when it needn't
 	// (Tailscale's netstack has it off too: tailscale/tailscale#21946).

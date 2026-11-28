@@ -25,9 +25,23 @@ jobs:
           go test -mod=readonly -race -count=1 ./...
           go test -mod=readonly -run XXX -bench . -benchtime 3x ./netstack
 
+  lab-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tools/vpn/go.mod
+          cache: false
+      - name: Through the stack on Windows, how fast
+        shell: bash
+        working-directory: tools/vpn
+        run: go test -mod=readonly -run XXX -bench . -benchtime 3x ./netstack
+
   bench:
     runs-on: windows-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -54,16 +68,8 @@ jobs:
           git fetch -q --depth 1 origin main && mkdir -p ../../old && git -C ../.. archive FETCH_HEAD tools/vpn | tar -x -C ../../old
           (cd ../../old/tools/vpn && CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=main" -o ../../../old.exe .)
           ls -la ../../assets/bin ../../old.exe
-      - name: VPN through Cloudflare WARP
-        shell: bash
-        run: node tools/vpn/check.mjs assets/bin/bifrost-vpn-x64.exe
-      - name: The VPN in Bifrost
-        if: always()
+      - name: Speed through Cloudflare WARP, main's helper and this one's settings
         shell: bash
         run: |
-          npm install --no-save --no-package-lock playwright-core@1.63.0
-          node tools/vpn/bifrost-check.mjs
-      - name: Speed through Cloudflare WARP, main's helper and this one
-        if: always()
-        shell: bash
-        run: node tools/vpn/bench.mjs 3 main=old.exe new=assets/bin/bifrost-vpn-x64.exe
+          N=assets/bin/bifrost-vpn-x64.exe
+          node tools/vpn/bench.mjs 4 main=old.exe all=$N "norack+dns=$N:BIFROST_VPN_EXP=-recv8+-batch" "norack+dns+recv8=$N:BIFROST_VPN_EXP=-batch"
