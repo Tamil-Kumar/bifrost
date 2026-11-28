@@ -54,7 +54,12 @@ function curl(args, timeout = 40) {
     });
   });
 }
-const median = (a) => { const s = a.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
+const median = (a) => {
+  const s = a.filter((x) => Number.isFinite(x)).sort((x, y) => x - y);
+  if (!s.length) return NaN;
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
 
 function once(exe, args, input, env = {}) {
   return new Promise((resolve, reject) => {
@@ -78,6 +83,19 @@ async function tunnel(v, conf, waitMs) {
   const up = lines.find((o) => o.socks);
   const hs = lines.some((o) => o.handshake > 0) ? (Date.now() - t0) / 1000 : 0;
   return { proc, socks: up && up.socks, hs, lines, stop: () => { try { proc.stdin.end(); } catch { /* gone */ } } };
+}
+
+// UDP datagrams the system couldn't take in (IPv4; Windows: netstat's "Receive Errors"), so far.
+function udpErrors() {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('netstat', ['-s', '-p', 'udp'], { encoding: 'utf8' });
+      return Number((/Receive Errors\s*=\s*(\d+)/.exec(out) || [])[1]);
+    }
+    const f = fs.readFileSync('/proc/net/snmp', 'utf8').split('\n').filter((l) => l.startsWith('Udp:'));
+    const keys = f[0].split(/\s+/), vals = f[1].split(/\s+/);
+    return Number(vals[keys.indexOf('RcvbufErrors')]);
+  } catch { return NaN; }
 }
 
 function cpuSeconds(pid) {
@@ -145,13 +163,22 @@ for (let round = 0; round < rounds; round++) {
   const order = profiling ? variants : [{ name: 'straight' }, ...variants];
   const shift = round % order.length;
   for (const v of [...order.slice(shift), ...order.slice(0, shift)]) {
-    if (v.name === 'straight') { log(`round ${round + 1}: straight`); add('straight', await measure(null)); continue; }
+    if (v.name === 'straight') {
+      log(`round ${round + 1}: straight`);
+      const u0 = udpErrors();
+      const r = await measure(null);
+      r['UDP datagrams dropped'] = udpErrors() - u0;
+      add('straight', r);
+      continue;
+    }
     const t = await tunnel(v, conf, 15000);
     if (!t.hs) { log(`round ${round + 1}: ${v.name}: ✗ no handshake ${JSON.stringify(t.lines.slice(-2))}`); t.stop(); continue; }
     log(`round ${round + 1}: ${v.name} (${JSON.stringify(v.env)}), handshake in ${t.hs.toFixed(1)} s`);
     const started = Date.now();
     const cpu0 = cpuSeconds(t.proc.pid);
+    const u0 = udpErrors();
     const r = await measure(t.socks);
+    r['UDP datagrams dropped'] = udpErrors() - u0;
     const cpu1 = cpuSeconds(t.proc.pid);
     if (profiling) {
       const left = profileSecs * 1000 + 1500 - (Date.now() - started);

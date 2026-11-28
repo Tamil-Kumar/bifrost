@@ -155,7 +155,7 @@ func run(text string, in *bufio.Reader, ln net.Listener) {
 	if os.Getenv("BIFROST_VPN_DEBUG") != "" {
 		logger.Verbosef = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "wireguard: "+f+"\n", a...) }
 	}
-	dev := device.NewDevice(tdev, conn.NewDefaultBind(), logger)
+	dev := device.NewDevice(tdev, newBind(), logger)
 	if err := dev.IpcSet(c.uapi(resolved)); err != nil {
 		fail(fmt.Errorf("the tunnel's settings: %w", err))
 	}
@@ -188,6 +188,9 @@ func run(text string, in *bufio.Reader, ln net.Listener) {
 		time.Sleep(2 * time.Second)
 	}
 }
+
+// How WireGuard's packets go to and from the network (bind_windows.go: in batches on Windows).
+var newBind = conn.NewDefaultBind
 
 // The tunnel's network stack (tuning.go says how it's set up), and what the proxy's connections are made with.
 var createTUN = func(addrs, dns []netip.Addr, mtu int) (tun.Device, dialer, error) {

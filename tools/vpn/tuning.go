@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/tun"
 	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
@@ -35,6 +36,7 @@ func init() {
 	}
 	mtu := 0
 	stock := false
+	batched := false
 	for _, k := range strings.Split(os.Getenv("BIFROST_VPN_EXP"), ",") {
 		switch {
 		case k == "norack":
@@ -61,7 +63,16 @@ func init() {
 			mtu, _ = strconv.Atoi(k[4:])
 		case k == "stock":
 			stock = true
+		case k == "riobatch":
+			batched = true
+		default:
+			if platformKnob(k) {
+				batched = true
+			}
 		}
+	}
+	if !batched && !stdBind {
+		newBind = conn.NewDefaultBind
 	}
 	inner := createTUN
 	createTUN = func(addrs, dns []netip.Addr, m int) (tun.Device, dialer, error) {

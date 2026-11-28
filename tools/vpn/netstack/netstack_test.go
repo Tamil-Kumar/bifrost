@@ -357,18 +357,37 @@ func TestBatches(t *testing.T) {
 	}
 }
 
-// go test -bench . -benchtime 3x ./netstack: how fast a download goes through the stack, at 0 and 50 ms away.
+// go test -bench . -benchtime 3x ./netstack: how fast a download goes through the stack, at 0 and 25 ms each way,
+// with each of the settings on its own; and how many of the server's segments were sent again, and of the
+// packets either side had for the other, how many there was no room for.
 func BenchmarkDownload(b *testing.B) {
-	for _, delay := range []time.Duration{0, 50 * time.Millisecond} {
-		for name, o := range map[string]Options{"as-wireguard-go": {}, "tuned": tuned} {
-			b.Run(name+"/"+delay.String(), func(b *testing.B) {
-				p := newPair(b, o, delay)
+	variants := []struct {
+		name string
+		o    Options
+	}{
+		{"as-wireguard-go", Options{}},
+		{"norack", Options{NoRACK: true}},
+		{"buf8", Options{RecvMax: 8 << 20, SendMax: 6 << 20}},
+		{"batch", Options{Batch: 32}},
+		{"queue4096", Options{Queue: 4096}},
+		{"batch+queue4096", Options{Batch: 32, Queue: 4096}},
+		{"tuned", tuned},
+	}
+	for _, delay := range []time.Duration{0, 25 * time.Millisecond} {
+		for _, v := range variants {
+			b.Run(v.name+"/"+delay.String(), func(b *testing.B) {
+				p := newPair(b, v.o, delay)
 				const size = 64 << 20
 				b.SetBytes(size)
 				b.ResetTimer()
 				for i := 0; i < b.N; i++ {
 					fetch(b, p.client, serverV4.String(), size)
 				}
+				b.StopTimer()
+				ss, cs := p.server.stack.Stats(), p.client.stack.Stats()
+				b.ReportMetric(float64(ss.TCP.Retransmits.Value())/float64(b.N), "resent/op")
+				b.ReportMetric(float64(ss.NICs.TxPacketsDroppedNoBufferSpace.Value())/float64(b.N), "srvdrop/op")
+				b.ReportMetric(float64(cs.NICs.TxPacketsDroppedNoBufferSpace.Value())/float64(b.N), "clidrop/op")
 			})
 		}
 	}
