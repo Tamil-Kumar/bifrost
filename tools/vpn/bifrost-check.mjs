@@ -68,7 +68,7 @@ try {
     await main(({ webContents }, id) => webContents.fromId(id).close(), id).catch(() => {});
     return { text, ms, rtc };
   };
-  const trace = async () => { const p = await page('https://www.cloudflare.com/cdn-cgi/trace'); const g = (k) => (new RegExp(`^${k}=(.*)$`, 'm').exec(p.text) || [])[1]; return { warp: g('warp'), ip: g('ip'), colo: g('colo'), rtc: p.rtc, ms: p.ms }; };
+  const trace = async () => { const p = await page('https://www.cloudflare.com/cdn-cgi/trace'); const g = (k) => (new RegExp(`^${k}=(.*)$`, 'm').exec(p.text) || [])[1]; return { warp: g('warp'), ip: g('ip'), loc: g('loc'), colo: g('colo'), rtc: p.rtc, ms: p.ms }; };
 
   const before = await trace().catch((e) => ({ warp: '?', ip: '?', rtc: '?', err: e.message }));
   log(`straight: warp=${before.warp}, ip ${before.ip}, WebRTC ${before.rtc}${before.err ? ' (' + before.err + ')' : ''}`);
@@ -83,6 +83,10 @@ try {
   log(`through the VPN: warp=${on.warp}, ip ${on.ip}, ${on.colo}, WebRTC ${on.rtc}`);
   if (on.warp !== 'on' || on.ip === before.ip) { failed = true; log('✗ the tab didn’t go through WARP'); }
   if (on.rtc !== 'disable_non_proxied_udp') { failed = true; log('✗ WebRTC: ' + on.rtc); }
+  // (where sites see you, as the popover says: the helper's own look at the trace page)
+  const said = await until(async () => (await main(() => global.__bifrost.vpn.status())).seen, 20000, 'where sites see you').catch(() => null);
+  log(said ? `Bifrost says sites see you in ${said.loc} (${said.ip}); the tab’s trace page: ${on.loc} (${on.ip})` : 'Bifrost didn’t say where sites see you');
+  if (!said || said.loc !== on.loc) { failed = true; log('✗ where sites see you'); }
   const vpnLoad = (await page('https://example.com/')).ms;
   log(`example.com: ${vpnLoad} ms through the VPN, ${straightLoad} ms straight`);
 

@@ -11,6 +11,7 @@ import { openLauncher, closeLauncher, isOpen as launcherOpen, editAddress } from
 import { openFind, findNext } from './findbar.js';
 import { newGroup, selectedTabs } from './tabstrip.js';
 import * as Tr from '/_/common/translate.js';
+import { countryName } from './vpn.js';
 
 const wb = window.wb;
 const set = (path, value) => wb.invoke('settings:set', path, value).catch((e) => toast({ text: e.message, iconName: 'warn' }));
@@ -200,7 +201,8 @@ async function toggleVpn() {
     return;
   }
   set('vpn.on', !vpn.on);
-  toast({ text: !vpn.on ? 'VPN on' : 'VPN off', iconName: !vpn.on ? 'vpn' : 'vpnOff', timeout: 1600 });
+  const where = vpn.location === 'warp' ? 'Cloudflare WARP' : vpn.file ? countryName(vpn.file.country) || vpn.file.name : '';
+  toast({ text: !vpn.on ? `VPN on${where ? ' · ' + where : ''}` : 'VPN off', iconName: !vpn.on ? 'vpn' : 'vpnOff', timeout: 1600 });
 }
 
 export function run(id, args = {}) {

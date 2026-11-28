@@ -7,6 +7,9 @@
 //	                         stdout: {"listening": "127.0.0.1:port"} at once (connections then wait for the
 //	                         tunnel), {"socks": "127.0.0.1:port", "endpoint": "ip:port"} once it's up, then
 //	                         {"handshake": unix seconds, "rx": bytes, "tx": bytes} as they change
+//	                         and {"seen": {"ip", "loc", "colo", "warp"}}: where sites see you (seen.go)
+//	bifrost-vpn probe        stdin: {"conf"}; tries it on its own, no proxy: {"ms", "endpoint", "seen"} (the
+//	                         handshake's time; where sites see you through it), or {"error"}
 //	bifrost-vpn register     signs up for Cloudflare WARP; stdout: {"conf", "id", "token"}
 //	bifrost-vpn unregister   stdin: {"id", "token"}; takes that sign-up off Cloudflare's list
 //
@@ -46,7 +49,7 @@ func fail(err error) {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "bifrost-vpn "+version+": run | register | unregister")
+		fmt.Fprintln(os.Stderr, "bifrost-vpn "+version+": run | probe | register | unregister")
 		os.Exit(2)
 	}
 	in := bufio.NewReaderSize(os.Stdin, 1<<16)
@@ -69,6 +72,13 @@ func main() {
 			fail(err)
 		}
 		say(map[string]bool{"ok": true})
+	case "probe":
+		var a struct{ Conf string }
+		line, _ := in.ReadString('\n')
+		if err := json.Unmarshal([]byte(line), &a); err != nil || a.Conf == "" {
+			fail(fmt.Errorf("no configuration given"))
+		}
+		probe(a.Conf)
 	case "run":
 		addr := "127.0.0.1:0"
 		if len(os.Args) > 3 && os.Args[2] == "--listen" {
@@ -165,6 +175,7 @@ func run(text string, in *bufio.Reader, ln net.Listener) {
 	wait.d = tnet
 	close(wait.ready)
 	say(map[string]any{"socks": ln.Addr().String(), "endpoint": resolved[0], "version": version})
+	go sayWhereSeen(tnet, dev)
 
 	// Bifrost gone (stdin closed): stop.
 	go func() {

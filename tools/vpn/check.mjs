@@ -53,7 +53,7 @@ for (const [port, wait] of [[2408, 8000], [500, 8000], [1701, 8000], [4500, 8000
   const x = await tunnel(c, wait);
   const last = x.lines.filter((o) => o.handshake !== undefined).slice(-1)[0];
   tried.push(`${port}: ${x.hs ? 'handshake in ' + x.hs.toFixed(1) + ' s' : 'none (' + JSON.stringify(last) + ')'}`);
-  if (x.hs) { t = x; break; }
+  if (x.hs) { t = x; t.conf = c; break; }
   x.stop();
 }
 log('ports: ' + tried.join('; '));
@@ -66,6 +66,12 @@ else {
     const direct = curl(['https://www.cloudflare.com/cdn-cgi/trace']);
     log(`through it: warp=${g(trace, 'warp')}, ip ${g(trace, 'ip')}, ${g(trace, 'colo')}; straight: ip ${g(direct, 'ip')}, warp=${g(direct, 'warp')}`);
     if (g(trace, 'warp') !== 'on') { failed = true; log('✗ not through WARP'); }
+    // (where sites see you, as the helper found out for itself: its "seen")
+    const t1 = Date.now();
+    while (Date.now() - t1 < 15000 && !t.lines.some((o) => o.seen)) await sleep(200);
+    const seen = (t.lines.find((o) => o.seen) || {}).seen;
+    log(seen ? `the helper says sites see you in ${seen.loc} (${seen.ip}, ${seen.colo}, warp=${seen.warp}); the trace page through it: ${g(trace, 'loc')}` : 'the helper didn’t say where sites see you');
+    if (!seen || seen.warp !== 'on' || seen.loc !== g(trace, 'loc')) { failed = true; log('✗ where sites see you'); }
   } catch (e) { failed = true; log('✗ trace: ' + e.message.split('\n')[0]); }
   for (const [name, args] of [['through the VPN', proxy], ['straight', []]]) {
     try {
@@ -82,6 +88,11 @@ else {
     } catch (e) { log(`upload ${name}: ${e.message.split('\n')[0]}`); }
   }
   t.stop();
+  // (a location tried on its own, as Bifrost does with a file just added: probe)
+  await sleep(1500);
+  const p = await once(['probe'], { conf: t.conf }).catch((e) => ({ error: e.message }));
+  log(p.seen ? `probe: answered in ${p.ms} ms, sites see it in ${p.seen.loc} (warp=${p.seen.warp})` : 'probe: ' + JSON.stringify(p));
+  if (!p.seen || p.seen.warp !== 'on' || !(p.ms > 0)) { failed = true; log('✗ probe'); }
 }
 await sleep(1000);
 const u = await once(['unregister'], { id: r.id, token: r.token }).catch((e) => ({ error: e.message }));

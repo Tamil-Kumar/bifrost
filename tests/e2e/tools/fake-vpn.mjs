@@ -2,7 +2,8 @@
 // proxy, but no tunnel: what it's asked to connect to it connects to straight (names in FAKE_VPN_MAP,
 // "host=ip:port,..." , where they point), and writes down (FAKE_VPN_LOG, one JSON object a line).
 //   FAKE_VPN_CTRL  a JSON file read as it starts: { silentPorts: endpoint ports it gives no handshake for (WARP's
-//                  next port, tried), failRegister: the sign-up fails }
+//                  next port, tried), failRegister: the sign-up fails, seen: { "ip:port": { loc, ip } } where
+//                  each endpoint puts you (WARP: US), dead: endpoints a probe gets no answer from }
 import net from 'node:net';
 import fs from 'node:fs';
 import readline from 'node:readline';
@@ -21,7 +22,17 @@ if (cmd === 'register') {
   say({ conf: `[Interface]\nPrivateKey = ${KEY}\nAddress = 172.16.0.2/32\nDNS = 1.1.1.1\nMTU = 1280\n\n[Peer]\nPublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = engage.cloudflareclient.com:2408\n`, id: 'fake-device', token: 'fake-token' });
   process.exit(0);
 }
-if (cmd === 'unregister') {
+// Where an endpoint puts you (the helper's "seen": Cloudflare's trace page through it).
+const seenAt = (ep) => (ctrl.seen && ctrl.seen[ep]) || (/cloudflareclient|^162\.159\./.test(ep) ? { ip: '104.28.0.7', loc: 'US', colo: 'IAD', warp: 'on' } : { ip: '203.0.113.9', loc: 'NL', colo: 'AMS', warp: 'off' });
+if (cmd === 'probe') {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.once('line', (l) => {
+    const ep = (/^\s*Endpoint\s*=\s*(\S+)/mi.exec(JSON.parse(l).conf) || [])[1] || '';
+    note({ probe: ep });
+    if ((ctrl.dead || []).includes(ep)) { say({ error: `no answer from ${ep}` }); process.exit(1); }
+    setTimeout(() => { say({ seen: seenAt(ep), ms: 41, endpoint: ep }); process.exit(0); }, 150);
+  });
+} else if (cmd === 'unregister') {
   const rl = readline.createInterface({ input: process.stdin });
   rl.once('line', (l) => { note({ unregister: JSON.parse(l).id }); say({ ok: true }); process.exit(0); });
 } else if (cmd === 'run') {
@@ -40,8 +51,11 @@ if (cmd === 'unregister') {
       note({ run: ep, listen: `${host}:${server.address().port}` });
       say({ socks: `${host}:${server.address().port}`, endpoint: ep.replace(/^engage\.cloudflareclient\.com/, '162.159.192.1') });
       const quiet = (ctrl.silentPorts || []).map(String).includes(ep.split(':').pop());
-      let rx = 0, tx = 0;
-      setInterval(() => say({ handshake: quiet ? 0 : Math.floor(Date.now() / 1000), rx: (rx += 1200), tx: (tx += 400) }), 700);
+      let rx = 0, tx = 0, told = false;
+      setInterval(() => {
+        say({ handshake: quiet ? 0 : Math.floor(Date.now() / 1000), rx: (rx += 1200), tx: (tx += 400) });
+        if (!quiet && !told) { told = true; say({ seen: seenAt(ep) }); }
+      }, 700);
     });
     rl.on('close', () => process.exit(0));
   });
