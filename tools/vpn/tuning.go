@@ -1,89 +1,31 @@
 package main
 
-// Experiment build only (the scratch branch): how the tunnel's network stack is set up, from BIFROST_VPN_EXP
-// (a,b,c), for tools/vpn/bench.mjs to compare.
-
 import (
-	"net/netip"
-	"os"
-	"runtime/debug"
-	"runtime/pprof"
-	"strconv"
-	"strings"
 	"time"
-
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/tun"
-	wgnetstack "golang.zx2c4.com/wireguard/tun/netstack"
 
 	"bifrost/vpn/netstack"
 )
 
-var stackOptions netstack.Options
-var copyBuffer = 32 << 10
-
-func init() {
-	// (BIFROST_VPN_PROFILE=file: the processor's profile for its first BIFROST_VPN_PROFILE_SECS seconds)
-	if f := os.Getenv("BIFROST_VPN_PROFILE"); f != "" {
-		if out, err := os.Create(f); err == nil && pprof.StartCPUProfile(out) == nil {
-			secs, _ := strconv.Atoi(os.Getenv("BIFROST_VPN_PROFILE_SECS"))
-			go func() {
-				time.Sleep(time.Duration(max(secs, 5)) * time.Second)
-				pprof.StopCPUProfile()
-				out.Close()
-			}()
-		}
-	}
-	mtu := 0
-	stock := false
-	batched := false
-	for _, k := range strings.Split(os.Getenv("BIFROST_VPN_EXP"), ",") {
-		switch {
-		case k == "norack":
-			stackOptions.NoRACK = true
-		case k == "buf8":
-			stackOptions.RecvMax, stackOptions.SendMax = 8<<20, 6<<20
-		case k == "recv8":
-			stackOptions.RecvMax = 8 << 20
-		case k == "buf16":
-			stackOptions.RecvMax, stackOptions.SendMax = 16<<20, 8<<20
-		case k == "batch":
-			stackOptions.Batch = 32
-		case k == "q4096":
-			stackOptions.Queue = 4096
-		case k == "dns":
-			stackOptions.DNSCache, stackOptions.DNSStagger = true, 500*time.Millisecond
-		case k == "v4":
-			stackOptions.V4First = true
-		case k == "happy":
-			stackOptions.HappyAfter = 300 * time.Millisecond
-		case k == "copy":
-			copyBuffer = 256 << 10
-		case k == "gc":
-			debug.SetGCPercent(400)
-		case strings.HasPrefix(k, "mtu="):
-			mtu, _ = strconv.Atoi(k[4:])
-		case k == "stock":
-			stock = true
-		case k == "riobatch":
-			batched = true
-		default:
-			if platformKnob(k) {
-				batched = true
-			}
-		}
-	}
-	if !batched && !stdBind {
-		newBind = conn.NewDefaultBind
-	}
-	inner := createTUN
-	createTUN = func(addrs, dns []netip.Addr, m int) (tun.Device, dialer, error) {
-		if mtu > 0 {
-			m = mtu
-		}
-		if stock {
-			return wgnetstack.CreateNetTUN(addrs, dns, m)
-		}
-		return inner(addrs, dns, m)
-	}
+// How the tunnel's network stack is set up (netstack.Options; the zero value is wireguard-go's own). Measured on
+// Windows through Cloudflare WARP with tools/vpn/bench.mjs, against wireguard-go's: what's here made a difference,
+// or is there for networks and servers that need it; what made none there (bigger copies, a batching Windows UDP
+// bind, a bigger MTU, the garbage collector run less) isn't. (Downloads through WARP topped out at 300-500 Mbit/s
+// with all of them alike, the helper never busy and no packet dropped: that limit isn't the helper's.)
+var stackOptions = netstack.Options{
+	// Uploads several times faster: gVisor's RACK loss detection resends and slows down when it needn't
+	// (Tailscale's netstack has it off too: tailscale/tailscale#21946).
+	NoRACK: true,
+	// A download's receive buffer can grow to 8 MB (gVisor: 4 MB; Tailscale's grows to 8 too): how far ahead a
+	// fast, faraway server can get.
+	RecvMax: 8 << 20,
+	// Packets handed to WireGuard as many at a time as are waiting, not one by one.
+	Batch: 32,
+	// A name looked up once for all the connections a page opens to it, and kept for its TTL (15 s to 5 min):
+	// a connection to a site already open, a lookup's round trip sooner.
+	DNSCache: true,
+	// The next DNS server asked too when one hasn't answered in half a second (wireguard-go waits 5 s).
+	DNSStagger: 500 * time.Millisecond,
+	// A site's IPv4 address tried as well when IPv6 hasn't connected in 0.3 s (a network or a VPN where IPv6
+	// doesn't get through: wireguard-go waits for it to time out).
+	HappyAfter: 300 * time.Millisecond,
 }

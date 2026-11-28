@@ -43,7 +43,7 @@ import (
 
 // How the stack is set up. The zero value is wireguard-go's own.
 type Options struct {
-	NoRACK      bool // TCP's RACK loss detection off (gVisor's sends too much again: tailscale/tailscale#9707)
+	NoRACK      bool // TCP's RACK loss detection off (gVisor's resends needlessly: tailscale/tailscale#21946)
 	RecvMax     int  // the most a TCP receive buffer grows to (gVisor: 4 MB; how far a download can get ahead)
 	SendMax     int  // the most a TCP send buffer grows to (gVisor: 4 MB)
 	Batch       int  // packets handed to WireGuard at once (1: one at a time)

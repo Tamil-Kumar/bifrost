@@ -222,8 +222,9 @@ func fetch(t testing.TB, d *Net, host string, size int64) time.Duration {
 	return time.Since(t0)
 }
 
-var tuned = Options{NoRACK: true, RecvMax: 8 << 20, SendMax: 6 << 20, Batch: 32, Queue: 4096, DNSCache: true,
-	DNSStagger: 500 * time.Millisecond, HappyAfter: 300 * time.Millisecond}
+// (as Bifrost's helper has it: ../tuning.go)
+var tuned = Options{NoRACK: true, RecvMax: 8 << 20, Batch: 32, DNSCache: true, DNSStagger: 500 * time.Millisecond,
+	HappyAfter: 300 * time.Millisecond}
 
 func TestFetches(t *testing.T) {
 	for name, o := range map[string]Options{"as wireguard-go": {}, "tuned": tuned} {
@@ -367,10 +368,8 @@ func BenchmarkDownload(b *testing.B) {
 	}{
 		{"as-wireguard-go", Options{}},
 		{"norack", Options{NoRACK: true}},
-		{"buf8", Options{RecvMax: 8 << 20, SendMax: 6 << 20}},
+		{"recv8", Options{RecvMax: 8 << 20}},
 		{"batch", Options{Batch: 32}},
-		{"queue4096", Options{Queue: 4096}},
-		{"batch+queue4096", Options{Batch: 32, Queue: 4096}},
 		{"tuned", tuned},
 	}
 	for _, delay := range []time.Duration{0, 25 * time.Millisecond} {

@@ -1,10 +1,13 @@
 // The VPN helper on its own, against the real Cloudflare WARP: signs up, starts the tunnel (on WARP's other ports
 // if one doesn't answer, and again after a wait), and fetches Cloudflare's trace page through its proxy
-// (warp=on when it went through WARP) and a 25 MB download, through it and straight. Then takes the sign-up
-// off Cloudflare's list. Needs curl.
+// (warp=on when it went through WARP), a 25 MB download and a 25 MB upload, through it and straight. Then takes
+// the sign-up off Cloudflare's list. Needs curl.
 //   node tools/vpn/check.mjs <bifrost-vpn executable>
 import { spawn, execFileSync } from 'node:child_process';
 import readline from 'node:readline';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const exe = process.argv[2];
 const log = (m) => console.log('[vpn-check] ' + m);
@@ -69,6 +72,14 @@ else {
       const [speed, s] = curl([...args, '-o', NUL, '-w', '%{speed_download} %{time_total}', 'https://speed.cloudflare.com/__down?bytes=25000000']).trim().split(' ').map(Number);
       log(`25 MB ${name}: ${(speed * 8 / 1e6).toFixed(0)} Mbit/s (${s.toFixed(1)} s)`);
     } catch (e) { log(`download ${name}: ${e.message.split('\n')[0]}`); }
+  }
+  const up = path.join(os.tmpdir(), 'bifrost-vpn-check-up.bin');
+  fs.writeFileSync(up, Buffer.alloc(25e6, 7));
+  for (const [name, args] of [['through the VPN', proxy], ['straight', []]]) {
+    try {
+      const speed = Number(curl([...args, '-o', NUL, '-w', '%{speed_upload}', '--data-binary', '@' + up, 'https://speed.cloudflare.com/__up']).trim());
+      log(`25 MB up ${name}: ${(speed * 8 / 1e6).toFixed(0)} Mbit/s`);
+    } catch (e) { log(`upload ${name}: ${e.message.split('\n')[0]}`); }
   }
   t.stop();
 }
