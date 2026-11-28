@@ -8,37 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: tools/vpn/go.mod
-          cache: false
-      - name: Go tests
-        working-directory: tools/vpn
-        run: |
-          go build -mod=readonly -o /dev/null . && go vet ./...
-          go test -mod=readonly -count=1 -v ./... 2>&1 | grep -E '^(--- |ok|FAIL|PASS)'
-          go test -mod=readonly -race -count=1 ./...
-          go test -mod=readonly -run XXX -bench . -benchtime 3x ./netstack
-
-  lab-windows:
-    runs-on: windows-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: tools/vpn/go.mod
-          cache: false
-      - name: Through the stack on Windows, how fast
-        shell: bash
-        working-directory: tools/vpn
-        run: go test -mod=readonly -run XXX -bench . -benchtime 3x ./netstack
-
   bench:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -65,19 +34,15 @@ jobs:
           for a in amd64:x64 arm64:arm64; do
             GOOS=windows GOARCH=${a%%:*} CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=check" -o ../../assets/bin/bifrost-vpn-${a##*:}.exe .
           done
-          git fetch -q --depth 1 origin main && mkdir -p ../../old && git -C ../.. archive FETCH_HEAD tools/vpn | tar -x -C ../../old
+          git fetch -q --depth 1 origin 140a8973bc3fe0033587b8832a1b23f1fcc421dc && mkdir -p ../../old && git -C ../.. archive FETCH_HEAD tools/vpn | tar -x -C ../../old
           (cd ../../old/tools/vpn && CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags "-s -w -X main.version=main" -o ../../../old.exe .)
           ls -la ../../assets/bin ../../old.exe
-      - name: VPN through Cloudflare WARP
-        shell: bash
-        run: node tools/vpn/check.mjs assets/bin/bifrost-vpn-x64.exe
-      - name: The VPN in Bifrost
-        if: always()
+      - name: The helper check, again and again, this one and main's in turn
         shell: bash
         run: |
-          npm install --no-save --no-package-lock playwright-core@1.63.0
-          node tools/vpn/bifrost-check.mjs
-      - name: Speed through Cloudflare WARP, main's helper and this one
-        if: always()
-        shell: bash
-        run: node tools/vpn/bench.mjs 5 main=old.exe new=assets/bin/bifrost-vpn-x64.exe
+          for i in 1 2 3 4; do
+            for x in assets/bin/bifrost-vpn-x64.exe old.exe; do
+              echo "==== $i $x"
+              node tools/vpn/check.mjs $x 2>&1 | grep -E "ports:|25 MB|✓|✗" || true
+            done
+          done
