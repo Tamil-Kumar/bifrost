@@ -228,11 +228,24 @@ MIT): Cloudflare turns sign-ups away (429) whose TLS ClientHello isn't that app'
 answered is started on next time. The sign-up (its key) and your file are kept in the profile's vpn.json,
 encrypted with Windows' DPAPI (safeStorage); the settings (`vpn.*`) stay on each computer, not synced.
 
+The helper's network stack is wireguard-go's (tools/vpn/netstack, its tun/netstack copied, MIT), set up for speed
+in tools/vpn/tuning.go: TCP's RACK loss detection off (gVisor's resends needlessly; uploads through WARP went from
+27 to 380 Mbit/s), receive buffers that grow to 8 MB (downloads up to 70% faster, for less processor time); a
+name looked up once for all the connections a page opens to it and kept for its TTL (15 s to 5 min), the next DNS
+server asked when one hasn't answered in half a second (not after 5 s), and a site's IPv4 address tried too when
+IPv6 hasn't connected in 0.3 s. `node tools/vpn/bench.mjs <rounds> name=<helper>[:ENV=value] ...` measures builds
+of it against each other and straight, through the real WARP: how soon sites answer, downloads near and far, one
+connection and four, an upload, dropped UDP packets, the helper's processor time per GB. What made no difference
+there isn't in it: packets handed to WireGuard in batches, a batching Windows UDP bind, bigger copies, an MTU of
+1420, the garbage collector run less.
+
 The helper is built by the release workflow, for x64 and ARM64, from the exact libraries tools/vpn/go.sum
 names (each build packages only its own); `tools/vpn/check.mjs` then signs up, connects and fetches
 Cloudflare's trace page through it (warp=on), and `tools/vpn/bifrost-check.mjs` does the same in Bifrost
-itself. `go test` in tools/vpn checks its WireGuard files and its proxy. The e2e suite (tests/e2e/vpn.mjs) uses
-a stand-in helper, tests/e2e/tools/fake-vpn.mjs (the same commands, a real SOCKS5 proxy, no tunnel).
+itself. `go test` in tools/vpn checks its WireGuard files, its proxy and its network stack (two of them wired to
+each other: downloads, an echo, names kept, a DNS server that loses questions, IPv6 that doesn't get through;
+`-bench .` for how fast, near and up to 50 ms away). The e2e suite (tests/e2e/vpn.mjs) uses a stand-in helper,
+tests/e2e/tools/fake-vpn.mjs (the same commands, a real SOCKS5 proxy, no tunnel).
 `BIFROST_VPN_DEBUG=1` makes the helper say everything WireGuard does.
 
 ### Catppuccin for every site

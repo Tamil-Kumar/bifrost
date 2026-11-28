@@ -223,7 +223,8 @@ func fetch(t testing.TB, d *Net, host string, size int64) time.Duration {
 }
 
 // (as Bifrost's helper has it: ../tuning.go)
-var tuned = Options{NoRACK: true, RecvMax: 8 << 20, Batch: 32, DNSCache: true, DNSStagger: 500 * time.Millisecond,
+// (as tools/vpn/tuning.go sets it up)
+var tuned = Options{NoRACK: true, RecvMax: 8 << 20, DNSCache: true, DNSStagger: 500 * time.Millisecond,
 	HappyAfter: 300 * time.Millisecond}
 
 func TestFetches(t *testing.T) {
@@ -358,9 +359,9 @@ func TestBatches(t *testing.T) {
 	}
 }
 
-// go test -bench . -benchtime 3x ./netstack: how fast a download goes through the stack, at 0 and 25 ms each way,
-// with each of the settings on its own; and how many of the server's segments were sent again, and of the
-// packets either side had for the other, how many there was no room for.
+// go test -bench . -benchtime 3x ./netstack: how fast a download goes through the stack, at 0, 2, 10 and 25 ms
+// each way, with each of the settings on its own; and how many of the server's segments were sent again, and of
+// the packets either side had for the other, how many there was no room for.
 func BenchmarkDownload(b *testing.B) {
 	variants := []struct {
 		name string
@@ -368,8 +369,8 @@ func BenchmarkDownload(b *testing.B) {
 	}{
 		{"as-wireguard-go", Options{}},
 		{"norack", Options{NoRACK: true}},
-		{"norack+recv8", Options{NoRACK: true, RecvMax: 8 << 20}},
-		{"norack+batch", Options{NoRACK: true, Batch: 32}},
+		{"recv8", Options{RecvMax: 8 << 20}},
+		{"batch", Options{Batch: 32}},
 		{"tuned", tuned},
 	}
 	for _, delay := range []time.Duration{0, 2 * time.Millisecond, 10 * time.Millisecond, 25 * time.Millisecond} {

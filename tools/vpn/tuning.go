@@ -7,19 +7,16 @@ import (
 )
 
 // How the tunnel's network stack is set up (netstack.Options; the zero value is wireguard-go's own). Measured on
-// Windows through Cloudflare WARP with tools/vpn/bench.mjs, against wireguard-go's: what's here made a difference,
-// or is there for networks and servers that need it; what made none there (bigger copies, a batching Windows UDP
-// bind, a bigger MTU, the garbage collector run less) isn't. (Downloads through WARP topped out at 300-500 Mbit/s
-// with all of them alike, the helper mostly waiting for packets and none dropped: that limit isn't the helper's.)
+// GitHub's Windows machines through Cloudflare WARP with tools/vpn/bench.mjs, each setting on and off, against
+// wireguard-go's: what's here made it faster there; what didn't (packets handed to WireGuard in batches, a
+// batching Windows UDP bind, bigger copies, an MTU of 1420, the garbage collector run less) isn't.
 var stackOptions = netstack.Options{
-	// Uploads several times faster: gVisor's RACK loss detection resends and slows down when it needn't
-	// (Tailscale's netstack has it off too: tailscale/tailscale#21946).
+	// Uploads 10 times faster or more (27 → 380 Mbit/s): gVisor's RACK loss detection resends and slows down when
+	// it needn't (Tailscale's netstack has it off too: tailscale/tailscale#21946).
 	NoRACK: true,
-	// A download's receive buffer can grow to 8 MB (gVisor: 4 MB; Tailscale's grows to 8 too): how far ahead a
-	// fast, faraway server can get.
+	// Downloads up to 70% faster, for less processor time: a connection's receive buffer can grow to 8 MB
+	// (gVisor: 4 MB; Tailscale's grows to 8 too), so a fast server, or a faraway one, can get further ahead.
 	RecvMax: 8 << 20,
-	// Packets handed to WireGuard as many at a time as are waiting, not one by one.
-	Batch: 32,
 	// A name looked up once for all the connections a page opens to it, and kept for its TTL (15 s to 5 min):
 	// a connection to a site already open, a lookup's round trip sooner.
 	DNSCache: true,
